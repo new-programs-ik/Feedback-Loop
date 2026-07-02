@@ -12,6 +12,19 @@ export default async function NewAnalysisPage() {
 
   const supabase = await createClient();
   const { data: courses } = await supabase.from("courses").select("id, name").order("name");
+  const { data: cat } = await supabase
+    .from("class_catalog")
+    .select("course_id, topic, instructors(name)")
+    .order("topic");
+
+  const catalog: Record<string, { topic: string; instructor: string }[]> = {};
+  for (const r of (cat ?? []) as Array<Record<string, unknown>>) {
+    const cid = String(r.course_id);
+    (catalog[cid] ??= []).push({
+      topic: String(r.topic),
+      instructor: (r.instructors as { name?: string } | null)?.name ?? "",
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -23,7 +36,7 @@ export default async function NewAnalysisPage() {
         </Button>
         <h1 className="text-2xl font-semibold tracking-tight">New analysis</h1>
       </div>
-      <NewAnalysisForm courses={courses ?? []} />
+      <NewAnalysisForm courses={courses ?? []} catalog={catalog} />
     </div>
   );
 }
