@@ -1,0 +1,28 @@
+WEBVTT
+
+00:00:02.000 --> 00:00:09.000
+Alright everyone, welcome back. Today we're covering decision trees and then ensembles.
+
+00:01:00.000 --> 00:01:12.000
+A decision tree splits the data based on features. We pick the split that reduces impurity the most.
+
+00:02:30.000 --> 00:02:48.000
+The Gini impurity is basically, you know, how mixed the classes are. Lower is better, roughly. Let's not worry about the formula.
+
+00:04:00.000 --> 00:04:20.000
+Let me open the notebook and we'll fit a tree on the iris dataset.
+
+00:05:10.000 --> 00:05:25.000
+Okay so we fit it, and you can see the accuracy is decent. Moving on.
+
+00:20:00.000 --> 00:20:15.000
+We're running a bit low on time, so let me speed up here.
+
+00:22:00.000 --> 00:22:22.000
+Random forests are just many trees. It's bagging. We won't really get into the math today.
+
+00:23:30.000 --> 00:23:50.000
+Boosting is another ensemble method. We'll cover gradient boosting properly next class.
+
+00:24:05.000 --> 00:24:15.000
+Sorry, we're out of time. Please review the notebook on your own. Thanks everyone.

@@ -1,0 +1,194 @@
+
+INTERVIEW KICKSTART  ·  NEW PROGRAMS
+Ratings &amp; Feedback Module
+How it works — the full build plan, in plain English
+The first piece we are building, end to end
+From Monday’s ratings to feedback in the instructor’s hands
+
+Contents
+TOC \h \o "1-2"1.  What this module does PAGEREF _Toc233128335 \h 1
+2.  When it runs PAGEREF _Toc233128336 \h 1
+3.  The whole module in one picture PAGEREF _Toc233128337 \h 1
+4.  What is automatic now, and what a person does PAGEREF _Toc233128338 \h 1
+5.  Step by step, in detail PAGEREF _Toc233128339 \h 1
+Step 1 — Collect the ratings  (automatic) PAGEREF _Toc233128340 \h 1
+Step 2 — Sort and judge  (automatic) PAGEREF _Toc233128341 \h 1
+Step 3 — The short list  (automatic) PAGEREF _Toc233128342 \h 1
+Step 4 — Get the transcript  (a person does this, for now) PAGEREF _Toc233128343 \h 1
+Step 5 — The AI drafts the feedback  (automatic) PAGEREF _Toc233128344 \h 1
+Step 6 — The PM checks and approves  (always a person) PAGEREF _Toc233128345 \h 1
+Step 7 — Send it and save a record  (automatic) PAGEREF _Toc233128346 \h 1
+6.  The Monday report — one Excel file, four tabs PAGEREF _Toc233128347 \h 1
+7.  What the PM sees — the review card PAGEREF _Toc233128348 \h 1
+8.  Under the hood — who does what PAGEREF _Toc233128349 \h 1
+9.  Technical notes — where the LLM fits, and how the pieces work PAGEREF _Toc233128350 \h 1
+Where each part runs PAGEREF _Toc233128351 \h 1
+The one place the LLM is used PAGEREF _Toc233128352 \h 1
+Other technical points PAGEREF _Toc233128353 \h 1
+10.  The transcript step — now vs later PAGEREF _Toc233128354 \h 1
+11.  Tricky cases and simple rules PAGEREF _Toc233128355 \h 1
+12.  What we record PAGEREF _Toc233128356 \h 1
+13.  What you have confirmed — and the few things still open PAGEREF _Toc233128357 \h 1
+14.  Simple glossary PAGEREF _Toc233128358 \h 1
+
+
+1.  What this module does
+This is the first piece we are building. Its job is simple: every Monday, take the ratings from Sunday’s classes, find the classes that did not go well, and get clear, helpful feedback to those instructors. The system does the boring, repeated work — collecting the ratings, sorting them, and writing a first draft of the feedback. The PM stays in charge of the parts that need a human: approving the words and choosing to send. The aim is to save the PM from spending hours checking every class by hand.
+2.  When it runs
+Most classes happen on Sunday, and that is the main day. Some classes also run on other days (for example Thursday or Saturday), so the module looks at the whole week’s classes — but only for the courses you are responsible for. It does not scan every class in Metabase, just yours. The ratings are ready by Monday morning, around 9 AM IST. So the module runs first thing Monday, and by the time the PM sits down, the report and short list are already waiting.
+3.  The whole module in one picture
+
+
+Okay work on the evalution on llm part 
+Figure 1 — The seven steps. Teal steps run by themselves; amber steps need a person.
+In short: the system collects the ratings, sorts them, and shows the PM only the low-rated classes. The PM adds the class transcript. The AI drafts feedback. The PM approves it. The system sends it to the instructor and saves a record. Seven steps — five the system does on its own, and two where the PM steps in.
+4.  What is automatic now, and what a person does
+We are honest about one thing. Most steps we can fully automate today. One step we cannot automate yet — getting the transcript — so for now a person does that single step. Everything else runs by itself. Here is the split:
+Step
+Who does it now
+Later
+1 · Collect the ratings
+System — automatic
+Same
+2 · Sort + apply the 4.5 line
+System — automatic
+Same
+3 · Short list to the PM
+System — automatic
+Same
+4 · Get the transcript
+PM adds the link / transcript
+System fetches it; PM just confirms
+5 · Draft the feedback
+System (AI) — automatic
+Same
+6 · Approve the feedback
+PM — always
+Same — always a person
+7 · Send it + save a record
+System — automatic
+Same
+The only manual step is getting the transcript — and even that is manual only until we can pull it automatically (see Section 8).
+5.  Step by step, in detail
+Step 1 — Collect the ratings  (automatic)
+On Monday morning (around 9 AM IST), the system reads the new ratings from Metabase (the tool where ratings are stored), for the courses you are responsible for — Flagship ML, Advanced ML, PwC Accelerator and FDE. It does this on its own, on a timer. No one has to start it.
+Step 2 — Sort and judge  (automatic)
+The system groups the ratings by course, then by class, then by instructor. Each course is judged on its own — Flexible classes are compared with Flexible, Advanced ML with Advanced ML, and the same for PwC and FDE. Then it applies one simple rule: 4.5 out of 5 or higher is good; below 4.5 needs attention.
+Step 3 — The short list  (automatic)
+The system shows the PM a short list of only the low-rated classes — the ones below 4.5, lowest first. The PM no longer scrolls through every class in every cohort. They see just the ones that need a look.
+Step 4 — Get the transcript  (a person does this, for now)
+For each low-rated class, the system needs the class transcript so the AI can see what happened. Our recordings live on Vimeo (vimeo.com). For now the PM gets the transcript by hand: log in to Vimeo with the IK email, open the class using the class link, go to Manage → Subtitles, open the three-dot menu, and download the transcript — Vimeo offers .vtt, .srt and .ttml formats. The PM then uploads that file into the card (shown in Section 7). With only two or three low-rated classes in a normal week, this is quick. Later it becomes automatic (see Section 10), because Vimeo has an API that can pull a video’s captions directly.
+Step 5 — The AI drafts the feedback  (automatic)
+The AI reads the transcript and writes a first draft of the feedback. It is specific and kind: what went well, what could be better, and concrete suggestions (for example, “slow down on the tree-based part and pause for questions”). This is the one place we use AI — to read and write a draft, not to decide anything.
+Step 6 — The PM checks and approves  (always a person)
+The draft goes to the PM. They read it, change anything they want, and approve it. Nothing is ever sent without this step. Feedback about a real person’s teaching is sensitive, so a human always has the final say on the words and on whether to send.
+Step 7 — Send it and save a record  (automatic)
+Once the PM approves, the system sends the feedback to the instructor on Discord. It also saves a full record: which class, the rating, the transcript used, the draft, the PM’s edits, the approval, and the time it was sent. Nothing is hidden, and anyone can look back later.
+6.  The Monday report — one Excel file, four tabs
+This file is the shared store for ratings — it is where the data pulled from Metabase is kept, so the automation and the PMs work from the same place. Every Monday the system writes that week’s classes for your courses into it (all of them, not only the low ones), flags the low-rated ones (below 4.5), and updates each row’s status as it works (transcript needed → draft ready → sent). It is one Excel file with four tabs, one per course: Flagship ML, Advanced ML, PwC Accelerator and FDE. Importantly, every row carries the date of the class, so it is always clear which day’s rating it is. The columns are: date, cohort, instructor, class, rating, number of ratings, status, and the Vimeo class link (so the transcript is one click away). Two counts at the top show how many classes there were and how many were low-rated.
+A sample of this file is attached so you can see the exact shape. Each row is one class. The low-rated ones are flagged in red — for example, Justin’s “Classification Techniques” class for the Early August 2026 Flagship cohort, rated 4.47, which is below the line — while well-rated classes simply sit in the store as a record.
+7.  What the PM sees — the review card
+Everything for one class sits on a single card on the Flexible PM dashboard.
+
+Figure 2 — One card per low-rated class: the facts, a box for the transcript, the AI draft, and two buttons.
+At the top are the cohort, course, instructor, the session, and the rating (shown in red because it is below 4.5). Below that is a box where the PM uploads the transcript file downloaded from Vimeo (.vtt, .srt or .ttml) — with a note that, later, this fills in by itself. Under that is the AI’s suggested feedback, which the PM can edit. Two buttons finish the job: Edit, or Approve &amp; send.
+8.  Under the hood — who does what
+It helps to know which part does what, so the build is clear.
+
+Figure 3 — The app (dashboard + backend) decides and remembers; n8n reaches out to the other tools.
+The app you build — the dashboard and its backend — is the brain. The backend reads the ratings, applies the 4.5 rule, builds the short list, holds the card, waits for the PM’s approval, asks the AI to draft, and writes the record. n8n is the hands — small workflows that reach out to other tools: poll Metabase for ratings, send the message on Discord, alert the PM if needed, and (later) fetch the transcript.
+The simple rule to follow: decisions and memory live in the backend; reaching out to other apps is done by n8n.
+9.  Technical notes — where the LLM fits, and how the pieces work
+This part is for whoever builds the module. It maps each step to the technology behind it, and spells out the one place the LLM is used and exactly what its job is.
+Where each part runs
+Part
+What it does
+Technology
+Trigger
+Starts the run on Monday at 9 AM IST
+n8n scheduled workflow (cron)
+Get ratings
+Pulls the week’s ratings for your courses
+Metabase API + a saved question, via n8n
+Store ratings
+Saves them in the sheet — the shared store
+Google Sheets now → a database later
+Judge
+Applies the 4.5 rule and flags the low ones
+Backend code
+Get transcript
+PM downloads from Vimeo and uploads (later: automatic)
+Vimeo (manual now → captions API later)
+Draft feedback
+The LLM reads the transcript and writes the draft
+LLM (model API), called by the backend
+Approve
+PM edits and approves the wording
+Dashboard (backend)
+Send
+DMs the feedback to the instructor
+Discord bot, via n8n
+Record
+Logs every action and the reason
+Backend audit log
+The one place the LLM is used
+The LLM is used in exactly one step — drafting the feedback (Step 5). Nowhere else. It reads a transcript and writes a draft; it never decides what to do and never sends anything.
+Its task: read one class’s transcript and write a short, useful feedback draft for that instructor.
+What it is given (input): the transcript text, plus the class context — course, topic, instructor, the rating and how many ratings — and a simple rubric of what good feedback looks like.
+What it returns (output): a short draft in three parts — what went well, what to improve, and two or three concrete suggestions — in a kind, specific, constructive tone. It can also add a flag if the class looks bad enough to consider re-running (a recall), but that is only a suggestion.
+Guardrails: it uses only what is actually in the transcript (it does not make things up), it stays practical and respectful, and the PM always edits and approves before anything is sent.
+Other technical points
+Metabase: read through its API using a saved question; only your courses are pulled, on the Monday schedule.
+The sheet is the shared store: the automation writes the pulled ratings and updates each row’s status; the PMs read the same sheet. Later this moves to a database.
+Discord: the approved feedback is sent by a Discord bot to the instructor’s channel.
+Vimeo (later): the transcript is fetched automatically through Vimeo’s captions API using an IK token.
+Audit log: every action is recorded with its reason, so nothing is hidden.
+10.  The transcript step — now vs later
+This is the one step that will change over time. Nothing else in the flow changes — so the work we do now is not wasted.
+Now
+Later
+The PM opens the card and pastes the class link or transcript.
+The system uses Vimeo’s API to pull the class captions on its own (with an IK API token); the PM only confirms it is the right class.
+Everything else in the flow is exactly the same.
+Everything else in the flow is exactly the same.
+Because Vimeo already has an API for video captions, Step 4 can become automatic later: the system fetches the transcript with an IK API token, and the PM only confirms it is the right class. Same card, same flow, less work — and nothing else changes.
+11.  Tricky cases and simple rules
+Exactly 4.5: counts as good. Only below 4.5 is flagged.
+Few ratings: if a class has only a handful of ratings, the system still flags it but marks it “few ratings”, so the PM knows to weigh it carefully.
+Feedback is per class, not per instructor: each low-rated class gets its own feedback, sent to the instructor who took it. If the same instructor taught another class that scored well (4.5 or above), that one is left alone. So if an instructor has two low-rated classes, that is two separate feedback messages.
+An instructor who teaches in more than one course: they are judged separately inside each course.
+Repeated low ratings in a cohort: this feeds the staffing rule we agreed earlier — a poorly-rated instructor is not put back on the same cohort. (That part lives in the staffing module.)
+12.  What we record
+For every class this module touches, the system saves: which class and cohort, the instructor, the rating, the transcript used, the AI’s draft, the PM’s edits, the approval, and when and where the feedback was sent. This is the record you can always go back to — nothing happens invisibly.
+13.  What you have confirmed — and the few things still open
+Thanks for the details. Here is what is now locked in:
+Recordings live on Vimeo; for now the transcript is downloaded by hand as .vtt, .srt or .ttml.
+Volume is low — usually two or three low-rated classes a week, sometimes zero.
+Feedback is per low-rated class, sent to the instructor who took that class.
+Ratings come from Metabase; the module runs Monday at 9 AM IST, for your courses only.
+The Monday report is one Excel file with four course tabs.
+And the few small things still to settle:
+An IK Vimeo API token — needed only when we automate the transcript step later.
+Where the report should land each Monday — emailed to you, dropped in Drive, or shown on the dashboard (or all three).
+Whether the AI advisor we discussed should also read this report and flag patterns over time.
+14.  Simple glossary
+Word
+What it means
+Rating
+The score learners give a class, out of 5.
+Threshold (4.5)
+Our line for “good enough”. 4.5 or higher is good; below it is flagged.
+Transcript
+The written record of what was said during the class.
+Metabase
+The tool where the ratings are stored.
+Vimeo (VOM)
+vimeo.com — where the class recordings live, and where we download the transcript (.vtt / .srt / .ttml).
+Discord
+Where we message the instructor.
+Cohort
+One batch of learners going through a course together.
+Backend
+The part of the app that makes decisions and remembers things.
+n8n
+The tool that runs small steps to talk to other apps.

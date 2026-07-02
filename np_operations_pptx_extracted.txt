@@ -1,0 +1,171 @@
+
+INTERVIEW KICKSTART   ·   NEW PROGRAMS
+The Operations System
+One place to staff classes, share materials, track ratings, and close the loop on feedback — every week.
+A plain-English walkthrough of how the whole system works
+
+---SLIDE BREAK---
+
+10
+How everything connects
+                       Each tool connects one way or both ways. Next, the three connections you asked about in detail.
+
+---SLIDE BREAK---
+
+11
+Deep dive — Uplevel: video &amp; transcript
+When a class is flagged, we need its recording and 4-hour transcript. We plan for both possibilities:
+    If Uplevel has an API
+The system pulls the recording and transcript automatically, by class / session ID.
+
+Fully hands-off — the moment a class is flagged, the transcript is fetched.
+    If it doesn’t (fallback)
+Take the recording from where it’s stored (e.g. the Zoom cloud), transcribe it, and drop the transcript in — or the PM uploads it.
+
+A few extra minutes, but the result is identical.
+Either way, the rest of Flow 2 runs the same. This is the one connection we confirm early.
+
+---SLIDE BREAK---
+
+12
+Deep dive — Metabase &amp; the cohort sheet
+    Metabase  (ratings)
+Connects through Metabase’s API using a saved question that returns per-session ratings.
+
+Checked on a schedule. 4.5 and above is good; anything below is flagged into Flow 2.
+    Cohort planning sheet
+Your existing workbook — one sheet per cohort, with week, live-class date, topic and instructor.
+
+The system reads schedule, topics and instructor names, and writes assignments back. Moves to a database later.
+We start on the tools you already use — then migrate the data into a proper database in Phase 3.
+
+---SLIDE BREAK---
+
+13
+What the system remembers
+                       A small set of records. The weekly ones live in the editable map; ratings, lessons and an audit trail are kept too.
+
+---SLIDE BREAK---
+
+14
+How we build it — in stages
+    Phase 1
+Console + Staffing + Materials
+The single screen, staffing board, Discord confirmations, PM alerts, sharing folders.
+Runs on your existing sheets.
+    Phase 2
+Ratings + Control Plane
+Pull ratings from Metabase, flag below 4.5, and switch on audit log, undo and rules.
+    Phase 3
+Feedback + Recall + Map UI
+Transcripts from Uplevel, AI-drafted feedback, recall suggestions, the no-code map, and a database.
+Each stage is useful on its own — the basics land first, the smart parts come last.
+
+---SLIDE BREAK---
+
+15
+Open questions &amp; next steps
+    To decide together
+
+Blocklist: same cohort only, or whole course?
+What “tickets” should cover (instructor / learner).
+How long an SME has to confirm before we alert you.
+The rubric for recommending a re-class.
+Who gets admin mode to edit connections.
+    To confirm early
+
+Does Uplevel give us an API for recordings and transcripts?
+This decides how automatic the feedback step is — but not whether it works.
+Next: confirm Uplevel access, settle the points on the left, then start Phase 1.
+
+---SLIDE BREAK---
+
+Let’s build it in stages.
+One Console for the whole weekly rhythm — staffing, materials, ratings and feedback — with you in control and a clear record of everything.
+New Programs — Operations System
+
+---SLIDE BREAK---
+
+2
+The problem today
+Almost everything around a weekly class is done by hand:
+    Availability
+Going to each instructor’s Discord channel to ask if they’re free — manually, every week.
+    Materials
+Digging through Google Drive to find and share the right folder.
+    Ratings
+Checking Metabase by hand to see how each class scored.
+    Feedback
+Watching recordings and writing feedback when a rating is low.
+    Fragile sheets
+A schedule kept in spreadsheets that break — #REF! errors and dead links.
+
+---SLIDE BREAK---
+
+3
+What we’re building
+One screen — the Console — with small automated workers behind it. You stay in control of every decision that matters.
+    Staffs each week
+Proposes instructors and gets their confirmation on Discord.
+    Shares materials
+Sends the right Instructor Copy folder automatically.
+    Tracks ratings
+Reads Metabase and flags anything below 4.5.
+    Drafts feedback
+Reads the transcript and writes feedback for your approval.
+    Keeps you in control
+Proposes and drafts; you approve the calls that matter.
+    Flexible by design
+The wiring is editable data, not buried in code.
+
+---SLIDE BREAK---
+
+4
+The whole system at a glance
+                       People on top; the tools we connect to at the bottom. In the middle: your Console, a safety layer, and small workflows.
+
+---SLIDE BREAK---
+
+5
+What happens every week
+    Sunday
+4-hour Live Class
+The instructor teaches and sets the homework.
+    Wednesday
+1-hour Coaching
+A technical coaching session for the cohort.
+    Thursday
+2-hour Review
+Learners get help with the homework and Sunday’s doubts.
+Days and times change from cohort to cohort — the system reads the real schedule and never assumes them.
+
+---SLIDE BREAK---
+
+6
+Flow 1 — Staffing a week &amp; sending materials
+                       Confirm on Discord → lock the slot → share the materials. If they decline, you’re pinged to pick someone else.
+
+---SLIDE BREAK---
+
+7
+Flow 2 — When a class gets a bad rating
+                       Below 4.5 triggers it: pull the transcript, the AI drafts feedback — then you approve the wording and decide any recall.
+
+---SLIDE BREAK---
+
+8
+The safety net — the Control Plane
+    Audit log
+Every action is written down with a timestamp and the reason. Nothing happens invisibly.
+    Undo / rollback
+Wrong folder shared or wrong invite sent? Reverse it with one click.
+    Lessons &amp; rules
+Correct it once, and your correction becomes a plain-English rule it follows.
+    Does the AI rewire itself when you correct it?
+No — and you wouldn’t want that. Models don’t retrain on the fly. Instead, your correction becomes a written rule you can read, edit and delete — and the system asks you to confirm it before it takes effect.
+
+---SLIDE BREAK---
+
+9
+Flexibility — the Knowledge Map &amp; who edits what
+                       Ops manage the map (folders, roster, rules) with no code. You keep the plumbing. Change the map — behaviour changes.

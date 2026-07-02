@@ -1,0 +1,135 @@
+INTERVIEW KICKSTART
+New Programs — Operations System
+A plain-English guide to how the whole system works
+Weekly live classes  ·  SME staffing  ·  materials  ·  ratings  ·  feedback — in one place
+Design &amp; how-it-works document
+
+Contents
+TOC \h \o &quot;1-2&quot;
+
+
+1.  What this is — in one paragraph
+Every week, the New Programs team runs live classes and coaching sessions for several cohorts. Today, much of the work around those classes is done by hand: finding an instructor, asking on Discord if they are free, sending them the right materials, checking how the class was rated, and writing feedback when something goes wrong. This system pulls all of that into one place. You manage everything from a single screen — the Console. Behind that screen, small automated workflows do the repetitive steps for you, and you (the PM) stay in control of every decision that matters.
+Right now the team juggles all of this manually:
+Going to each instructor’s Discord channel to ask if they are available — by hand, every week.
+Digging through Google Drive to find and share the right materials.
+Checking Metabase to see how each class was rated.
+Watching class recordings and writing feedback when a rating is low.
+Keeping the whole schedule in spreadsheets that break (broken links and #REF! errors).
+The system replaces the repetitive parts and keeps a clear record of everything that happens.
+2.  The whole system at a glance
+Think of it as a stack of layers. People are at the top. The tools you already use (Discord, Drive, Metabase, Uplevel, and so on) are at the bottom. In the middle sit your one screen, a safety layer, and the small automated workflows that do the work.
+
+Figure 1 — The system in layers: people on top, the tools we connect to at the bottom.
+The Console — the single screen your team works in: the staffing board, ratings, tickets, approvals, the resource map, and a plain-English list of every rule the system follows.
+The Control Plane — a safety layer around every automated action. It records what happened and why, lets you undo anything, and only follows rules you have approved.
+n8n flows — small, reliable workers. One workflow per job (staffing, materials, ratings, remediation, alerts). Each does exactly one thing, so it is easy to trust and easy to fix.
+The AI — used in only one place: reading a class transcript to draft feedback. Nowhere else.
+Shared State — where the system keeps its information. Your spreadsheets to start with, a proper database later.
+Connected to — the outside tools: Discord, Slack, Gmail, Drive, Metabase, Uplevel.
+3.  What happens every week
+Each cohort runs three sessions a week, and the exact days and times can change from cohort to cohort. The system never assumes the days — it reads the real dates and times from your schedule.
+Sunday — the 4-hour live class. The instructor teaches and sets the homework.
+Wednesday — a 1-hour technical coaching session.
+Thursday — a 2-hour assignment review session, where learners get help with the homework and clear any doubts from Sunday.
+For each session, the system helps you put an instructor in place (we call that “staffing”), share the right materials, and — afterwards — keep an eye on the rating.
+4.  Flow 1 — Staffing a week and sending materials
+
+Figure 2 — From picking an instructor to the materials landing in their hands.
+Step by step:
+You open the Staffing Board and drop an instructor onto a session.
+The system messages that instructor in their own Discord channel, asking them to confirm.
+If they confirm before the deadline, the slot is locked in.
+If they decline or do not reply in time, the system messages the PM on Slack or email so you can pick someone else.
+Once a slot is locked, the system shares the right Instructor Copy folder from Drive and sends it to the instructor.
+One rule runs quietly in the background: if an instructor was rated poorly in a cohort, the system will not let you put them back on that same cohort.
+5.  Flow 2 — When a class gets a bad rating
+We treat 4.5 out of 5 as the line. 4.5 and above is good; below 4.5 is a problem worth looking at.
+
+Figure 3 — The AI investigates and drafts feedback; every decision stays with the PM.
+The system checks Metabase on a schedule and spots any session rated below 4.5.
+It pulls that class’s recording and full transcript from Uplevel.
+The AI reads the transcript and drafts specific feedback, plus a recommendation on whether a re-class (recall) is needed.
+That draft lands in your Approvals Inbox. You read it, edit it, and approve it.
+Only after you approve does the system send the feedback to the instructor on Discord.
+Two things stay firmly with you: the wording of the feedback (you approve before anything is sent) and the recall decision (the AI only recommends; you decide). We will write the “when to recommend a recall” rules together later.
+6.  The safety net — the Control Plane
+Because the system takes actions for you, you need to be able to see what it did, undo it, and teach it. That is the Control Plane, and it wraps around every automated action.
+Audit log — every action is written down with a timestamp and the reason (“shared the Tree-Based Models folder because that is week 13’s topic”). Nothing happens invisibly.
+Undo / rollback — if the system did the wrong thing (shared the wrong folder, sent the wrong invite), you fix it with one click — un-share and re-share, retract and reissue.
+Lessons &amp; rules — when you correct the system, your correction becomes a plain-English rule it follows from then on.
+One important point, stated plainly: the AI does not secretly rewire itself when you correct it. Models do not retrain themselves on the fly — and you would not want one that did, because that is how a tool becomes unpredictable. Instead, your correction becomes a written rule you can read, edit, and delete — and before any new rule takes effect, the system asks you to confirm it. You get the result you wanted (“tell it once, it stops”), with full visibility and control.
+7.  Flexibility — the Knowledge Map and who can change what
+The most important design choice for keeping this flexible: the “wiring” lives as editable information, not buried in code. Which folder goes with which topic, the homework links, who is on the roster, the rules — all of it is data you can change. Change the map, and the system’s behaviour changes. Nobody has to touch a workflow.
+
+Figure 4 — Everything that changes is editable data; only the plumbing is locked.
+But not everything should be editable by everyone. We split it into two tiers:
+What PM / Ops manage in the UI (no code): the cohort schedule, the resource map (folders and links per topic), the SME roster (name → Discord channel → email), and the rules (the 4.5 line, the blocklist, deadlines). This is the part that changes week to week, and it is safe to edit.
+What only you (the coder) set up: the technical plumbing — the API connections and credentials for Discord, Drive, Metabase, and so on, and the workflow logic itself. The UI shows these as healthy or broken (a green or red dot) so Ops can spot a problem and tell you, but they cannot change the wiring and accidentally break it.
+You can also have an admin mode where you (and only you) edit those connections and paths directly — so you keep the flexibility you wanted, while Ops stay on the safe layer.
+8.  How we connect to everything
+Here is how the system talks to each tool you already use, and which way the information flows.
+
+Figure 5 — What data moves between the system and each tool, and in which direction.
+The cohort planning sheet (Google Sheets)
+This is your existing planning workbook — one sheet per cohort, with the week, the live-class date, the topic, and the instructor for each session. The system reads the schedule, topics, and instructor names from it, and writes assignments back. We start here exactly as you work today; later we move this into a proper database so the broken-link (#REF!) problems disappear.
+Metabase (ratings)
+Ratings live in Metabase. The system connects through Metabase’s API (using a saved question that returns the per-session ratings) and checks it on a schedule. Anything at 4.5 or above is good; anything below is flagged and sent into Flow 2.
+Uplevel (class recording and transcript)
+When a class is flagged, the system needs that class’s recording and 4-hour transcript from Uplevel. How we fetch it depends on what Uplevel allows, and we plan for both. If Uplevel has an API, the system pulls the recording and transcript automatically by class/session ID. If it does not, the system uses a simple fallback — the recording comes from where it is actually stored (for example the Zoom cloud), gets transcribed, and the transcript is dropped into the system (or the PM uploads it). Either way, the rest of Flow 2 runs the same. This is the one connection we should confirm early, because it decides how automatic this step is.
+Google Drive (materials)
+Your Drive has three kinds of folders, and the system treats each differently: Live Class (your team’s internal working copy — the system leaves this to you), Instructor Copy (shared with the instructor — live materials and assignments), and Uplevel Shared (the content that later goes to learners on Uplevel). When a slot is locked, the system shares the right Instructor Copy folder with that instructor.
+Discord (instructors)
+Each instructor has their own Discord channel. The system uses a Discord bot to message them — to ask availability, send materials, and deliver approved feedback — and to read their replies.
+Slack and Gmail (PM alerts)
+When the system needs you to step in — an instructor declined, or something needs a decision — it pings you on Slack, with email as a backup.
+9.  What the system remembers
+Under the hood, the whole system is built from a small set of records.
+
+Figure 6 — The handful of records everything is built from.
+The records in blue and teal — cohorts, sessions, topics, resources, the roster, and assignments — change week to week and live in the editable map. The system also keeps a record of ratings, the lessons and rules you have approved, and an audit trail of every action.
+10.  How we build it, in stages
+We do not build everything at once. Each stage is useful on its own.
+Stage
+What it does
+Why this order
+Phase 1
+Console + Staffing + Materials
+The single screen, the staffing board, Discord confirmations, PM alerts, and sharing Instructor Copy folders. Runs on your existing sheets.
+Removes the biggest weekly hassle immediately.
+Phase 2
+Ratings + Control Plane
+Pull ratings from Metabase, flag classes below 4.5, and switch on the audit log, undo, and lessons/rules.
+Now the system watches quality, and you can trust and correct it.
+Phase 3
+Feedback + Recall + Map UI
+Pull transcripts from Uplevel, draft feedback for your approval, recommend recalls, and give Ops the no-code map editor. Move data into a database.
+The smart and fully self-serve parts come last, once the basics are solid.
+11.  Open decisions to settle
+The blocklist: should a poorly-rated SME be blocked from the same cohort only, or the same course across cohorts?
+Uplevel access: does Uplevel give us an API for recordings and transcripts, or do we use the fallback?
+Tickets: what should they cover — instructor issues, learner issues, or both — and do they connect to an existing tool?
+Confirmation deadline: how long an instructor has to reply before we alert the PM.
+Recall rubric: what conditions make the AI suggest a re-class.
+Admin mode: who is allowed to edit connections and paths directly.
+12.  Plain-English glossary
+Term
+What it means
+SME / Instructor
+Subject-matter expert — the person who teaches a session.
+Cohort
+One batch of learners going through the program together (e.g. “US August 2025”).
+Staffing
+Putting an instructor on a session and getting their confirmation.
+Uplevel
+Interview Kickstart’s learner portal, where recordings, materials and info live.
+Metabase
+The tool where class ratings are stored and reported.
+n8n
+A workflow-automation tool — it runs the small automated steps that connect your apps.
+The three folders
+Instructor Copy (for the instructor), Uplevel Shared (for learners, via Uplevel), Live Class (your internal working copy).
+Control Plane
+The safety layer — the audit log, undo, and the rules the system follows.
+Recall / Re-class
+Re-running a class that went badly. The PM decides; the system only recommends.

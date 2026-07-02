@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Secrets — never commit (§11). Use .env locally, n8n credentials in n8n.
+.env
+.env.*
+!.env.example
+
+# Engine run artifacts
+outputs/
+
+# Node / UI
+node_modules/
+.next/
+ui/.vercel/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
