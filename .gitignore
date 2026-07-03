@@ -20,9 +20,12 @@ web/.vercel/
 *.tsbuildinfo
 **/next-env.d.ts
 
-# ───────────── Internal planning binaries (add manually to track) ──────────
+# ─────── Confidential / internal docs & sheets — NEVER commit (no leaks) ───────
 *.docx
 *.pptx
+*.xlsx
+*.xls
+*.csv
 
 # ──────────────────────────────── OS / editors ────────────────────────────
 .DS_Store

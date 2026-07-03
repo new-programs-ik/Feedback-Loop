@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useState } from "react";
 import { createAnalysis, type AnalyzeState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,37 +10,39 @@ const label = "text-sm font-medium";
 const field =
   "border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-type CatalogEntry = { topic: string; instructor: string };
+type ClassRow = { id: string; topic: string; date: string; instructor: string };
 
 export function NewAnalysisForm({
   courses,
-  catalog,
+  cohortsByCourse,
+  classesByCohort,
+  instructorNames,
 }: {
   courses: { id: string; name: string }[];
-  catalog: Record<string, CatalogEntry[]>;
+  cohortsByCourse: Record<string, { id: string; name: string }[]>;
+  classesByCohort: Record<string, ClassRow[]>;
+  instructorNames: string[];
 }) {
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
   const [courseId, setCourseId] = useState("");
+  const [cohortId, setCohortId] = useState("");
+  const [classId, setClassId] = useState("");
   const [topic, setTopic] = useState("");
+  const [classDate, setClassDate] = useState("");
   const [instructor, setInstructor] = useState("");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
 
-  const entries = catalog[courseId] ?? [];
-  const topics = useMemo(() => Array.from(new Set(entries.map((e) => e.topic))), [entries]);
-  const instructors = useMemo(
-    () => Array.from(new Set(entries.map((e) => e.instructor).filter(Boolean))),
-    [entries],
-  );
+  const cohorts = cohortsByCourse[courseId] ?? [];
+  const classes = classesByCohort[cohortId] ?? [];
 
-  function onCourseChange(id: string) {
-    setCourseId(id);
-    setTopic("");
-    setInstructor("");
-  }
-  function onTopicChange(value: string) {
-    setTopic(value);
-    const match = entries.find((e) => e.topic === value);
-    if (match?.instructor) setInstructor(match.instructor); // auto-fill the assigned instructor
+  function onClassChange(id: string) {
+    setClassId(id);
+    const cls = classes.find((c) => c.id === id);
+    if (cls) {
+      setTopic(cls.topic);
+      setClassDate(cls.date);
+      setInstructor(cls.instructor);
+    }
   }
 
   return (
@@ -48,54 +50,64 @@ export function NewAnalysisForm({
       <CardHeader>
         <CardTitle>New analysis</CardTitle>
         <CardDescription>
-          Pick the course and class — the instructor fills in automatically. You can also type a new
-          class or instructor. Then add the recording.
+          Pick the course → cohort → class. Topic, date and instructor fill in automatically
+          (all editable). Then add the rating and the recording.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-5">
+          <input type="hidden" name="cohort_id" value={cohortId} />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label htmlFor="course_id" className={label}>Course</label>
               <select
                 id="course_id" name="course_id" required className={field}
-                value={courseId} onChange={(e) => onCourseChange(e.target.value)}
+                value={courseId}
+                onChange={(e) => { setCourseId(e.target.value); setCohortId(""); setClassId(""); }}
               >
                 <option value="" disabled>Select a course…</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+                {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
               <label htmlFor="cohort" className={label}>Cohort</label>
-              <Input id="cohort" name="cohort" placeholder="e.g. Aug 2026" />
+              <select
+                id="cohort" className={field} value={cohortId} disabled={!courseId}
+                onChange={(e) => { setCohortId(e.target.value); setClassId(""); }}
+              >
+                <option value="">{courseId ? "Select a cohort…" : "Pick a course first"}</option>
+                {cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <label htmlFor="class" className={label}>Class</label>
+              <select
+                id="class" className={field} value={classId} disabled={!cohortId}
+                onChange={(e) => onClassChange(e.target.value)}
+              >
+                <option value="">{cohortId ? "Select a class…" : "Pick a cohort first"}</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.date ? `${c.date} — ` : ""}{c.topic}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="topic" className={label}>Class / topic</label>
-              <input
-                id="topic" name="topic" required list="topic-options" className={field}
-                value={topic} onChange={(e) => onTopicChange(e.target.value)}
-                placeholder={courseId ? "Pick a class or type one" : "Select a course first"}
-              />
-              <datalist id="topic-options">
-                {topics.map((t) => <option key={t} value={t} />)}
-              </datalist>
+              <label htmlFor="topic" className={label}>Topic (editable)</label>
+              <input id="topic" name="topic" required className={field}
+                     value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Class topic" />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="instructor" className={label}>Instructor</label>
-              <input
-                id="instructor" name="instructor" list="instructor-options" className={field}
-                value={instructor} onChange={(e) => setInstructor(e.target.value)}
-                placeholder="Auto-fills from the class"
-              />
+              <input id="instructor" name="instructor" list="instructor-options" className={field}
+                     value={instructor} onChange={(e) => setInstructor(e.target.value)} placeholder="Instructor" />
               <datalist id="instructor-options">
-                {instructors.map((i) => <option key={i} value={i} />)}
+                {instructorNames.map((n) => <option key={n} value={n} />)}
               </datalist>
             </div>
             <div className="space-y-1.5">
               <label htmlFor="class_date" className={label}>Class date</label>
-              <Input id="class_date" name="class_date" type="date" required />
+              <input id="class_date" name="class_date" type="date" required className={field}
+                     value={classDate} onChange={(e) => setClassDate(e.target.value)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -111,10 +123,8 @@ export function NewAnalysisForm({
 
           <div className="space-y-1.5">
             <label htmlFor="agenda" className={label}>Class agenda (planned items)</label>
-            <textarea
-              id="agenda" name="agenda" rows={3} className={field + " h-auto py-2"}
-              placeholder="Paste the planned agenda — helps judge coverage & pacing."
-            />
+            <textarea id="agenda" name="agenda" rows={3} className={field + " h-auto py-2"}
+                      placeholder="Paste the planned agenda — helps judge coverage & pacing." />
           </div>
 
           <div className="space-y-2">

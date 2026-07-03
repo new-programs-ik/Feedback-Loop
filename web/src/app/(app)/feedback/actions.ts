@@ -27,6 +27,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const supabase = await createClient();
 
   const course_id = String(formData.get("course_id") ?? "");
+  const cohortIdRaw = String(formData.get("cohort_id") ?? "").trim();
   const cohortName = String(formData.get("cohort") ?? "").trim();
   const instructorName = String(formData.get("instructor") ?? "").trim();
   const topic = String(formData.get("topic") ?? "").trim();
@@ -60,8 +61,8 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
       (await supabase.from("instructors").insert({ name: instructorName }).select("id").single()).data?.id ??
       null;
   }
-  let cohort_id: string | null = null;
-  if (cohortName) {
+  let cohort_id: string | null = cohortIdRaw || null;
+  if (!cohort_id && cohortName) {
     const found = await supabase
       .from("cohorts").select("id").eq("course_id", course_id).eq("name", cohortName).maybeSingle();
     cohort_id =
@@ -219,4 +220,38 @@ export async function discardFeedback(formData: FormData) {
 
   revalidatePath("/feedback");
   redirect("/feedback");
+}
+
+/** Instructor Assignment tab: save the live instructor for each class in a cohort. */
+export async function saveAssignments(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
+  const cohortId = String(formData.get("cohort_id") ?? "");
+  const supabase = await createClient();
+
+  const cache = new Map<string, string | null>();
+  async function instId(name: string): Promise<string | null> {
+    const n = name.trim();
+    if (!n) return null;
+    if (cache.has(n)) return cache.get(n)!;
+    const up = await supabase.from("instructors").upsert({ name: n }, { onConflict: "name" }).select("id").single();
+    const id = up.data?.id ?? null;
+    cache.set(n, id);
+    return id;
+  }
+
+  let changed = 0;
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("inst_")) continue;
+    const classId = key.slice(5);
+    const id = await instId(String(value));
+    const res = await supabase
+      .from("cohort_classes")
+      .update({ instructor_id: id, updated_at: new Date().toISOString() })
+      .eq("id", classId);
+    if (!res.error) changed++;
+  }
+
+  revalidatePath("/assignments");
+  redirect(`/assignments?cohort=${encodeURIComponent(cohortId)}&saved=${changed}`);
 }

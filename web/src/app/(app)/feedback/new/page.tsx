@@ -11,20 +11,29 @@ export default async function NewAnalysisPage() {
   if (user.role === "learner") redirect("/dashboard");
 
   const supabase = await createClient();
-  const { data: courses } = await supabase.from("courses").select("id, name").order("name");
-  const { data: cat } = await supabase
-    .from("class_catalog")
-    .select("course_id, topic, instructors(name)")
-    .order("topic");
+  const [{ data: courses }, { data: cohorts }, { data: classes }, { data: instructors }] = await Promise.all([
+    supabase.from("courses").select("id, name").order("name"),
+    supabase.from("cohorts").select("id, course_id, name").order("name"),
+    supabase.from("cohort_classes")
+      .select("id, cohort_id, topic, class_date, instructor:instructor_id(name)")
+      .order("class_date"),
+    supabase.from("instructors").select("name").order("name"),
+  ]);
 
-  const catalog: Record<string, { topic: string; instructor: string }[]> = {};
-  for (const r of (cat ?? []) as Array<Record<string, unknown>>) {
-    const cid = String(r.course_id);
-    (catalog[cid] ??= []).push({
-      topic: String(r.topic),
-      instructor: (r.instructors as { name?: string } | null)?.name ?? "",
+  const cohortsByCourse: Record<string, { id: string; name: string }[]> = {};
+  for (const c of (cohorts ?? []) as Array<Record<string, unknown>>) {
+    (cohortsByCourse[String(c.course_id)] ??= []).push({ id: String(c.id), name: String(c.name) });
+  }
+  const classesByCohort: Record<string, { id: string; topic: string; date: string; instructor: string }[]> = {};
+  for (const c of (classes ?? []) as Array<Record<string, unknown>>) {
+    (classesByCohort[String(c.cohort_id)] ??= []).push({
+      id: String(c.id),
+      topic: String(c.topic),
+      date: c.class_date ? String(c.class_date) : "",
+      instructor: (c.instructor as { name?: string } | null)?.name ?? "",
     });
   }
+  const instructorNames = ((instructors ?? []) as Array<{ name: string }>).map((i) => i.name);
 
   return (
     <div className="space-y-6">
@@ -36,7 +45,12 @@ export default async function NewAnalysisPage() {
         </Button>
         <h1 className="text-2xl font-semibold tracking-tight">New analysis</h1>
       </div>
-      <NewAnalysisForm courses={courses ?? []} catalog={catalog} />
+      <NewAnalysisForm
+        courses={courses ?? []}
+        cohortsByCourse={cohortsByCourse}
+        classesByCohort={classesByCohort}
+        instructorNames={instructorNames}
+      />
     </div>
   );
 }
