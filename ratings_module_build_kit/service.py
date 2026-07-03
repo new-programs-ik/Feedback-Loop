@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, model_validator
@@ -56,6 +56,7 @@ class AnalyzeRequest(BaseModel):
     rating: str = "(unspecified)"
     num_ratings: Optional[int] = None
     agenda: str = "(not provided)"
+    class_type: Literal["live_class", "ars"] = "live_class"
 
     @model_validator(mode="after")
     def _need_a_source(self):
@@ -66,11 +67,21 @@ class AnalyzeRequest(BaseModel):
         return self
 
     def context(self) -> str:
-        return E.build_context(self.course, self.topic, self.instructor, self.rating, self.agenda)
+        base = E.build_context(self.course, self.topic, self.instructor, self.rating, self.agenda)
+        label = ("Assignment Review Session (ARS) — solutions to assigned problems are reviewed and doubts cleared"
+                 if self.class_type == "ars" else "Live class (weekly teaching session)")
+        return base + f"\nSession type: {label}"
 
 
 class TranscriptRequest(BaseModel):
     vimeo_url: str
+
+
+class ReviseRequest(BaseModel):
+    feedback: str                 # the current draft/edited text
+    instruction: str              # the PM's plain-English change request
+    context: str = ""             # optional class context for grounding
+    flags_json: str = ""          # optional verified flags (grounding)
 
 
 @app.get("/health")
@@ -113,6 +124,19 @@ def transcript(req: TranscriptRequest) -> dict:
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.post("/revise", dependencies=[Depends(require_worker_auth)])
+def revise(req: ReviseRequest) -> dict:
+    """Rewrite a feedback draft per the PM's instruction (the review-page 'fix it' agent)."""
+    try:
+        text, meta = E.revise_feedback(req.feedback, req.instruction, req.context, req.flags_json)
+        return {"feedback": text, "meta": meta}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logging.exception("revise failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/analyze", dependencies=[Depends(require_worker_auth)])
 def analyze(req: AnalyzeRequest) -> dict:
     transcript_text = req.transcript
@@ -122,7 +146,7 @@ def analyze(req: AnalyzeRequest) -> dict:
             info = V.fetch_transcript(req.vimeo_url)  # type: ignore[arg-type]
             transcript_text = info["text"]
             source = "vimeo"
-        result, meta = E.analyse_text(transcript_text, req.context())
+        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type)
         return {
             "result": result,
             "meta": meta,

@@ -1,0 +1,28 @@
+WEBVTT
+
+00:00:05.000 --> 00:00:20.000
+Good evening everyone, welcome to the assignment review for the classification homework. We have five problems to go through today.
+
+00:02:00.000 --> 00:02:30.000
+Problem one asked you to build a logistic regression baseline. Here is the solution notebook, you can see the final code on screen.
+
+00:04:00.000 --> 00:04:25.000
+So that's problem one, the accuracy comes out to zero point eight four. Moving to problem two.
+
+00:06:00.000 --> 00:06:30.000
+For problem two, the answer is to use stratified k-fold. That's what the solution says, so please check the notebook after class.
+
+00:09:00.000 --> 00:09:40.000
+Someone is asking why stratified and not plain k-fold. Good question. Because the classes are imbalanced, stratification keeps the label ratio the same in every fold, so your validation score doesn't swing based on luck.
+
+00:20:00.000 --> 00:20:30.000
+Okay, problems three and four are quite similar, and we're short on time, so I'll skip problem three, the notebook has it, and we'll do problem four quickly.
+
+00:23:00.000 --> 00:23:40.000
+For problem four you just call the pipeline like this and it works. Don't worry about why the regularisation value is set like that.
+
+00:24:30.000 --> 00:24:50.000
+One pattern I saw in a lot of submissions, many of you fit the scaler on the full dataset including test rows. That leaks information, and that's why some scores looked too good.
+
+00:25:30.000 --> 00:25:45.000
+Problem five we will take up next session. Please go through the notebooks. Thanks everyone, see you Wednesday.

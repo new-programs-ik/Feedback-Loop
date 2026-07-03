@@ -48,6 +48,8 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 
   const rating = ratingRaw ? Number(ratingRaw) : null;
   const num_ratings = numRaw ? Number(numRaw) : null;
+  const classTypeRaw = String(formData.get("class_type") ?? "live_class");
+  const class_type = classTypeRaw === "ars" ? "ars" : "live_class";
 
   const { data: course } = await supabase.from("courses").select("name").eq("id", course_id).maybeSingle();
   if (!course) return { error: "That course was not found." };
@@ -75,7 +77,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const ins = await supabase
     .from("classes")
     .insert({
-      course_id, cohort_id, instructor_id, topic, class_date,
+      course_id, cohort_id, instructor_id, topic, class_date, session_type: class_type,
       rating, num_ratings, vimeo_link: vimeo_url || null, agenda: agenda || null,
       status: "analyzing", created_by: user.id,
     })
@@ -98,6 +100,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     instructor: instructorName || "(unspecified)",
     rating: rating != null ? String(rating) : "(unspecified)",
     agenda: agenda || "(not provided)",
+    class_type,
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 
@@ -220,6 +223,64 @@ export async function discardFeedback(formData: FormData) {
 
   revalidatePath("/feedback");
   redirect("/feedback");
+}
+
+export type ReviseResult = { text?: string; error?: string };
+
+/** Review-page agent: rewrite the current draft per the PM's plain-English instruction. */
+export async function reviseDraft(
+  classId: string,
+  instruction: string,
+  currentText: string,
+): Promise<ReviseResult> {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) return { error: "Not authorized." };
+  if (!instruction.trim()) return { error: "Tell the AI what you'd like changed." };
+  if (!currentText.trim()) return { error: "There's no feedback text to revise." };
+
+  const supabase = await createClient();
+  const { data: klass } = await supabase
+    .from("classes")
+    .select("topic, class_date, session_type, courses(name), instructors(name), analyses(result)")
+    .eq("id", classId)
+    .single();
+
+  let contextStr = "";
+  let flagsJson = "";
+  if (klass) {
+    const course = (klass.courses as { name?: string } | null)?.name ?? "";
+    const instructor = (klass.instructors as { name?: string } | null)?.name ?? "";
+    contextStr = `Course: ${course}\nTopic: ${klass.topic}\nInstructor: ${instructor}\n` +
+      `Session type: ${klass.session_type === "ars" ? "Assignment Review Session" : "Live class"}`;
+    const analyses = (klass.analyses ?? []) as Array<{ result?: { flags?: unknown[] } }>;
+    const flags = analyses[analyses.length - 1]?.result?.flags;
+    if (flags) flagsJson = JSON.stringify(flags);
+  }
+
+  const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${workerUrl}/revise`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ feedback: currentText, instruction, context: contextStr, flags_json: flagsJson }),
+    });
+  } catch {
+    return { error: "Could not reach the AI service — try again in a moment (it may be waking up)." };
+  }
+  if (!res.ok) {
+    const detail = await res.text();
+    return { error: res.status === 422 ? safeDetail(detail) : `Revision failed (${res.status}) — try again.` };
+  }
+  const body = await res.json();
+  await supabase.from("audit_log").insert({
+    class_id: classId, actor_id: user.id, action: "ai_revised",
+    detail: { instruction: instruction.slice(0, 300), cost_usd: body.meta?.cost_usd },
+  });
+  return { text: String(body.feedback ?? "") };
 }
 
 /** Instructor Assignment tab: save the live instructor for each class in a cohort. */

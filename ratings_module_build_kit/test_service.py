@@ -77,6 +77,29 @@ class TestService(unittest.TestCase):
         self.assertEqual(body["video_id"], "9")
         self.assertIn("Hello", body["text"])
 
+    def test_analyze_passes_class_type(self):
+        with patch.object(service.E, "analyse_text", return_value=(RESULT, META)) as m:
+            r = client.post("/analyze", json={"transcript": SRT, "class_type": "ars"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(m.call_args.args[2], "ars")           # class_type forwarded to the engine
+        self.assertIn("Assignment Review Session", m.call_args.args[1])  # context mentions ARS
+
+    def test_analyze_rejects_bad_class_type(self):
+        r = client.post("/analyze", json={"transcript": SRT, "class_type": "workshop"})
+        self.assertEqual(r.status_code, 422)
+
+    def test_revise_endpoint(self):
+        with patch.object(service.E, "revise_feedback", return_value=("Shorter text.", META)) as m:
+            r = client.post("/revise", json={"feedback": "Long text.", "instruction": "make it shorter"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["feedback"], "Shorter text.")
+        m.assert_called_once()
+
+    def test_revise_empty_is_422(self):
+        with patch.object(service.E, "revise_feedback", side_effect=ValueError("no feedback text to revise")):
+            r = client.post("/revise", json={"feedback": "", "instruction": "x"})
+        self.assertEqual(r.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

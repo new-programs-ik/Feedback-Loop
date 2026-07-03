@@ -30,6 +30,7 @@ export function NewAnalysisForm({
   const [topic, setTopic] = useState("");
   const [classDate, setClassDate] = useState("");
   const [instructor, setInstructor] = useState("");
+  const [classType, setClassType] = useState<"live_class" | "ars">("live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
 
   const cohorts = cohortsByCourse[courseId] ?? [];
@@ -42,6 +43,8 @@ export function NewAnalysisForm({
       setTopic(cls.topic);
       setClassDate(cls.date);
       setInstructor(cls.instructor);
+      // auto-detect an assignment-review session from the class name (still editable below)
+      if (/assignment\s*review/i.test(cls.topic)) setClassType("ars");
     }
   }
 
@@ -108,6 +111,15 @@ export function NewAnalysisForm({
               <label htmlFor="class_date" className={label}>Class date</label>
               <input id="class_date" name="class_date" type="date" required className={field}
                      value={classDate} onChange={(e) => setClassDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="class_type" className={label}>Class type</label>
+              <select id="class_type" name="class_type" className={field} value={classType}
+                      onChange={(e) => setClassType(e.target.value as "live_class" | "ars")}>
+                <option value="live_class">Live class</option>
+                <option value="ars">Assignment review (ARS)</option>
+              </select>
+              <p className="text-muted-foreground text-xs">Each type is analyzed with its own rubric.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

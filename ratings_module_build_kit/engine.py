@@ -45,9 +45,22 @@ class Config:
 
 CFG = Config()
 
-FLAGS = {"pace", "clarity", "structure", "examples", "correctness", "logistics", "coverage",
-         "coding_time", "agenda_balance", "concept_left", "doubt_handling", "engagement",
-         "learner_gap", "camera"}
+CLASS_TYPES = {"live_class", "ars"}   # ars = Assignment Review Session
+
+FLAGS_LIVE = {"pace", "clarity", "structure", "examples", "correctness", "logistics", "coverage",
+              "coding_time", "agenda_balance", "concept_left", "doubt_handling", "engagement",
+              "learner_gap", "camera"}
+FLAGS_ARS = {"problem_coverage", "time_balance", "solution_walkthrough", "approach_reasoning",
+             "complexity_tradeoffs", "edge_cases", "common_mistakes", "problem_deferred",
+             "pace", "clarity", "structure", "correctness", "logistics",
+             "doubt_handling", "engagement", "learner_gap", "camera"}
+FLAGS = FLAGS_LIVE | FLAGS_ARS        # union — fallback when the class type is unknown
+
+
+def flags_for(class_type: str) -> set[str]:
+    return FLAGS_ARS if class_type == "ars" else FLAGS_LIVE
+
+
 SEVERITY = {"minor", "moderate", "major"}
 CONFIDENCE = {"low", "medium", "high"}
 RECLASS = {"yes", "no", "maybe"}
@@ -117,7 +130,7 @@ def est_tokens(cues: list[Cue]) -> int:
     return int(sum(len(c.text.split()) for c in cues) * 1.33)
 
 # ─────────────────────────────────────────────────────────────────────── prompts
-RUBRIC = """\
+RUBRIC_LIVE = """\
 You are auditing a LIVE CLASS transcript to evaluate the instructor.
 
 WHAT THIS TRANSCRIPT IS (read carefully):
@@ -158,6 +171,60 @@ RULES:
 - Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
 - Never invent or paraphrase quotes."""
 
+RUBRIC_ARS = """\
+You are auditing an ASSIGNMENT REVIEW SESSION (ARS) transcript to evaluate the instructor.
+
+WHAT AN ARS IS (read carefully):
+- Learners were assigned problems; this session reviews the solutions and clears doubts.
+- The transcript captures the INSTRUCTOR's speech only. Learner questions are usually NOT present.
+  Judge only what the instructor SAID and DID. Do NOT assume what learners asked.
+- The assignment / planned problems are given in CONTEXT when available — use them to judge coverage.
+- Use the [HH:MM:SS] timestamps to estimate how long was spent on each problem.
+
+The session is ALREADY known to be low-rated. Your job is to diagnose WHY and find specific moments —
+not to re-score whether it was good or bad.
+
+ASSESS THESE FLAGS. Raise a flag ONLY when there is concrete evidence (a timestamped quote).
+If a dimension is fine, raise nothing for it.
+
+[A] Read directly from the transcript:
+  problem_coverage     - was every assigned problem actually reviewed? Flag any skipped or badly rushed.
+  time_balance         - harder problems get more time; nothing crammed at the end (time spent on doubts is fine).
+  solution_walkthrough - is each solution actually stepped through live — not just stated, or read off a slide/notebook?
+  approach_reasoning   - do they teach HOW to arrive at the solution (intuition, brute-force -> optimal,
+                         interview thinking), not just present the final code/answer?
+  complexity_tradeoffs - ONLY where code or a model is actually discussed: time/space complexity for coding
+                         problems; model/metric/cost trade-offs for ML. If the session involves no code, do NOT raise this.
+  edge_cases           - tricky inputs, failure modes, tests; data leakage/overfitting for ML problems.
+  common_mistakes      - did they surface submission patterns ("a lot of you did X — here's why it fails")?
+                         Raise only from what is said aloud.
+  problem_deferred     - a problem pushed to a future session ("we'll do this one next time"). Quote it.
+  pace                 - too fast or too slow; visible rushing.
+  clarity              - explanations clear and correct; jargon defined; no muddled/contradictory bits.
+  structure            - per-problem flow (restate -> approach -> solution -> complexity -> mistakes) and a recap.
+  correctness          - anything technically wrong in a presented solution. Raise at MAJOR severity at
+                         minimum — learners treat reviewed solutions as canonical.
+  logistics            - late start, long dead-air gaps, or tech problems the instructor mentions.
+
+[B] Instructor-side only (we cannot see learners -> lower confidence; raise only with a clear instructor-side cue):
+  doubt_handling - WEIGHTED HEAVILY in an ARS: clearing doubts is the point of the session. Judge how
+                   acknowledged doubts are handled (well / poorly / waved off). If no doubts surface at all,
+                   that alone is NOT a flag. Never assume unseen questions.
+  engagement     - interactive vs a monologue; invites questions, checks understanding.
+  learner_gap    - the instructor acknowledges a prerequisite wasn't taught, or the assignment didn't match
+                   what the class covered.
+
+[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue):
+  camera - whether the instructor's camera is on; only flag if they say e.g. "can you see me?".
+
+RULES:
+- Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
+- For problem_coverage and time_balance, give the time range you estimated and the quotes that mark start and end.
+- Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
+- Never invent or paraphrase quotes."""
+
+RUBRICS = {"live_class": RUBRIC_LIVE, "ars": RUBRIC_ARS}
+
 EXTRACT_SYS = (
     "You are a precise teaching-quality auditor reviewing one segment of a live class transcript. "
     "You extract only evidence-backed findings, as strict JSON. Rules you never break: every quote is "
@@ -165,13 +232,13 @@ EXTRACT_SYS = (
     "nothing over raising an unsupported flag; you output JSON only — no prose, no code fences."
 )
 
-def build_extract_user(ctx: str, segment_text: str) -> str:
+def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class") -> str:
+    allowed = "|".join(sorted(flags_for(class_type)))
     return (
-        f"CLASS CONTEXT\n{ctx}\n\n{RUBRIC}\n\n"
+        f"CLASS CONTEXT\n{ctx}\n\n{RUBRICS[class_type]}\n\n"
         f"TRANSCRIPT SEGMENT (timestamps in [HH:MM:SS]):\n{segment_text}\n\n"
         'Return JSON ONLY in this shape:\n'
-        '{"findings":[{"flag":"pace|clarity|structure|examples|correctness|logistics|coverage|'
-        'coding_time|agenda_balance|concept_left|doubt_handling|engagement|learner_gap|camera",'
+        '{"findings":[{"flag":"' + allowed + '",'
         '"observation":"one specific sentence","severity":"minor|moderate|major",'
         '"evidence":[{"timestamp":"HH:MM:SS","quote":"<=20 words, verbatim from THIS segment"}],'
         '"confidence":"low|medium|high"}]}\n'
@@ -186,21 +253,35 @@ SYNTH_SYS = (
     "appear in the instructor feedback. Output JSON only — no prose, no code fences."
 )
 
-def build_synth_user(ctx: str, findings_json: str) -> str:
+def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class") -> str:
+    if class_type == "ars":
+        frame = ("   - Frame the points around the PROBLEMS reviewed (coverage, walkthrough depth, reasoning),\n"
+                 "     not agenda items.\n")
+        yes_rule = ('     - "yes"   : assigned problems were skipped or badly rushed, OR a presented solution was\n'
+                    "                 technically wrong or so unclear that learners likely did not get it (learners\n"
+                    "                 treat reviewed solutions as canonical).\n")
+    else:
+        frame = ""
+        yes_rule = ('     - "yes"   : important planned agenda content was not covered or was badly rushed, OR core\n'
+                    "                 concepts were explained incorrectly or so unclearly that learners likely did not get them.\n")
     return (
         f"CLASS CONTEXT\n{ctx}\n\n"
         f"RAW FINDINGS collected from segment passes:\n{findings_json}\n\n"
         "DO THIS, IN ORDER:\n"
         "1. VERIFY: for each finding, check the quote actually supports the observation. Drop any that don't.\n"
         "2. MERGE duplicates across segments; give each surviving flag an overall severity and confidence.\n"
-        "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives): warm, respectful and\n"
-        "   specific; strengths first, then 2-3 areas to improve, each with a concrete suggestion and the\n"
-        "   timestamp(s) it refers to. Do NOT mention the numeric rating or that the class was low-rated,\n"
-        "   and do NOT mention re-classing here — keep it purely coaching.\n"
+        "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:\n"
+        "   - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.\n"
+        "   - CONCISE and to the point: 150-250 words total.\n"
+        "   - Shape: one sentence on what genuinely worked; then 2-4 numbered improvement points, each\n"
+        "     anchored to its [HH:MM:SS] timestamp(s) and ending in ONE concrete, actionable suggestion;\n"
+        "     then a one-line close.\n"
+        "   - Every improvement point MUST cite at least one timestamp. Never invent quotes or timestamps.\n"
+        + frame +
+        "   - Do NOT mention the numeric rating, that the class was low-rated, or re-classing — purely coaching.\n"
         "4. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in the feedback above): decide whether this\n"
         "   class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:\n"
-        '     - "yes"   : important planned agenda content was not covered or was badly rushed, OR core\n'
-        "                 concepts were explained incorrectly or so unclearly that learners likely did not get them.\n"
+        + yes_rule +
         '     - "no"    : the problems are about pace / style / engagement, but the content was delivered correctly.\n'
         '     - "maybe" : genuinely borderline — say what the PM should check.\n'
         "   Give a 1-2 sentence reason for the PM, citing the deciding flags/timestamps. The PM makes the final call.\n\n"
@@ -222,11 +303,11 @@ def _check_evidence(ev: Any) -> list[str]:
             errs.append("each evidence item needs timestamp + quote")
     return errs
 
-def _check_flag(fobj: Any, require_observation: bool) -> list[str]:
+def _check_flag(fobj: Any, require_observation: bool, allowed: set | None = None) -> list[str]:
     errs: list[str] = []
     if not isinstance(fobj, dict):
         return ["flag entry must be an object"]
-    if fobj.get("flag") not in FLAGS:
+    if fobj.get("flag") not in (allowed or FLAGS):
         errs.append(f"unknown flag: {fobj.get('flag')!r}")
     if fobj.get("severity") not in SEVERITY:
         errs.append(f"bad severity: {fobj.get('severity')!r}")
@@ -237,17 +318,17 @@ def _check_flag(fobj: Any, require_observation: bool) -> list[str]:
     errs += _check_evidence(fobj.get("evidence"))
     return errs
 
-def validate_findings(obj: Any) -> list[str]:
+def validate_findings(obj: Any, allowed: set | None = None) -> list[str]:
     if not isinstance(obj, dict) or "findings" not in obj:
         return ["top level must be an object with 'findings'"]
     if not isinstance(obj["findings"], list):
         return ["'findings' must be a list"]
     errs: list[str] = []
     for i, f in enumerate(obj["findings"]):
-        errs += [f"finding[{i}]: {e}" for e in _check_flag(f, require_observation=True)]
+        errs += [f"finding[{i}]: {e}" for e in _check_flag(f, require_observation=True, allowed=allowed)]
     return errs
 
-def validate_result(obj: Any) -> list[str]:
+def validate_result(obj: Any, allowed: set | None = None) -> list[str]:
     if not isinstance(obj, dict):
         return ["result must be an object"]
     errs: list[str] = []
@@ -258,7 +339,7 @@ def validate_result(obj: Any) -> list[str]:
         errs.append("'flags' must be a list")
     else:
         for i, f in enumerate(obj["flags"]):
-            errs += [f"flags[{i}]: {e}" for e in _check_flag(f, require_observation=False)]
+            errs += [f"flags[{i}]: {e}" for e in _check_flag(f, require_observation=False, allowed=allowed)]
     rc = obj.get("reclass")
     if not isinstance(rc, dict):
         errs.append("missing 'reclass' object")
@@ -317,17 +398,63 @@ def _call_json(client, system: str, user: str, max_tokens: int, validate: Callab
                      max_tokens, usage)
     raise RuntimeError("unreachable")
 
-def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage) -> list[dict]:
-    obj = _call_json(client, EXTRACT_SYS, build_extract_user(ctx, format_segment(seg)),
-                     CFG.max_tokens_extract, validate_findings, usage)
+def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
+                     class_type: str = "live_class") -> list[dict]:
+    allowed = flags_for(class_type)
+    obj = _call_json(client, EXTRACT_SYS, build_extract_user(ctx, format_segment(seg), class_type),
+                     CFG.max_tokens_extract, lambda o: validate_findings(o, allowed), usage)
     return obj.get("findings", [])
 
-def synthesise(client, findings: list[dict], ctx: str, usage: Usage) -> dict:
-    return _call_json(client, SYNTH_SYS, build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2)),
-                      CFG.max_tokens_synth, validate_result, usage)
+def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
+               class_type: str = "live_class") -> dict:
+    allowed = flags_for(class_type)
+    return _call_json(client, SYNTH_SYS,
+                      build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2), class_type),
+                      CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
 
-def analyse_cues(cues: list[Cue], ctx: str) -> tuple[dict, dict]:
+REVISE_SYS = (
+    "You revise coaching feedback that a PM will send to a class instructor, following the PM's "
+    "instruction exactly. Rules you never break: stay formal, concise, respectful and specific; never "
+    "use harsh words; keep (or tighten) the [HH:MM:SS] timestamp references; never invent new claims, "
+    "quotes or timestamps that are not in the current feedback or the provided flags; never mention the "
+    "numeric rating, that the class was low-rated, or any re-class decision. "
+    'Output JSON only — no prose, no code fences: {"feedback":"..."}'
+)
+
+def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: str = "") -> tuple[str, dict]:
+    """Rewrite an existing feedback draft per the PM's plain-English instruction (the review-page agent)."""
+    if not current or not current.strip():
+        raise ValueError("no feedback text to revise")
+    if not instruction or not instruction.strip():
+        raise ValueError("no revision instruction given")
+    client = _client()
+    usage = Usage()
+    t0 = time.time()
+    parts = []
+    if ctx.strip():
+        parts.append(f"CLASS CONTEXT\n{ctx}\n")
+    if flags_json.strip():
+        parts.append(f"VERIFIED FLAGS (grounding — the only claims allowed):\n{flags_json}\n")
+    parts.append(f"CURRENT FEEDBACK:\n{current}\n")
+    parts.append(f"PM'S INSTRUCTION:\n{instruction}\n")
+    parts.append('Rewrite the feedback per the instruction. Return JSON ONLY: {"feedback":"..."}')
+
+    def _validate(obj: Any) -> list[str]:
+        if not isinstance(obj, dict) or not isinstance(obj.get("feedback"), str) or not obj["feedback"].strip():
+            return ["top level must be an object with a non-empty 'feedback' string"]
+        return []
+
+    obj = _call_json(client, REVISE_SYS, "\n".join(parts), CFG.max_tokens_synth, _validate, usage)
+    meta = {"model": CFG.model, "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens,
+            "llm_calls": usage.calls, "cost_usd": round(usage.cost_usd(), 4),
+            "seconds": round(time.time() - t0, 1)}
+    log.info("revise done  cost=$%.4f  %.1fs", meta["cost_usd"], meta["seconds"])
+    return obj["feedback"].strip(), meta
+
+def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
     """Run the full LLM pipeline over already-parsed cues. Returns (result, run_metadata)."""
+    if class_type not in CLASS_TYPES:
+        raise ValueError(f"unknown class_type: {class_type!r} (expected one of {sorted(CLASS_TYPES)})")
     if not cues:
         raise ValueError("no cues to analyse")
     chunks = chunk_by_time(cues)
@@ -337,25 +464,26 @@ def analyse_cues(cues: list[Cue], ctx: str) -> tuple[dict, dict]:
     findings: list[dict] = []
     for i, seg in enumerate(chunks, 1):
         log.info("extract %d/%d  %s–%s", i, len(chunks), _seconds_to_ts(seg[0].start), _seconds_to_ts(seg[-1].end))
-        findings += extract_findings(client, seg, ctx, usage)
+        findings += extract_findings(client, seg, ctx, usage, class_type)
     log.info("synthesise %d raw findings", len(findings))
-    result = synthesise(client, findings, ctx, usage)
+    result = synthesise(client, findings, ctx, usage, class_type)
     meta = {
-        "model": CFG.model, "windows": len(chunks), "cues": len(cues), "raw_findings": len(findings),
+        "model": CFG.model, "class_type": class_type, "windows": len(chunks), "cues": len(cues),
+        "raw_findings": len(findings),
         "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
         "cost_usd": round(usage.cost_usd(), 4), "seconds": round(time.time() - t0, 1),
     }
     log.info("done  cost=$%.4f  %.1fs  calls=%d", meta["cost_usd"], meta["seconds"], meta["llm_calls"])
     return result, meta
 
-def analyse_text(raw: str, ctx: str) -> tuple[dict, dict]:
+def analyse_text(raw: str, ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
     """Analyse transcript *text* (used by the HTTP service)."""
-    return analyse_cues(parse_cues(raw), ctx)
+    return analyse_cues(parse_cues(raw), ctx, class_type)
 
-def analyse(transcript_path: str, ctx: str) -> tuple[dict, dict]:
+def analyse(transcript_path: str, ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
     """Analyse a transcript *file* (used by the CLI)."""
     with open(transcript_path, encoding="utf-8-sig") as fh:
-        return analyse_text(fh.read(), ctx)
+        return analyse_text(fh.read(), ctx, class_type)
 
 # ───────────────────────────────────────────────────────────────────────── report
 def report_markdown(result: dict, ctx: str, meta: dict) -> str:
@@ -400,6 +528,8 @@ def main(argv=None):
     p.add_argument("--instructor", default="(unspecified)")
     p.add_argument("--rating", default="(unspecified)")
     p.add_argument("--agenda", default="(not provided)", help="agenda text, or a path to an agenda file")
+    p.add_argument("--class-type", choices=sorted(CLASS_TYPES), default="live_class",
+                   help="live_class (default) or ars (assignment review session)")
     p.add_argument("--out-dir", default="outputs")
     p.add_argument("--dry-run", action="store_true", help="parse + chunk only; no API calls")
     p.add_argument("--force", action="store_true", help="re-run even if a result already exists")
@@ -434,7 +564,7 @@ def main(argv=None):
         return 0
     os.makedirs(out, exist_ok=True)
 
-    result, meta = analyse(a.transcript, ctx)
+    result, meta = analyse(a.transcript, ctx, a.class_type)
     meta["run_id"] = run_id
     with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
