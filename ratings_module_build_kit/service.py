@@ -18,6 +18,9 @@ Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorizati
 """
 from __future__ import annotations
 
+import base64
+import io
+import json as _json
 import logging
 import os
 from typing import Literal, Optional
@@ -57,6 +60,9 @@ class AnalyzeRequest(BaseModel):
     num_ratings: Optional[int] = None
     agenda: str = "(not provided)"
     class_type: Literal["live_class", "ars"] = "live_class"
+    materials_text: str = ""                     # pasted class-materials text (optional)
+    materials_file_b64: Optional[str] = None     # or an uploaded file, base64-encoded
+    materials_filename: Optional[str] = None
 
     @model_validator(mode="after")
     def _need_a_source(self):
@@ -75,6 +81,65 @@ class AnalyzeRequest(BaseModel):
 
 class TranscriptRequest(BaseModel):
     vimeo_url: str
+
+
+# ─────────────────────────── class-materials text extraction ───────────────────────────
+def extract_text(filename: str, data: bytes) -> str:
+    """Pull plain text out of an uploaded materials file (slides / notebook / doc)."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith((".txt", ".md", ".vtt", ".srt")):
+            return data.decode("utf-8", "ignore")
+        if name.endswith(".ipynb"):
+            nb = _json.loads(data.decode("utf-8", "ignore"))
+            parts = []
+            for cell in nb.get("cells", []):
+                src = "".join(cell.get("source", []))
+                parts.append(f"```\n{src}\n```" if cell.get("cell_type") == "code" else src)
+            return "\n\n".join(p for p in parts if p.strip())
+        if name.endswith(".pdf"):
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(data))
+            return "\n\n".join((page.extract_text() or "") for page in reader.pages)
+        if name.endswith(".pptx"):
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(data))
+            parts = []
+            for i, slide in enumerate(prs.slides, 1):
+                texts = [sh.text_frame.text for sh in slide.shapes
+                         if sh.has_text_frame and sh.text_frame.text.strip()]
+                if texts:
+                    parts.append(f"[Slide {i}]\n" + "\n".join(texts))
+            return "\n\n".join(parts)
+        if name.endswith(".docx"):
+            from docx import Document
+            doc = Document(io.BytesIO(data))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+    except HTTPException:
+        raise
+    except Exception as e:  # corrupt file, parser error
+        raise HTTPException(status_code=422, detail=f"could not read materials file '{filename}': {e}")
+    raise HTTPException(status_code=422,
+                        detail=f"unsupported materials file type: '{filename}' "
+                               "(use .pdf, .pptx, .docx, .txt, .md or .ipynb)")
+
+
+def gather_materials(req: AnalyzeRequest) -> str:
+    """Combine pasted materials text + an uploaded materials file into one string."""
+    parts = []
+    if req.materials_text and req.materials_text.strip():
+        parts.append(req.materials_text.strip())
+    if req.materials_file_b64:
+        try:
+            data = base64.b64decode(req.materials_file_b64)
+        except Exception:
+            raise HTTPException(status_code=422, detail="materials file is not valid base64")
+        text = extract_text(req.materials_filename or "materials.txt", data)
+        if not text.strip():
+            raise HTTPException(status_code=422,
+                                detail=f"no text could be extracted from '{req.materials_filename}'")
+        parts.append(text)
+    return "\n\n".join(parts)
 
 
 class ReviseRequest(BaseModel):
@@ -146,14 +211,18 @@ def analyze(req: AnalyzeRequest) -> dict:
             info = V.fetch_transcript(req.vimeo_url)  # type: ignore[arg-type]
             transcript_text = info["text"]
             source = "vimeo"
-        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type)
+        materials = gather_materials(req)
+        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type, materials)
         return {
             "result": result,
             "meta": meta,
             "transcript_source": source,
             "transcript_chars": len(transcript_text),
             "transcript_used": transcript_text,
+            "materials_chars": len(materials),
         }
+    except HTTPException:
+        raise  # e.g. a 422 from materials extraction — don't relabel as 500
     except V.VimeoNoCaptions as e:
         raise HTTPException(status_code=422, detail=str(e))
     except V.VimeoAuthError as e:

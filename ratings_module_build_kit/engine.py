@@ -137,6 +137,8 @@ WHAT THIS TRANSCRIPT IS (read carefully):
 - It captures the INSTRUCTOR's speech only. Learner questions (audio or chat) are usually NOT present.
 - Judge only what the instructor SAID and DID. Do NOT assume what learners asked.
 - The class AGENDA (the planned items) is given in CONTEXT — use it to judge coverage and time balance.
+- PLANNED CLASS MATERIALS (an outline of the content that was supposed to be taught) may also be given
+  in CONTEXT — check the transcript against them for coverage, agenda_balance and correctness.
 - Use the [HH:MM:SS] timestamps to estimate how long was spent on each thing.
 
 The class is ALREADY known to be low-rated. Your job is to diagnose WHY and find specific moments —
@@ -179,6 +181,8 @@ WHAT AN ARS IS (read carefully):
 - The transcript captures the INSTRUCTOR's speech only. Learner questions are usually NOT present.
   Judge only what the instructor SAID and DID. Do NOT assume what learners asked.
 - The assignment / planned problems are given in CONTEXT when available — use them to judge coverage.
+- PLANNED CLASS MATERIALS (the assignment content / solutions outline) may also be given in CONTEXT —
+  check the transcript against them for problem_coverage and correctness.
 - Use the [HH:MM:SS] timestamps to estimate how long was spent on each problem.
 
 The session is ALREADY known to be low-rated. Your job is to diagnose WHY and find specific moments —
@@ -412,6 +416,27 @@ def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
                       build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2), class_type),
                       CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
 
+MATERIALS_SYS = (
+    "You compress class materials into a compact teaching outline that an auditor will check a class "
+    "transcript against. Output plain text, <= 400 words: the topics in order, key concepts/definitions, "
+    "planned examples/exercises/problems, and anything marked as important. No commentary, no preamble."
+)
+
+# Materials shorter than this go into the context verbatim; longer ones are LLM-compressed first.
+MATERIALS_DIGEST_THRESHOLD = 4000
+MATERIALS_MAX_CHARS = 60000
+
+
+def _digest_materials(client, text: str, usage: Usage) -> str:
+    """Boil raw class materials down to an outline the extraction prompts can carry."""
+    text = text.strip()
+    if len(text) <= MATERIALS_DIGEST_THRESHOLD:
+        return text
+    return _call(client, MATERIALS_SYS,
+                 f"MATERIALS:\n{text[:MATERIALS_MAX_CHARS]}\n\nCompress to the outline now.",
+                 1500, usage).strip()
+
+
 REVISE_SYS = (
     "You revise coaching feedback that a PM will send to a class instructor, following the PM's "
     "instruction exactly. Rules you never break: stay formal, concise, respectful and specific; never "
@@ -451,8 +476,14 @@ def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: s
     log.info("revise done  cost=$%.4f  %.1fs", meta["cost_usd"], meta["seconds"])
     return obj["feedback"].strip(), meta
 
-def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
-    """Run the full LLM pipeline over already-parsed cues. Returns (result, run_metadata)."""
+def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
+                 materials: str = "") -> tuple[dict, dict]:
+    """Run the full LLM pipeline over already-parsed cues. Returns (result, run_metadata).
+
+    ``materials`` is the raw text of the planned class content (slides/notebook/doc); when given,
+    it is digested to an outline and added to the context so coverage/correctness are judged
+    against what was actually supposed to be taught.
+    """
     if class_type not in CLASS_TYPES:
         raise ValueError(f"unknown class_type: {class_type!r} (expected one of {sorted(CLASS_TYPES)})")
     if not cues:
@@ -461,6 +492,10 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class") -> t
     client = _client()
     usage = Usage()
     t0 = time.time()
+    if materials and materials.strip():
+        log.info("digesting %d chars of class materials", len(materials))
+        outline = _digest_materials(client, materials, usage)
+        ctx = ctx + "\n\nPLANNED CLASS MATERIALS (outline of what was supposed to be taught):\n" + outline
     findings: list[dict] = []
     for i, seg in enumerate(chunks, 1):
         log.info("extract %d/%d  %s–%s", i, len(chunks), _seconds_to_ts(seg[0].start), _seconds_to_ts(seg[-1].end))
@@ -469,21 +504,23 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class") -> t
     result = synthesise(client, findings, ctx, usage, class_type)
     meta = {
         "model": CFG.model, "class_type": class_type, "windows": len(chunks), "cues": len(cues),
-        "raw_findings": len(findings),
+        "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
         "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
         "cost_usd": round(usage.cost_usd(), 4), "seconds": round(time.time() - t0, 1),
     }
     log.info("done  cost=$%.4f  %.1fs  calls=%d", meta["cost_usd"], meta["seconds"], meta["llm_calls"])
     return result, meta
 
-def analyse_text(raw: str, ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
+def analyse_text(raw: str, ctx: str, class_type: str = "live_class",
+                 materials: str = "") -> tuple[dict, dict]:
     """Analyse transcript *text* (used by the HTTP service)."""
-    return analyse_cues(parse_cues(raw), ctx, class_type)
+    return analyse_cues(parse_cues(raw), ctx, class_type, materials)
 
-def analyse(transcript_path: str, ctx: str, class_type: str = "live_class") -> tuple[dict, dict]:
+def analyse(transcript_path: str, ctx: str, class_type: str = "live_class",
+            materials: str = "") -> tuple[dict, dict]:
     """Analyse a transcript *file* (used by the CLI)."""
     with open(transcript_path, encoding="utf-8-sig") as fh:
-        return analyse_text(fh.read(), ctx, class_type)
+        return analyse_text(fh.read(), ctx, class_type, materials)
 
 # ───────────────────────────────────────────────────────────────────────── report
 def report_markdown(result: dict, ctx: str, meta: dict) -> str:

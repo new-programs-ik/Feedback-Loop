@@ -139,6 +139,16 @@ export function NewAnalysisForm({
                       placeholder="Paste the planned agenda — helps judge coverage & pacing." />
           </div>
 
+          <div className="space-y-1.5">
+            <label htmlFor="materials" className={label}>Class materials (optional)</label>
+            <Input id="materials" name="materials" type="file"
+                   accept=".pdf,.pptx,.docx,.txt,.md,.ipynb" className="file:mr-3 file:text-sm" />
+            <p className="text-muted-foreground text-xs">
+              Slides / notebook / doc of what was planned. The AI checks the class against it — was the
+              content actually covered, and taught correctly?
+            </p>
+          </div>
+
           <div className="space-y-2">
             <div className={label}>Transcript source</div>
             <div className="flex gap-4 text-sm">

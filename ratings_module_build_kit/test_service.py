@@ -3,6 +3,8 @@ test_service.py — endpoint tests for the analysis worker (FastAPI TestClient).
 The engine + Vimeo are mocked, so no API key or network is needed.
 Run:  python -m unittest test_service -v
 """
+import base64
+import json
 import unittest
 from unittest.mock import patch
 
@@ -98,6 +100,43 @@ class TestService(unittest.TestCase):
     def test_revise_empty_is_422(self):
         with patch.object(service.E, "revise_feedback", side_effect=ValueError("no feedback text to revise")):
             r = client.post("/revise", json={"feedback": "", "instruction": "x"})
+        self.assertEqual(r.status_code, 422)
+
+
+class TestMaterials(unittest.TestCase):
+    def test_extract_txt(self):
+        self.assertEqual(service.extract_text("notes.txt", b"Topic A\nTopic B"), "Topic A\nTopic B")
+
+    def test_extract_ipynb(self):
+        nb = {"cells": [
+            {"cell_type": "markdown", "source": ["# Decision Trees\n", "Gini impurity"]},
+            {"cell_type": "code", "source": ["fit(X, y)"]},
+        ]}
+        out = service.extract_text("lab.ipynb", json.dumps(nb).encode())
+        self.assertIn("Decision Trees", out)
+        self.assertIn("```\nfit(X, y)\n```", out)
+
+    def test_extract_unsupported_is_422(self):
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as cm:
+            service.extract_text("deck.key", b"xx")
+        self.assertEqual(cm.exception.status_code, 422)
+
+    def test_analyze_passes_materials(self):
+        b64 = base64.b64encode("Planned: trees, gini, ensembles".encode()).decode()
+        with patch.object(service.E, "analyse_text", return_value=(RESULT, META)) as m:
+            r = client.post("/analyze", json={
+                "transcript": SRT, "materials_text": "Agenda outline",
+                "materials_file_b64": b64, "materials_filename": "plan.txt",
+            })
+        self.assertEqual(r.status_code, 200)
+        self.assertGreater(r.json()["materials_chars"], 0)
+        materials_arg = m.call_args.args[3]
+        self.assertIn("Agenda outline", materials_arg)
+        self.assertIn("gini", materials_arg)
+
+    def test_bad_base64_is_422(self):
+        r = client.post("/analyze", json={"transcript": SRT, "materials_file_b64": "!!!not-b64!!!"})
         self.assertEqual(r.status_code, 422)
 
 

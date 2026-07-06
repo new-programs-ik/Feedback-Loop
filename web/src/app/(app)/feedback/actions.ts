@@ -38,6 +38,16 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const vimeo_url = String(formData.get("vimeo_url") ?? "").trim();
   const file = formData.get("file") as File | null;
   const transcript = file && file.size ? await file.text() : "";
+  const materialsFile = formData.get("materials") as File | null;
+  let materials_file_b64: string | undefined;
+  let materials_filename: string | undefined;
+  if (materialsFile && materialsFile.size) {
+    if (materialsFile.size > 15 * 1024 * 1024) {
+      return { error: "Materials file is too large (max 15 MB)." };
+    }
+    materials_file_b64 = Buffer.from(await materialsFile.arrayBuffer()).toString("base64");
+    materials_filename = materialsFile.name;
+  }
 
   if (!course_id) return { error: "Pick a course." };
   if (!topic) return { error: "Enter the class topic." };
@@ -101,6 +111,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     rating: rating != null ? String(rating) : "(unspecified)",
     agenda: agenda || "(not provided)",
     class_type,
+    ...(materials_file_b64 ? { materials_file_b64, materials_filename } : {}),
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 
