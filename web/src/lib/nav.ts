@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, MessageSquareText, GraduationCap, Users, BookOpen, Boxes,
-  HeartPulse, Settings, ScrollText, User, ClipboardList, type LucideIcon,
+  HeartPulse, Settings, ScrollText, User, ClipboardList, Library, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -21,6 +21,7 @@ export const NAV: NavSection[] = [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["admin", "pm", "learner"], live: true },
       { label: "Feedback", href: "/feedback", icon: MessageSquareText, roles: ["admin", "pm"], live: true },
       { label: "Assignments", href: "/assignments", icon: ClipboardList, roles: ["admin", "pm"], live: true },
+      { label: "Courses", href: "/courses", icon: Library, roles: ["admin", "pm"], live: true },
     ],
   },
   {
