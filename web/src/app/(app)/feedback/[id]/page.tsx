@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
 import { ReviewActions } from "./review-actions";
+import { DeleteButton } from "../delete-button";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -55,13 +56,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             <ArrowLeft className="size-4" />
           </Link>
         </Button>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{String(klass.topic)}</h1>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{String(klass.topic)}</h1>
+            <Badge variant="outline">{klass.session_type === "ars" ? "ARS" : "Live"}</Badge>
+          </div>
           <p className="text-muted-foreground text-sm">
             {course} · {instructor} · {cohort} · {String(klass.class_date)}
             {rating != null && <> · rating <strong>{Number(rating).toFixed(2)}</strong></>}
           </p>
         </div>
+        <DeleteButton classId={String(klass.id)} />
       </div>
 
       {!analysis ? (

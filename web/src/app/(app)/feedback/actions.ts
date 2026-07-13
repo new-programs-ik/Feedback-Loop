@@ -294,6 +294,27 @@ export async function reviseDraft(
   return { text: String(body.feedback ?? "") };
 }
 
+/** Delete an analysis + its class entirely (cascades analyses/feedback/transcripts). */
+export async function deleteClass(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
+  const classId = String(formData.get("class_id") ?? "");
+  if (!classId) throw new Error("Missing class.");
+  const supabase = await createClient();
+
+  const { data: klass } = await supabase.from("classes").select("topic").eq("id", classId).maybeSingle();
+  await supabase.from("audit_log").insert({
+    actor_id: user.id, action: "deleted",
+    detail: { class_id: classId, topic: klass?.topic ?? null },
+  });
+  const del = await supabase.from("classes").delete().eq("id", classId);
+  if (del.error) throw new Error("Could not delete: " + del.error.message);
+
+  revalidatePath("/feedback");
+  revalidatePath("/dashboard");
+  redirect("/feedback");
+}
+
 /** Instructor Assignment tab: save the live instructor for each class in a cohort. */
 export async function saveAssignments(formData: FormData) {
   const user = await getCurrentUser();
