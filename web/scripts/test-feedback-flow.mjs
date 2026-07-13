@@ -22,9 +22,12 @@ function loadEnv(rel) {
 
 const web = loadEnv("../.env.local");
 const sampleVtt = readFileSync(new URL("../../ratings_module_build_kit/sample_transcript.vtt", import.meta.url), "utf8");
-const WORKER = "http://localhost:8000";
-const EMAIL = "new-programs@interviewkickstart.com";
-const PASS = "IK-np-admin-2026";
+const WORKER = process.env.WORKER_URL || "http://localhost:8000";
+const EMAIL = process.env.TEST_EMAIL || process.argv[2];
+const PASS = process.env.TEST_PASS || process.argv[3];
+if (!EMAIL || !PASS) {
+  throw new Error("usage: TEST_EMAIL=you@ik.com TEST_PASS=... node scripts/test-feedback-flow.mjs");
+}
 
 const supa = createClient(web.NEXT_PUBLIC_SUPABASE_URL, web.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 const { error: signErr } = await supa.auth.signInWithPassword({ email: EMAIL, password: PASS });
