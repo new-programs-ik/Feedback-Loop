@@ -5,9 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 import { ReviewActions } from "./review-actions";
 import { DeleteButton } from "../delete-button";
+import { AutoRefresh } from "@/components/auto-refresh";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -43,6 +44,15 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
   const analyses = (klass.analyses ?? []) as Array<Record<string, unknown>>;
   const analysis = analyses[analyses.length - 1];
+
+  let failReason = "";
+  if (!analysis && klass.status !== "analyzing") {
+    const { data: err } = await supabase
+      .from("audit_log").select("detail").eq("class_id", id).eq("action", "error")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const d = (err?.detail ?? {}) as { message?: string; detail?: string };
+    failReason = d.message || d.detail || "";
+  }
   const feedbacks = (klass.feedback ?? []) as Array<Record<string, unknown>>;
   const feedback = feedbacks[feedbacks.length - 1];
   const result = (analysis?.result ?? {}) as Result;
@@ -78,11 +88,30 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       </div>
 
       {!analysis ? (
-        <Card>
-          <CardContent className="text-muted-foreground py-10 text-center text-sm">
-            No analysis yet for this class (status: {String(klass.status)}).
-          </CardContent>
-        </Card>
+        klass.status === "analyzing" ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+              <Loader2 className="text-muted-foreground size-7 animate-spin" />
+              <div className="font-medium">Analyzing…</div>
+              <p className="text-muted-foreground max-w-md text-sm">
+                Fetching the transcript, reading your materials, and writing the feedback. A long class
+                can take a minute or two — this page updates on its own, no need to refresh.
+              </p>
+              <AutoRefresh />
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+              <AlertTriangle className="text-destructive size-7" />
+              <div className="font-medium">The analysis didn&apos;t finish</div>
+              <p className="text-muted-foreground max-w-md text-sm">
+                {failReason ||
+                  "Something went wrong — the video may have no captions, or a materials file couldn't be read. Delete this and try again, or upload the transcript directly."}
+              </p>
+            </CardContent>
+          </Card>
+        )
       ) : (
         <>
           {result.overall && (

@@ -25,7 +25,7 @@ import logging
 import os
 from typing import Literal, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, model_validator
 
 import config
@@ -33,6 +33,7 @@ import config
 config.load_env()
 
 import engine as E  # noqa: E402  (after load_env so config is present)
+import store as ST  # noqa: E402
 import vimeo as V  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -82,6 +83,10 @@ class AnalyzeRequest(BaseModel):
         label = ("Assignment Review Session (ARS) — solutions to assigned problems are reviewed and doubts cleared"
                  if self.class_type == "ars" else "Live class (weekly teaching session)")
         return base + f"\nSession type: {label}"
+
+
+class AnalyzeAsyncRequest(AnalyzeRequest):
+    class_id: str                                # the queued class row to write the result back to
 
 
 class TranscriptRequest(BaseModel):
@@ -191,6 +196,34 @@ def transcript(req: TranscriptRequest) -> dict:
         raise HTTPException(status_code=502, detail=str(e))
     except V.VimeoError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
+    """The background job: fetch transcript + digest materials + analyze + save to the DB."""
+    try:
+        transcript_text = req.transcript
+        source = "upload"
+        if not (transcript_text and transcript_text.strip()):
+            info = V.fetch_transcript(req.vimeo_url)  # type: ignore[arg-type]
+            transcript_text = info["text"]
+            source = "vimeo"
+        materials = gather_materials(req)
+        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type, materials)
+        ST.persist_analysis(req.class_id, result, meta, transcript_text, source)
+        logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
+    except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
+        logging.exception("async analysis failed for class %s", req.class_id)
+        ST.mark_failed(req.class_id, str(e))
+
+
+@app.post("/analyze-async", dependencies=[Depends(require_worker_auth)])
+def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict:
+    """Start the analysis in the background and return immediately (so the web request never times
+    out). The worker writes the result straight to the DB when done; the UI polls for it."""
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured for async persistence")
+    background.add_task(_run_analysis_job, req)
+    return {"status": "accepted", "class_id": req.class_id}
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

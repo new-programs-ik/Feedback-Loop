@@ -26,7 +26,8 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 
   const supabase = await createClient();
 
-  const course_id = String(formData.get("course_id") ?? "");
+  let course_id = String(formData.get("course_id") ?? "");
+  const newCourse = String(formData.get("new_course") ?? "").trim();
   const cohortIdRaw = String(formData.get("cohort_id") ?? "").trim();
   const cohortName = String(formData.get("cohort") ?? "").trim();
   const instructorName = String(formData.get("instructor") ?? "").trim();
@@ -50,6 +51,20 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
       };
     }
     materials_files.push({ filename: f.name, b64: Buffer.from(await f.arrayBuffer()).toString("base64") });
+  }
+
+  // "Other" course → find-or-create it from the typed name.
+  if (course_id === "__other__") {
+    if (!newCourse) return { error: "Type the new course name." };
+    const found = await supabase.from("courses").select("id").eq("name", newCourse).maybeSingle();
+    if (found.data) {
+      course_id = found.data.id;
+    } else {
+      const slug = newCourse.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || newCourse.slice(0, 40);
+      const ins = await supabase.from("courses").insert({ name: newCourse, slug }).select("id").single();
+      if (ins.error || !ins.data) return { error: "Could not create the course: " + (ins.error?.message ?? "") };
+      course_id = ins.data.id;
+    }
   }
 
   if (!course_id) return { error: "Pick a course." };
@@ -104,11 +119,14 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     class_id: classId, actor_id: user.id, action: "created", detail: { source: vimeo_url ? "vimeo" : "upload" },
   });
 
-  // Call the stateless analysis worker.
+  // Start the analysis in the BACKGROUND — the worker fetches the transcript, digests the
+  // materials, runs the engine, and writes the result to the DB itself when done. We return
+  // immediately so the web request never times out (even for a 4-hour class).
   const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
   const payload: Record<string, unknown> = {
+    class_id: classId,
     course: course.name, topic,
     instructor: instructorName || "(unspecified)",
     rating: rating != null ? String(rating) : "(unspecified)",
@@ -118,58 +136,27 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 
+  async function failStart(where: string, detail: Record<string, unknown>, msg: string): Promise<AnalyzeState> {
+    await supabase.from("classes").update({ status: "needs_transcript" }).eq("id", classId);
+    await supabase.from("audit_log").insert({ class_id: classId, actor_id: user!.id, action: "error", detail: { where, ...detail } });
+    return { error: msg };
+  }
+
   let res: Response;
   try {
-    res = await fetch(`${workerUrl}/analyze`, { method: "POST", headers, body: JSON.stringify(payload) });
+    res = await fetch(`${workerUrl}/analyze-async`, { method: "POST", headers, body: JSON.stringify(payload) });
   } catch {
-    await supabase.from("classes").update({ status: "needs_transcript" }).eq("id", classId);
-    await supabase.from("audit_log").insert({
-      class_id: classId, actor_id: user.id, action: "error", detail: { where: "worker", message: "unreachable" },
-    });
-    return { error: "Could not reach the analysis service. Please try again in a moment." };
+    return failStart("worker-start", { message: "unreachable" },
+      "Could not reach the analysis service — try again in a moment (it may be waking up).");
   }
   if (!res.ok) {
     const detail = await res.text();
-    await supabase.from("classes").update({ status: "needs_transcript" }).eq("id", classId);
-    await supabase.from("audit_log").insert({
-      class_id: classId, actor_id: user.id, action: "error",
-      detail: { where: "worker", status: res.status, detail: detail.slice(0, 500) },
-    });
-    return {
-      error: res.status === 422 ? `Could not analyze: ${safeDetail(detail)}` : `Analysis failed (${res.status}). Please try again.`,
-    };
+    return failStart("worker-start", { status: res.status, detail: detail.slice(0, 300) },
+      `Could not start the analysis (${res.status}). Please try again.`);
   }
-
-  const body = await res.json();
-  const result = body.result;
-  const meta = body.meta ?? {};
-  const transcriptText: string | undefined = body.transcript_used;
-
-  if (transcriptText) {
-    await supabase.from("transcripts").insert({
-      class_id: classId, content: transcriptText, format: "vtt", source: transcript ? "upload" : "vimeo",
-    });
-  }
-  const an = await supabase
-    .from("analyses")
-    .insert({
-      class_id: classId, model: meta.model ?? "unknown", result,
-      reclass: result?.reclass?.recommended ?? null, reclass_reason: result?.reclass?.reason ?? null,
-      tokens_in: meta.tokens_in ?? null, tokens_out: meta.tokens_out ?? null, cost_usd: meta.cost_usd ?? null,
-    })
-    .select("id")
-    .single();
-  await supabase.from("feedback").insert({
-    class_id: classId, analysis_id: an.data?.id ?? null, draft_text: result?.feedback ?? "", status: "draft",
-  });
-  await supabase.from("classes").update({ status: "draft_ready" }).eq("id", classId);
-  await supabase.from("audit_log").insert({
-    class_id: classId, actor_id: user.id, action: "analyzed",
-    detail: { cost_usd: meta.cost_usd, reclass: result?.reclass?.recommended },
-  });
 
   revalidatePath("/feedback");
-  redirect(`/feedback/${classId}`);
+  redirect(`/feedback/${classId}`); // review page shows "Analyzing…" and auto-updates when done
 }
 
 async function latestFeedbackId(supabase: Awaited<ReturnType<typeof createClient>>, classId: string) {

@@ -12,7 +12,7 @@ export default async function DashboardPage() {
 
   const { data: rows } = await supabase
     .from("classes")
-    .select("id, topic, class_date, status, session_type, courses(name), instructors(name), analyses(reclass), feedback(status)")
+    .select("id, topic, class_date, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out), feedback(status)")
     .order("created_at", { ascending: false });
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
@@ -85,7 +85,9 @@ export default async function DashboardPage() {
               {analyzed.slice(0, 6).map((c) => {
                 const course = (c.courses as { name?: string } | null)?.name ?? "—";
                 const instructor = (c.instructors as { name?: string } | null)?.name ?? "—";
-                const rc = (c.analyses as Array<{ reclass?: string }>)?.[0]?.reclass;
+                const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number }>)?.[0];
+                const rc = a?.reclass;
+                const tokens = (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
                 return (
                   <Link key={String(c.id)} href={`/feedback/${String(c.id)}`}
                         className="hover:bg-muted/40 -mx-2 flex items-center gap-3 rounded px-2 py-2.5">
@@ -93,6 +95,7 @@ export default async function DashboardPage() {
                       <div className="truncate text-sm font-medium">{String(c.topic)}</div>
                       <div className="text-muted-foreground truncate text-xs">
                         {course} · {instructor} · {String(c.class_date)} · {c.session_type === "ars" ? "ARS" : "Live"}
+                        {tokens > 0 && <> · {(tokens / 1000).toFixed(1)}k tokens</>}
                       </div>
                     </div>
                     {rc && <Badge variant={rc === "yes" ? "destructive" : rc === "maybe" ? "warning" : "secondary"} className="uppercase">{rc}</Badge>}

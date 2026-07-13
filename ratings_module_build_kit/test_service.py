@@ -5,6 +5,7 @@ Run:  python -m unittest test_service -v
 """
 import base64
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -89,6 +90,24 @@ class TestService(unittest.TestCase):
     def test_analyze_rejects_bad_class_type(self):
         r = client.post("/analyze", json={"transcript": SRT, "class_type": "workshop"})
         self.assertEqual(r.status_code, 422)
+
+    @patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"})
+    def test_analyze_async_accepts_and_runs_job(self):
+        with patch.object(service.E, "analyse_text", return_value=(RESULT, META)), \
+             patch.object(service.ST, "persist_analysis") as persist:
+            r = client.post("/analyze-async", json={"class_id": "c-123", "transcript": SRT})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["status"], "accepted")
+        persist.assert_called_once()                       # background job ran + persisted
+        self.assertEqual(persist.call_args.args[0], "c-123")  # to the right class
+
+    @patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"})
+    def test_analyze_async_failure_marks_class(self):
+        with patch.object(service.E, "analyse_text", side_effect=RuntimeError("boom")), \
+             patch.object(service.ST, "mark_failed") as failed:
+            r = client.post("/analyze-async", json={"class_id": "c-9", "transcript": SRT})
+        self.assertEqual(r.status_code, 200)
+        failed.assert_called_once()
 
     def test_revise_endpoint(self):
         with patch.object(service.E, "revise_feedback", return_value=("Shorter text.", META)) as m:

@@ -20,7 +20,7 @@ function reclassVariant(r?: string): "destructive" | "warning" | "secondary" {
 export default async function FeedbackPage({
   searchParams,
 }: {
-  searchParams: Promise<{ course?: string }>;
+  searchParams: Promise<{ course?: string; month?: string }>;
 }) {
   const user = await requireUser();
   const sp = await searchParams;
@@ -29,9 +29,15 @@ export default async function FeedbackPage({
   const { data: courses } = await supabase.from("courses").select("id, name").order("name");
   let q = supabase
     .from("classes")
-    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), instructors(name), analyses(reclass), feedback(status)")
-    .order("created_at", { ascending: false });
+    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out), feedback(status)")
+    .order("class_date", { ascending: false });
   if (sp.course) q = q.eq("course_id", sp.course);
+  if (sp.month && /^\d{4}-\d{2}$/.test(sp.month)) {
+    const [y, m] = sp.month.split("-").map(Number);
+    const start = `${sp.month}-01`;
+    const end = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    q = q.gte("class_date", start).lt("class_date", end);
+  }
   const { data: rows } = await q;
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
@@ -61,8 +67,8 @@ export default async function FeedbackPage({
         )}
       </div>
 
-      {/* Course filter */}
-      <form method="get" className="flex items-end gap-2">
+      {/* Filters */}
+      <form method="get" className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">
           <label htmlFor="course" className="text-muted-foreground text-xs font-medium">Course</label>
           <select id="course" name="course" defaultValue={sp.course ?? ""}
@@ -73,7 +79,15 @@ export default async function FeedbackPage({
             ))}
           </select>
         </div>
+        <div className="space-y-1">
+          <label htmlFor="month" className="text-muted-foreground text-xs font-medium">Month</label>
+          <input id="month" name="month" type="month" defaultValue={sp.month ?? ""}
+                 className="border-input h-9 rounded-md border bg-transparent px-3 text-sm" />
+        </div>
         <Button type="submit" variant="outline" size="sm">Filter</Button>
+        {(sp.course || sp.month) && (
+          <Button asChild variant="ghost" size="sm"><Link href="/feedback">Clear</Link></Button>
+        )}
       </form>
 
       {classes.length === 0 ? (
@@ -95,9 +109,10 @@ export default async function FeedbackPage({
               <tr>
                 <th className="px-4 py-2.5 font-medium">Class</th>
                 <th className="px-4 py-2.5 font-medium">Course</th>
-                <th className="px-4 py-2.5 font-medium">Instructor</th>
+                <th className="px-4 py-2.5 font-medium">Date</th>
                 <th className="px-4 py-2.5 font-medium">Type</th>
                 <th className="px-4 py-2.5 font-medium">Rating</th>
+                <th className="px-4 py-2.5 font-medium">Tokens</th>
                 <th className="px-4 py-2.5 font-medium">Re-class</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">By</th>
@@ -107,8 +122,9 @@ export default async function FeedbackPage({
             <tbody>
               {classes.map((c) => {
                 const course = (c.courses as { name?: string } | null)?.name ?? "—";
-                const instructor = (c.instructors as { name?: string } | null)?.name ?? "—";
-                const reclass = (c.analyses as Array<{ reclass?: string }> | null)?.[0]?.reclass;
+                const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number }> | null)?.[0];
+                const reclass = a?.reclass;
+                const tokens = (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
                 const rating = c.rating as number | null;
                 const status = String(c.status);
                 const type = c.session_type === "ars" ? "ARS" : "Live";
@@ -116,13 +132,14 @@ export default async function FeedbackPage({
                   <tr key={String(c.id)} className="border-t">
                     <td className="px-4 py-3 font-medium">{String(c.topic)}</td>
                     <td className="text-muted-foreground px-4 py-3">{course}</td>
-                    <td className="text-muted-foreground px-4 py-3">{instructor}</td>
+                    <td className="text-muted-foreground whitespace-nowrap px-4 py-3">{String(c.class_date ?? "—")}</td>
                     <td className="px-4 py-3"><Badge variant="outline">{type}</Badge></td>
                     <td className="px-4 py-3">
                       <span className={rating != null && rating < 4.5 ? "text-destructive font-medium" : ""}>
                         {rating != null ? Number(rating).toFixed(2) : "—"}
                       </span>
                     </td>
+                    <td className="text-muted-foreground px-4 py-3">{tokens > 0 ? `${(tokens / 1000).toFixed(1)}k` : "—"}</td>
                     <td className="px-4 py-3">
                       {reclass ? <Badge variant={reclassVariant(reclass)} className="uppercase">{reclass}</Badge>
                                : <span className="text-muted-foreground">—</span>}

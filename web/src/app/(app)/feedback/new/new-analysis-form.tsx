@@ -70,7 +70,11 @@ export function NewAnalysisForm({
               >
                 <option value="" disabled>Select a course…</option>
                 {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="__other__">➕ Other — add a new course…</option>
               </select>
+              {courseId === "__other__" && (
+                <input name="new_course" required className={field} placeholder="New course name (e.g. B2B)" />
+              )}
             </div>
             <div className="space-y-1.5">
               <label htmlFor="cohort" className={label}>Cohort</label>
