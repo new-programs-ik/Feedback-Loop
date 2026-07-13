@@ -166,28 +166,57 @@ The AI doesn't judge randomly — it follows a **fixed checklist** of things to 
 
 You choose the type when creating the analysis (and it auto-suggests "ARS" if the class name says so).
 
+### 🗣️ Who said what — the instructor vs the learners
+A class transcript is a **conversation**: the instructor teaches, and learners ask questions or
+respond. The tool **keeps track of who is speaking** — from speaker labels in the transcript when
+they exist, and by reasoning about the content when they don't. This matters enormously, because:
+
+- A **learner** saying something wrong or confused is **not the instructor's mistake** — the tool
+  will never blame the instructor for a learner's words. (If anything, an instructor *correcting* a
+  learner's misconception counts *in their favour*.)
+- A **doubt a learner raises and the instructor answers later** is a doubt *handled well* — not a
+  problem. The tool follows that thread across the whole session before deciding.
+
 ### 🤖 Claude (the AI model)
-The actual intelligence. It reads the transcript chunks and writes the findings and feedback. It's
-told **strict rules**: quote the transcript exactly (never make things up), stay formal and kind
-(never harsh), be concise, and anchor every point to a timestamp.
+The actual intelligence — **Claude Sonnet 4.6**. It reads the transcript, works out the flow, and
+writes the findings and feedback. It's told **strict rules**: quote the transcript exactly (never
+make things up), judge the **instructor only**, stay formal and kind (never harsh), be concise, and
+anchor every point to a timestamp. It runs at **temperature 0** (the most consistent, least "creative"
+setting) so the same class gives the same read.
 
 ---
 
 ## 6. How the AI *actually* looks at a class (in simple terms)
 
-A 4-hour transcript is too long to read all at once well. So the Brain uses a **"divide and
-conquer"** approach:
+The goal is an **intelligent read of the whole conversation** — not a machine that flags any snippet
+that *looks* bad out of context. So before it judges anything, it reads the entire class **once, as a
+whole**:
 
-1. **Chop** the transcript into ~30-minute chunks.
-2. **Ask per chunk:** for each chunk, Claude lists only the concrete issues it can *prove* with a
-   quote + timestamp. If a chunk is fine, it says nothing.
-3. **Combine + verify:** all the chunk findings are merged, duplicates removed, and each one is
-   double-checked — if the quote doesn't actually back up the claim, it's dropped.
-4. **Write:** from the surviving, verified findings, Claude writes the summary, the feedback, and the
-   re-class call.
+1. **Read the whole session first (the "session map").** Claude reads the full transcript end-to-end
+   and writes itself a neutral summary: *who* is the instructor vs the learners, the real order of
+   topics, **which learner doubts got resolved later**, and what was left unfinished. This map is the
+   shared context for every step that follows — so nothing is judged in isolation.
+2. **Chop** the (often multi-hour) transcript into ~30-minute chunks — but each chunk is now judged
+   **with the whole-session map in hand**.
+3. **Ask per chunk:** Claude first decides *who is speaking*, then lists only concrete **instructor**
+   issues it can *prove* with a quote + timestamp. It skips anything the map shows was resolved later,
+   and never turns a learner's words into an instructor flag. A clean chunk produces nothing.
+4. **Combine + verify against the whole session:** all findings are merged and each is re-checked and
+   **dropped** if — the quote doesn't back the claim, the quote is actually a *learner* speaking, or
+   the concern is *resolved elsewhere* in the class. This verification step is what removes the
+   "text-segmentation" false alarms.
+5. **Write:** from the surviving, verified findings, Claude writes the summary, the instructor
+   feedback, and the PM-only re-class call.
 
-This is why the feedback is **specific and trustworthy** — every point traces back to a real moment
-in the class, not a vague impression.
+This is why the feedback is **specific and trustworthy** — every point traces back to a real moment,
+attributed to the right person, and checked against the flow of the whole class rather than a vague
+impression or an out-of-context snippet.
+
+> **The parameters, in one place (for the curious):** model **Claude Sonnet 4.6**; **temperature 0**;
+> ~**30-minute** analysis windows with a 2-minute overlap; **strict JSON** output that's schema-checked
+> and auto-repaired once if malformed; **precision over recall** (when unsure, it stays silent — a
+> false criticism is treated as worse than a missed one); every finding needs a **verbatim quote +
+> timestamp**. Two separate checklists (Live vs ARS) — see §5.
 
 ---
 

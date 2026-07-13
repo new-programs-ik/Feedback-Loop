@@ -44,10 +44,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(cues[0].text, "Hello, everyone.")
         self.assertAlmostEqual(cues[0].start, 43 * 60 + 39)
 
-    def test_vtt_header_and_tags_stripped(self):
+    def test_vtt_voice_tag_becomes_speaker(self):
         cues = E.parse_transcript(self._write(VTT, ".vtt"))
         self.assertEqual(len(cues), 2)
-        self.assertEqual(cues[0].text, "Welcome.")           # WEBVTT header + <v> tag removed
+        self.assertEqual(cues[0].text, "Welcome.")           # WEBVTT header + <v> tag removed from text
+        self.assertEqual(cues[0].speaker, "Instructor")      # ...but the speaker is PRESERVED
+        self.assertIsNone(cues[1].speaker)                   # unlabelled line -> no speaker
 
     def test_timestamp_roundtrip(self):
         self.assertEqual(E._seconds_to_ts(E._ts_to_seconds("01:02:03,500")), "01:02:03")
@@ -55,6 +57,33 @@ class TestParsing(unittest.TestCase):
     def test_est_tokens_positive(self):
         cues = E.parse_transcript(self._write(SAMPLE_SRT))
         self.assertGreater(E.est_tokens(cues), 0)
+
+
+class TestSpeakers(unittest.TestCase):
+    """These transcripts have BOTH the instructor and learners — the parser must keep who is speaking."""
+
+    def test_recurring_name_prefix_is_speaker(self):
+        vtt = ("WEBVTT\n\n"
+               "00:00:01.000 --> 00:00:03.000\nRahul: Why stratified k-fold?\n\n"
+               "00:00:04.000 --> 00:00:06.000\nBecause the classes are imbalanced.\n\n"
+               "00:00:07.000 --> 00:00:09.000\nRahul: Got it, thanks.\n")
+        cues = E.parse_cues(vtt)
+        self.assertEqual(cues[0].speaker, "Rahul")               # recurring "Name:" -> speaker
+        self.assertEqual(cues[0].text, "Why stratified k-fold?")  # prefix stripped from text
+        self.assertIsNone(cues[1].speaker)                       # unlabelled -> instructor (inferred later)
+
+    def test_oneoff_prefix_not_treated_as_speaker(self):
+        vtt = ("WEBVTT\n\n"
+               "00:00:01.000 --> 00:00:03.000\nProblem: describe the dataset, not a speaker.\n")
+        cues = E.parse_cues(vtt)
+        self.assertIsNone(cues[0].speaker)                       # appears once -> NOT promoted
+        self.assertTrue(cues[0].text.startswith("Problem:"))
+
+    def test_format_segment_keeps_speaker(self):
+        seg = [E.Cue(1, 0, 2, "Hi", "Instructor"), E.Cue(2, 3, 5, "A question?", "Rahul")]
+        out = E.format_segment(seg)
+        self.assertIn("Instructor: Hi", out)
+        self.assertIn("Rahul: A question?", out)
 
 
 class TestChunking(unittest.TestCase):

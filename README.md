@@ -18,8 +18,11 @@ When a class is rated low, this app:
 1. **Fetches the class transcript** (from Vimeo, or you upload it),
 2. **Reads any class materials** you attach (slides / notebook / docs),
 3. **Runs an AI analysis** against a checklist tailored to the class type (Live class or Assignment
-   Review), producing: an overall summary, specific issues (each with a **timestamp + exact quote**),
-   a polished **instructor feedback** draft, and a **PM-only "re-teach this class?"** call,
+   Review). It first reads the **whole conversation** to work out who's the instructor vs the
+   learners and which doubts get resolved later — so it judges the *instructor*, in context, and
+   never mistakes a learner's words (or a doubt answered later) for a problem. It produces: an
+   overall summary, specific issues (each with a **timestamp + exact quote**), a polished
+   **instructor feedback** draft, and a **PM-only "re-teach this class?"** call,
 4. Lets a PM **review, tweak (or tell the AI to rewrite it), and approve** — with a full history.
 
 **The AI only reads and drafts. A human approves everything.**

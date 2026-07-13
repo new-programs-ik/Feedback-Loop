@@ -6,7 +6,12 @@ Reads a class transcript (+ the class agenda) and returns three things:
   2. feedback — the coaching message for the instructor
   3. reclass  — a PM-only recommendation on whether the class needs to be re-taught
 
-Pipeline:  parse -> chunk by time -> extract findings per window (LLM) -> synthesise + verify + write (LLM)
+Pipeline:  parse (+ keep speakers)
+           -> MAP the whole conversation once: who speaks, the real flow, what gets resolved (LLM)
+           -> chunk by time
+           -> extract INSTRUCTOR findings per window, judged in full-session context (LLM)
+           -> synthesise: verify against the whole session, drop learner-attributed / resolved-later
+              artefacts, de-duplicate, write feedback + PM re-class call (LLM)
 Model:     Claude Sonnet 4.6 (pinned in Config). Set ANTHROPIC_API_KEY in the environment.
 
 Run:
@@ -72,6 +77,7 @@ class Cue:
     start: float   # seconds
     end: float
     text: str
+    speaker: str | None = None   # who said it, when the transcript tells us (instructor / a learner)
 
 def _ts_to_seconds(ts: str) -> float:
     ts = ts.strip().replace(",", ".")
@@ -82,10 +88,22 @@ def _seconds_to_ts(sec: float) -> str:
     h = int(sec // 3600); m = int((sec % 3600) // 60); s = int(sec % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
+# Speaker detection. These transcripts contain BOTH the instructor and learners, and the auditor
+# must never blame the instructor for a learner's words — so we preserve who is speaking.
+_VOICE_RE = re.compile(r"<v\s+([^>]+?)>", re.I)   # WebVTT voice tag:  <v Speaker Name>
+# A "Name:" line prefix — conservative: 1–3 capitalised words then a colon (avoids "Problem two:" etc.)
+_SPEAKER_PREFIX_RE = re.compile(r"^([A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,2}):\s+(?=\S)")
+
 def parse_cues(raw: str) -> list[Cue]:
-    """Parse .srt or .vtt *text* into timestamped cues. Tolerant of WEBVTT headers, indices, BOM, inline tags."""
+    """Parse .srt or .vtt *text* into timestamped cues, PRESERVING the speaker when the transcript
+    marks it. Tolerant of WEBVTT headers, indices, BOM and inline tags.
+
+    Speaker comes from a WebVTT ``<v Name>`` voice tag, or from a ``Name:`` line prefix that RECURS
+    (a one-off "Problem two:" is not mistaken for a speaker). Speaker labelling is what lets the
+    analysis tell the instructor apart from the learners.
+    """
     raw = re.sub(r"^WEBVTT.*?\n\n", "", raw, flags=re.S)
-    cues: list[Cue] = []
+    rows: list[list] = []   # [idx, start, end, text, voice_speaker, prefix_candidate]
     for block in re.split(r"\n\s*\n", raw.strip()):
         lines = [l for l in block.splitlines() if l.strip()]
         ti = next((i for i, l in enumerate(lines) if "-->" in l), None)
@@ -93,14 +111,34 @@ def parse_cues(raw: str) -> list[Cue]:
             continue
         start_s = lines[ti].split("-->")[0]
         end_s = lines[ti].split("-->")[1].split()[0]
-        text = re.sub(r"<[^>]+>", "", " ".join(lines[ti + 1:])).strip()
+        raw_text = " ".join(lines[ti + 1:])
+        mv = _VOICE_RE.search(raw_text)
+        voice = mv.group(1).strip() if mv else None
+        text = re.sub(r"<[^>]+>", "", raw_text).strip()
         if not text:
             continue
+        cand = None
+        if voice is None:
+            mp = _SPEAKER_PREFIX_RE.match(text)
+            if mp:
+                cand = mp.group(1).strip()
         try:
             idx = int(lines[0])
         except ValueError:
-            idx = len(cues) + 1
-        cues.append(Cue(idx, _ts_to_seconds(start_s), _ts_to_seconds(end_s), text))
+            idx = len(rows) + 1
+        rows.append([idx, _ts_to_seconds(start_s), _ts_to_seconds(end_s), text, voice, cand])
+
+    # Promote a "Name:" prefix to a real speaker only if it RECURS (>= 2 cues); voice-tag speakers
+    # are always trusted. This keeps stray colon-lines from being read as speakers.
+    from collections import Counter
+    recurring = {n for n, c in Counter(r[5] for r in rows if r[5]).items() if c >= 2}
+    cues: list[Cue] = []
+    for idx, start, end, text, voice, cand in rows:
+        speaker = voice
+        if speaker is None and cand in recurring:
+            speaker = cand
+            text = _SPEAKER_PREFIX_RE.sub("", text, count=1).strip() or text
+        cues.append(Cue(idx, start, end, text, speaker))
     return cues
 
 def parse_transcript(path: str) -> list[Cue]:
@@ -124,7 +162,12 @@ def chunk_by_time(cues: list[Cue], window_min: int = CFG.window_min, overlap_min
     return chunks
 
 def format_segment(seg: list[Cue]) -> str:
-    return "\n".join(f"[{_seconds_to_ts(c.start)}] {c.text}" for c in seg)
+    """Render cues for the model, keeping the speaker label when known ([time] Name: text)."""
+    out = []
+    for c in seg:
+        who = f"{c.speaker}: " if c.speaker else ""
+        out.append(f"[{_seconds_to_ts(c.start)}] {who}{c.text}")
+    return "\n".join(out)
 
 def est_tokens(cues: list[Cue]) -> int:
     return int(sum(len(c.text.split()) for c in cues) * 1.33)
@@ -134,8 +177,14 @@ RUBRIC_LIVE = """\
 You are auditing a LIVE CLASS transcript to evaluate the instructor.
 
 WHAT THIS TRANSCRIPT IS (read carefully):
-- It captures the INSTRUCTOR's speech only. Learner questions (audio or chat) are usually NOT present.
-- Judge only what the instructor SAID and DID. Do NOT assume what learners asked.
+- It may contain MORE THAN ONE speaker: the INSTRUCTOR (the person teaching / leading the class) and
+  LEARNERS (who ask questions or respond). Speaker labels are often MISSING — infer turns from content.
+- FIRST attribute who is speaking, THEN judge. You are evaluating the INSTRUCTOR ONLY. NEVER flag a
+  learner's words as the instructor's mistake. A learner being confused or wrong is not, by itself, an
+  instructor flag — only flag the instructor if their OWN explanation caused it or they fail to resolve it.
+- Read the WHOLE-SESSION MAP given in CONTEXT first, and judge each segment IN THE CONTEXT OF THE WHOLE
+  SESSION, not in isolation. If a concern here is RESOLVED or addressed later (per the map), do NOT flag
+  it — that would be a text-segmentation artefact, not a real problem.
 - The class AGENDA (the planned items) is given in CONTEXT — use it to judge coverage and time balance.
 - PLANNED CLASS MATERIALS (an outline of the content that was supposed to be taught) may also be given
   in CONTEXT — check the transcript against them for coverage, agenda_balance and correctness.
@@ -159,10 +208,13 @@ If a dimension is fine, raise nothing for it.
   agenda_balance - did each agenda item get enough time (aim ~45 min), and did the IMPORTANT items get MORE time? Use timestamps.
   concept_left   - did the instructor DEFER a planned concept to a future class ("we'll cover this next time / next class")? Quote it.
 
-[B] Instructor-side only (we cannot see learners -> lower confidence; raise only with a clear instructor-side cue):
-  doubt_handling - a question the instructor ACKNOWLEDGES, and whether they answer it well, poorly, or wave it off. Never assume unseen questions.
+[B] Interaction quality (judge from the ACTUAL learner turns in the transcript; if a learner's words are
+    not captured, stay at lower confidence and never assume an unseen question):
+  doubt_handling - a learner question/doubt, and whether the instructor answers it well, poorly, or waves it
+                   off. Attribute the QUESTION to the learner and the HANDLING to the instructor. If the doubt
+                   is resolved later in the session, it is handled.
   engagement     - interactive vs a monologue; does the instructor invite questions / check understanding ("does that make sense?").
-  learner_gap    - the instructor repeats or acknowledges a learner pointing out a concept that was not covered.
+  learner_gap    - a learner points out a concept that was not covered, and how the instructor responds.
 
 [C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
   camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
@@ -178,8 +230,13 @@ You are auditing an ASSIGNMENT REVIEW SESSION (ARS) transcript to evaluate the i
 
 WHAT AN ARS IS (read carefully):
 - Learners were assigned problems; this session reviews the solutions and clears doubts.
-- The transcript captures the INSTRUCTOR's speech only. Learner questions are usually NOT present.
-  Judge only what the instructor SAID and DID. Do NOT assume what learners asked.
+- The transcript may contain MORE THAN ONE speaker: the INSTRUCTOR (leading the review) and LEARNERS
+  (asking about problems / raising doubts). Speaker labels are often MISSING — infer turns from content.
+- FIRST attribute who is speaking, THEN judge. You evaluate the INSTRUCTOR ONLY. NEVER flag a learner's
+  words as the instructor's mistake.
+- Read the WHOLE-SESSION MAP given in CONTEXT first, and judge each segment IN THE CONTEXT OF THE WHOLE
+  SESSION. If a doubt raised here is RESOLVED later (per the map), do NOT flag it as unresolved — that
+  would be a text-segmentation artefact, not a real problem.
 - The assignment / planned problems are given in CONTEXT when available — use them to judge coverage.
 - PLANNED CLASS MATERIALS (the assignment content / solutions outline) may also be given in CONTEXT —
   check the transcript against them for problem_coverage and correctness.
@@ -210,13 +267,14 @@ If a dimension is fine, raise nothing for it.
                          minimum — learners treat reviewed solutions as canonical.
   logistics            - late start, long dead-air gaps, or tech problems the instructor mentions.
 
-[B] Instructor-side only (we cannot see learners -> lower confidence; raise only with a clear instructor-side cue):
-  doubt_handling - WEIGHTED HEAVILY in an ARS: clearing doubts is the point of the session. Judge how
-                   acknowledged doubts are handled (well / poorly / waved off). If no doubts surface at all,
-                   that alone is NOT a flag. Never assume unseen questions.
+[B] Interaction quality (judge from the ACTUAL learner turns when present; never assume an unseen question):
+  doubt_handling - WEIGHTED HEAVILY in an ARS: clearing doubts is the point of the session. Attribute the
+                   doubt to the LEARNER and judge how the instructor handles it (well / poorly / waved off).
+                   If a doubt is resolved later in the session, it is handled. If no doubts surface at all,
+                   that alone is NOT a flag.
   engagement     - interactive vs a monologue; invites questions, checks understanding.
-  learner_gap    - the instructor acknowledges a prerequisite wasn't taught, or the assignment didn't match
-                   what the class covered.
+  learner_gap    - a learner (or the instructor) notes a prerequisite wasn't taught, or the assignment
+                   didn't match what the class covered.
 
 [C] Needs the video, not the transcript (raise ONLY on a clear verbal cue):
   camera - whether the instructor's camera is on; only flag if they say e.g. "can you see me?".
@@ -229,18 +287,59 @@ RULES:
 
 RUBRICS = {"live_class": RUBRIC_LIVE, "ars": RUBRIC_ARS}
 
+# ── Pass 0: understand the WHOLE conversation before judging any part of it ──────────────────
+# This is what makes the analysis intelligent rather than a per-segment text matcher: one pass reads
+# the entire transcript, works out who the instructor is vs the learners, the real flow, and — crucially
+# — which doubts/concerns get RESOLVED later. That map is fed into every later step so nothing is flagged
+# out of context.
+CONV_MAP_SYS = (
+    "You are analysing a FULL class/session transcript to understand it as a whole BEFORE any judgement. "
+    "The transcript may contain multiple speakers — the INSTRUCTOR (who teaches / leads) and LEARNERS "
+    "(who ask or respond) — and speaker labels are often missing, so infer turns from content. Produce a "
+    "compact, NEUTRAL map (no criticism, no scoring, no advice):\n"
+    "1) SPEAKERS — who is the instructor vs learners; note any names/labels you can infer.\n"
+    "2) SESSION ARC — the ordered topics/problems actually taught, with rough [HH:MM:SS] ranges.\n"
+    "3) INTERACTIONS — notable learner questions/doubts and WHERE (timestamp) the instructor resolved each,\n"
+    "   or 'not resolved'.\n"
+    "4) OPEN THREADS — anything deferred, skipped, or left unresolved by the END of the session.\n"
+    "Output plain text, <= 450 words. Be accurate; this map is the shared context a later auditor relies on."
+)
+
+CONV_MAP_MAX_CHARS = 60000   # cap the transcript fed to the map pass (very long sessions are truncated)
+
+def map_conversation(client, cues: list[Cue], ctx: str, usage: "Usage") -> str:
+    """Read the whole transcript once and return a neutral session map (speakers, arc, what got resolved)."""
+    body = format_segment(cues)
+    truncated = len(body) > CONV_MAP_MAX_CHARS
+    if truncated:
+        body = body[:CONV_MAP_MAX_CHARS]
+    user = (
+        f"CLASS CONTEXT\n{ctx}\n\n"
+        f"FULL TRANSCRIPT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known):\n{body}\n\n"
+        + ("[note: transcript truncated for length — map what you can]\n\n" if truncated else "")
+        + "Produce the session map now."
+    )
+    return _call(client, CONV_MAP_SYS, user, 1200, usage).strip()
+
 EXTRACT_SYS = (
-    "You are a precise teaching-quality auditor reviewing one segment of a live class transcript. "
-    "You extract only evidence-backed findings, as strict JSON. Rules you never break: every quote is "
-    "copied verbatim from the segment; you never invent or paraphrase quotes; you prefer returning "
-    "nothing over raising an unsupported flag; you output JSON only — no prose, no code fences."
+    "You are a precise teaching-quality auditor reviewing ONE segment of a class transcript that may "
+    "contain multiple speakers (an instructor and learners). You FIRST attribute who is speaking, then "
+    "extract only evidence-backed findings ABOUT THE INSTRUCTOR, as strict JSON. Rules you never break: "
+    "never blame the instructor for a learner's words; use the whole-session map for context and never "
+    "flag something the session resolves elsewhere; every quote is copied verbatim from the segment; you "
+    "never invent or paraphrase quotes; you prefer returning nothing over raising an unsupported flag; "
+    "you output JSON only — no prose, no code fences."
 )
 
 def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class") -> str:
     allowed = "|".join(sorted(flags_for(class_type)))
     return (
         f"CLASS CONTEXT\n{ctx}\n\n{RUBRICS[class_type]}\n\n"
-        f"TRANSCRIPT SEGMENT (timestamps in [HH:MM:SS]):\n{segment_text}\n\n"
+        f"TRANSCRIPT SEGMENT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known — "
+        f"lines with no name are usually the instructor, but confirm from content):\n{segment_text}\n\n"
+        "BEFORE extracting: attribute each line to the instructor or a learner. Judge ONLY the instructor. "
+        "Do not raise anything the whole-session map shows is resolved later, and never turn a learner's "
+        "words into an instructor flag.\n"
         'Return JSON ONLY in this shape:\n'
         '{"findings":[{"flag":"' + allowed + '",'
         '"observation":"one specific sentence","severity":"minor|moderate|major",'
@@ -252,9 +351,11 @@ def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_clas
 SYNTH_SYS = (
     "You are a senior instructional reviewer. You consolidate per-segment findings into a verified, "
     "de-duplicated assessment, then produce two SEPARATE things: coaching feedback for the instructor, "
-    "and a PM-only recommendation on whether the class needs to be re-taught. You drop any finding whose "
-    "quote does not clearly support its claim. The re-class recommendation is for the PM and must never "
-    "appear in the instructor feedback. Output JSON only — no prose, no code fences."
+    "and a PM-only recommendation on whether the class needs to be re-taught. You DROP any finding whose "
+    "quote does not clearly support its claim, whose quote is actually a LEARNER speaking (not the "
+    "instructor), or that the whole-session map shows was resolved later in the session. The re-class "
+    "recommendation is for the PM and must never appear in the instructor feedback. Output JSON only — "
+    "no prose, no code fences."
 )
 
 def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class") -> str:
@@ -272,7 +373,12 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         f"CLASS CONTEXT\n{ctx}\n\n"
         f"RAW FINDINGS collected from segment passes:\n{findings_json}\n\n"
         "DO THIS, IN ORDER:\n"
-        "1. VERIFY: for each finding, check the quote actually supports the observation. Drop any that don't.\n"
+        "1. VERIFY each finding against the WHOLE SESSION, and DROP it if ANY of these is true:\n"
+        "   - the quote does not actually support the observation;\n"
+        "   - the quote is a LEARNER speaking, not the instructor (never blame the instructor for a learner's words);\n"
+        "   - the concern is RESOLVED or addressed later in the session (per the whole-session map) — a\n"
+        "     text-segmentation artefact, not a real problem;\n"
+        "   - read in full context, the moment is not actually a problem.\n"
         "2. MERGE duplicates across segments; give each surviving flag an overall severity and confidence.\n"
         "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:\n"
         "   - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.\n"
@@ -496,6 +602,12 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         log.info("digesting %d chars of class materials", len(materials))
         outline = _digest_materials(client, materials, usage)
         ctx = ctx + "\n\nPLANNED CLASS MATERIALS (outline of what was supposed to be taught):\n" + outline
+    # Pass 0 — read the whole conversation first, so every later segment is judged in full context
+    # (who speaks, the real flow, and which doubts get resolved). This is the anti-"text-segmentation" step.
+    log.info("mapping the whole conversation (%d cues) before judging any segment", len(cues))
+    convo_map = map_conversation(client, cues, ctx, usage)
+    ctx = ctx + ("\n\nWHOLE-SESSION MAP (read this FIRST — it tells you who speaks, the real flow, and what "
+                 "gets resolved later; do not flag anything resolved elsewhere):\n" + convo_map)
     findings: list[dict] = []
     for i, seg in enumerate(chunks, 1):
         log.info("extract %d/%d  %s–%s", i, len(chunks), _seconds_to_ts(seg[0].start), _seconds_to_ts(seg[-1].end))
@@ -504,6 +616,8 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     result = synthesise(client, findings, ctx, usage, class_type)
     meta = {
         "model": CFG.model, "class_type": class_type, "windows": len(chunks), "cues": len(cues),
+        "speakers": sorted({c.speaker for c in cues if c.speaker}),
+        "conversation_mapped": True,
         "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
         "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
         "cost_usd": round(usage.cost_usd(), 4), "seconds": round(time.time() - t0, 1),
