@@ -218,6 +218,10 @@ impression or an out-of-context snippet.
 > false criticism is treated as worse than a missed one); every finding needs a **verbatim quote +
 > timestamp**. Two separate checklists (Live vs ARS) — see §5.
 
+> 🧠 **Want the AI's *actual words*?** This section describes the analysis in plain English. If you want
+> to read the **exact prompts** the AI is given at every step — and suggest changes to them — see the
+> companion doc **[THE_AI_ANALYSIS_PROMPTS.md](THE_AI_ANALYSIS_PROMPTS.md)**.
+
 ---
 
 ## 7. What's stored, what's **never** stored (confidentiality)

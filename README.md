@@ -7,6 +7,10 @@ Built for Interview Kickstart's New Programs team, now used across teams.
 
 > 📖 **New here? Read [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)** — a deep, plain-English guide to
 > everything this system does (written for *anyone*, no tech background needed). Managers, start there.
+>
+> 🧠 **Want to see exactly what the AI is told?** [docs/THE_AI_ANALYSIS_PROMPTS.md](docs/THE_AI_ANALYSIS_PROMPTS.md)
+> shows the **verbatim prompts** behind every analysis, with plain-English notes — so anyone can review
+> the "black box" and suggest changes.
 
 🔗 **Live app:** https://feedback-loop-ten.vercel.app · sign in with your **@interviewkickstart.com** Google account.
 
