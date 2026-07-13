@@ -38,13 +38,17 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const vimeo_url = String(formData.get("vimeo_url") ?? "").trim();
   const file = formData.get("file") as File | null;
   const transcript = file && file.size ? await file.text() : "";
+  const materials_text = String(formData.get("materials_text") ?? "").trim();
   const materials_files: { filename: string; b64: string }[] = [];
   let materialsTotal = 0;
   for (const f of formData.getAll("materials") as File[]) {
     if (!f || !f.size) continue;
-    if (f.size > 15 * 1024 * 1024) return { error: `"${f.name}" is too large (max 15 MB each).` };
     materialsTotal += f.size;
-    if (materialsTotal > 30 * 1024 * 1024) return { error: "Total materials are too large (max ~30 MB)." };
+    if (materialsTotal > 4 * 1024 * 1024) {
+      return {
+        error: "Materials are too large (keep the total under ~4 MB). Compress the deck (or export as PDF), or paste the key content in the text box instead.",
+      };
+    }
     materials_files.push({ filename: f.name, b64: Buffer.from(await f.arrayBuffer()).toString("base64") });
   }
 
@@ -110,7 +114,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     rating: rating != null ? String(rating) : "(unspecified)",
     agenda: agenda || "(not provided)",
     class_type,
-    ...(materials_files.length ? { materials_files } : {}),
+    ...(materials_files.length || materials_text ? { materials_files, materials_text } : {}),
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 

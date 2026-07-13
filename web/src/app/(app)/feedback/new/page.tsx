@@ -6,6 +6,9 @@ import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
+// Give the analysis (Vimeo fetch + materials + Claude) up to the platform max (Vercel Hobby = 60s).
+export const maxDuration = 60;
+
 export default async function NewAnalysisPage() {
   const user = await requireUser();
   if (user.role === "learner") redirect("/dashboard");

@@ -143,10 +143,13 @@ export function NewAnalysisForm({
             <label htmlFor="materials" className={label}>Class materials (optional — you can pick several)</label>
             <Input id="materials" name="materials" type="file" multiple
                    accept=".pdf,.pptx,.docx,.txt,.md,.ipynb" className="file:mr-3 file:text-sm" />
+            <textarea name="materials_text" rows={2} className={field + " h-auto py-2"}
+                      placeholder="…or paste key materials/notes here (useful if a deck is too big to upload)." />
             <p className="text-muted-foreground text-xs">
-              Slides, coding notebook, docs — add as many as you like. The AI checks the class against
-              them (was the content covered, and taught correctly?). Materials are used only for this
-              analysis and are <strong>never stored</strong>.
+              Slides, coding notebook, docs — the AI checks the class against them (was the content
+              covered, and taught correctly?). Keep the total upload under <strong>~4&nbsp;MB</strong>
+              (compress or export to PDF, or paste text above for bigger decks). Materials are used
+              only for this analysis and are <strong>never stored</strong>.
             </p>
           </div>
 
