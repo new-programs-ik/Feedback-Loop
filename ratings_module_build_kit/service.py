@@ -49,6 +49,11 @@ def require_worker_auth(authorization: Optional[str] = Header(default=None)) -> 
         raise HTTPException(status_code=401, detail="invalid worker credentials")
 
 
+class MaterialFile(BaseModel):
+    filename: str = "materials.txt"
+    b64: str                                     # base64-encoded file bytes
+
+
 class AnalyzeRequest(BaseModel):
     transcript: Optional[str] = None
     vimeo_url: Optional[str] = None
@@ -61,8 +66,8 @@ class AnalyzeRequest(BaseModel):
     agenda: str = "(not provided)"
     class_type: Literal["live_class", "ars"] = "live_class"
     materials_text: str = ""                     # pasted class-materials text (optional)
-    materials_file_b64: Optional[str] = None     # or an uploaded file, base64-encoded
-    materials_filename: Optional[str] = None
+    materials_files: list[MaterialFile] = []     # one or more uploaded files (slides/notebook/doc)
+    # NOTE: materials are used in-memory for this analysis only and are NEVER persisted.
 
     @model_validator(mode="after")
     def _need_a_source(self):
@@ -125,20 +130,19 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 def gather_materials(req: AnalyzeRequest) -> str:
-    """Combine pasted materials text + an uploaded materials file into one string."""
+    """Combine pasted materials text + one or more uploaded materials files into one string.
+    Held in memory for this request only — never persisted anywhere."""
     parts = []
     if req.materials_text and req.materials_text.strip():
         parts.append(req.materials_text.strip())
-    if req.materials_file_b64:
+    for mf in req.materials_files:
         try:
-            data = base64.b64decode(req.materials_file_b64)
+            data = base64.b64decode(mf.b64)
         except Exception:
-            raise HTTPException(status_code=422, detail="materials file is not valid base64")
-        text = extract_text(req.materials_filename or "materials.txt", data)
-        if not text.strip():
-            raise HTTPException(status_code=422,
-                                detail=f"no text could be extracted from '{req.materials_filename}'")
-        parts.append(text)
+            raise HTTPException(status_code=422, detail=f"materials file '{mf.filename}' is not valid base64")
+        text = extract_text(mf.filename or "materials.txt", data)
+        if text.strip():
+            parts.append(f"=== {mf.filename} ===\n{text}")
     return "\n\n".join(parts)
 
 

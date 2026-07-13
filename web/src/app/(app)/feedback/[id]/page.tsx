@@ -34,6 +34,13 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     .single();
   if (!klass) notFound();
 
+  let creator = "";
+  if (klass.created_by) {
+    const { data: p } = await supabase.from("profiles").select("full_name, email")
+      .eq("user_id", klass.created_by as string).maybeSingle();
+    creator = p?.full_name || (p?.email ?? "").split("@")[0] || "";
+  }
+
   const analyses = (klass.analyses ?? []) as Array<Record<string, unknown>>;
   const analysis = analyses[analyses.length - 1];
   const feedbacks = (klass.feedback ?? []) as Array<Record<string, unknown>>;
@@ -64,6 +71,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           <p className="text-muted-foreground text-sm">
             {course} · {instructor} · {cohort} · {String(klass.class_date)}
             {rating != null && <> · rating <strong>{Number(rating).toFixed(2)}</strong></>}
+            {creator && <> · by {creator}</>}
           </p>
         </div>
         <DeleteButton classId={String(klass.id)} />

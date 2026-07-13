@@ -140,12 +140,13 @@ export function NewAnalysisForm({
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="materials" className={label}>Class materials (optional)</label>
-            <Input id="materials" name="materials" type="file"
+            <label htmlFor="materials" className={label}>Class materials (optional — you can pick several)</label>
+            <Input id="materials" name="materials" type="file" multiple
                    accept=".pdf,.pptx,.docx,.txt,.md,.ipynb" className="file:mr-3 file:text-sm" />
             <p className="text-muted-foreground text-xs">
-              Slides / notebook / doc of what was planned. The AI checks the class against it — was the
-              content actually covered, and taught correctly?
+              Slides, coding notebook, docs — add as many as you like. The AI checks the class against
+              them (was the content covered, and taught correctly?). Materials are used only for this
+              analysis and are <strong>never stored</strong>.
             </p>
           </div>
 

@@ -38,15 +38,14 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const vimeo_url = String(formData.get("vimeo_url") ?? "").trim();
   const file = formData.get("file") as File | null;
   const transcript = file && file.size ? await file.text() : "";
-  const materialsFile = formData.get("materials") as File | null;
-  let materials_file_b64: string | undefined;
-  let materials_filename: string | undefined;
-  if (materialsFile && materialsFile.size) {
-    if (materialsFile.size > 15 * 1024 * 1024) {
-      return { error: "Materials file is too large (max 15 MB)." };
-    }
-    materials_file_b64 = Buffer.from(await materialsFile.arrayBuffer()).toString("base64");
-    materials_filename = materialsFile.name;
+  const materials_files: { filename: string; b64: string }[] = [];
+  let materialsTotal = 0;
+  for (const f of formData.getAll("materials") as File[]) {
+    if (!f || !f.size) continue;
+    if (f.size > 15 * 1024 * 1024) return { error: `"${f.name}" is too large (max 15 MB each).` };
+    materialsTotal += f.size;
+    if (materialsTotal > 30 * 1024 * 1024) return { error: "Total materials are too large (max ~30 MB)." };
+    materials_files.push({ filename: f.name, b64: Buffer.from(await f.arrayBuffer()).toString("base64") });
   }
 
   if (!course_id) return { error: "Pick a course." };
@@ -111,7 +110,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     rating: rating != null ? String(rating) : "(unspecified)",
     agenda: agenda || "(not provided)",
     class_type,
-    ...(materials_file_b64 ? { materials_file_b64, materials_filename } : {}),
+    ...(materials_files.length ? { materials_files } : {}),
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 

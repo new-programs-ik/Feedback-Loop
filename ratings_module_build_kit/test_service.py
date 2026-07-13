@@ -122,21 +122,27 @@ class TestMaterials(unittest.TestCase):
             service.extract_text("deck.key", b"xx")
         self.assertEqual(cm.exception.status_code, 422)
 
-    def test_analyze_passes_materials(self):
-        b64 = base64.b64encode("Planned: trees, gini, ensembles".encode()).decode()
+    def test_analyze_passes_multiple_materials(self):
+        f1 = base64.b64encode("Planned: trees, gini, ensembles".encode()).decode()
+        f2 = base64.b64encode("Notebook: fit(X, y) accuracy".encode()).decode()
         with patch.object(service.E, "analyse_text", return_value=(RESULT, META)) as m:
             r = client.post("/analyze", json={
                 "transcript": SRT, "materials_text": "Agenda outline",
-                "materials_file_b64": b64, "materials_filename": "plan.txt",
+                "materials_files": [
+                    {"filename": "slides.txt", "b64": f1},
+                    {"filename": "lab.txt", "b64": f2},
+                ],
             })
         self.assertEqual(r.status_code, 200)
         self.assertGreater(r.json()["materials_chars"], 0)
         materials_arg = m.call_args.args[3]
         self.assertIn("Agenda outline", materials_arg)
-        self.assertIn("gini", materials_arg)
+        self.assertIn("gini", materials_arg)      # from file 1
+        self.assertIn("Notebook", materials_arg)  # from file 2
 
     def test_bad_base64_is_422(self):
-        r = client.post("/analyze", json={"transcript": SRT, "materials_file_b64": "!!!not-b64!!!"})
+        r = client.post("/analyze", json={
+            "transcript": SRT, "materials_files": [{"filename": "x.txt", "b64": "!!!not-b64!!!"}]})
         self.assertEqual(r.status_code, 422)
 
 

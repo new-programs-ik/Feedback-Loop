@@ -29,11 +29,21 @@ export default async function FeedbackPage({
   const { data: courses } = await supabase.from("courses").select("id, name").order("name");
   let q = supabase
     .from("classes")
-    .select("id, topic, class_date, rating, status, session_type, course_id, courses(name), instructors(name), analyses(reclass), feedback(status)")
+    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), instructors(name), analyses(reclass), feedback(status)")
     .order("created_at", { ascending: false });
   if (sp.course) q = q.eq("course_id", sp.course);
   const { data: rows } = await q;
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
+
+  // resolve "created by" names
+  const creatorIds = [...new Set(classes.map((c) => c.created_by).filter(Boolean) as string[])];
+  const creatorName = new Map<string, string>();
+  if (creatorIds.length) {
+    const { data: profs } = await supabase.from("profiles").select("user_id, full_name, email").in("user_id", creatorIds);
+    for (const p of (profs ?? []) as Array<{ user_id: string; full_name?: string; email?: string }>) {
+      creatorName.set(p.user_id, p.full_name || (p.email ?? "").split("@")[0] || "—");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -90,6 +100,7 @@ export default async function FeedbackPage({
                 <th className="px-4 py-2.5 font-medium">Rating</th>
                 <th className="px-4 py-2.5 font-medium">Re-class</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">By</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -117,6 +128,7 @@ export default async function FeedbackPage({
                                : <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-4 py-3"><Badge variant={statusVariant(status)}>{status.replace("_", " ")}</Badge></td>
+                    <td className="text-muted-foreground px-4 py-3">{creatorName.get(String(c.created_by)) ?? "—"}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <Button asChild variant="outline" size="sm">
