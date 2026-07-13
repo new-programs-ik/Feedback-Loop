@@ -29,7 +29,7 @@ export default async function FeedbackPage({
   const { data: courses } = await supabase.from("courses").select("id, name").order("name");
   let q = supabase
     .from("classes")
-    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out), feedback(status)")
+    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd), feedback(status)")
     .order("class_date", { ascending: false });
   if (sp.course) q = q.eq("course_id", sp.course);
   if (sp.month && /^\d{4}-\d{2}$/.test(sp.month)) {
@@ -40,6 +40,15 @@ export default async function FeedbackPage({
   }
   const { data: rows } = await q;
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
+
+  // Totals for whatever is currently in view (respects the course/month filters).
+  let totalTokens = 0;
+  let totalCost = 0;
+  for (const c of classes) {
+    const a = (c.analyses as Array<{ tokens_in?: number; tokens_out?: number; cost_usd?: number }> | null)?.[0];
+    totalTokens += (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
+    totalCost += Number(a?.cost_usd ?? 0);
+  }
 
   // resolve "created by" names
   const creatorIds = [...new Set(classes.map((c) => c.created_by).filter(Boolean) as string[])];
@@ -90,6 +99,14 @@ export default async function FeedbackPage({
         )}
       </form>
 
+      {classes.length > 0 && (
+        <p className="text-muted-foreground text-sm">
+          {classes.length} {classes.length === 1 ? "class" : "classes"}
+          {(sp.course || sp.month) ? " (filtered)" : ""} · {(totalTokens / 1000).toFixed(1)}k tokens ·{" "}
+          <span className="text-foreground font-medium">${totalCost.toFixed(2)}</span> total AI cost
+        </p>
+      )}
+
       {classes.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
@@ -113,6 +130,7 @@ export default async function FeedbackPage({
                 <th className="px-4 py-2.5 font-medium">Type</th>
                 <th className="px-4 py-2.5 font-medium">Rating</th>
                 <th className="px-4 py-2.5 font-medium">Tokens</th>
+                <th className="px-4 py-2.5 font-medium">Cost</th>
                 <th className="px-4 py-2.5 font-medium">Re-class</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">By</th>
@@ -122,9 +140,10 @@ export default async function FeedbackPage({
             <tbody>
               {classes.map((c) => {
                 const course = (c.courses as { name?: string } | null)?.name ?? "—";
-                const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number }> | null)?.[0];
+                const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number; cost_usd?: number }> | null)?.[0];
                 const reclass = a?.reclass;
                 const tokens = (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
+                const cost = Number(a?.cost_usd ?? 0);
                 const rating = c.rating as number | null;
                 const status = String(c.status);
                 const type = c.session_type === "ars" ? "ARS" : "Live";
@@ -140,6 +159,7 @@ export default async function FeedbackPage({
                       </span>
                     </td>
                     <td className="text-muted-foreground px-4 py-3">{tokens > 0 ? `${(tokens / 1000).toFixed(1)}k` : "—"}</td>
+                    <td className="px-4 py-3">{cost > 0 ? `$${cost.toFixed(2)}` : "—"}</td>
                     <td className="px-4 py-3">
                       {reclass ? <Badge variant={reclassVariant(reclass)} className="uppercase">{reclass}</Badge>
                                : <span className="text-muted-foreground">—</span>}
