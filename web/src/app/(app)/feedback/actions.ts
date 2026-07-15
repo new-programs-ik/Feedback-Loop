@@ -40,6 +40,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const file = formData.get("file") as File | null;
   const transcript = file && file.size ? await file.text() : "";
   const materials_text = String(formData.get("materials_text") ?? "").trim();
+  const materials_url = String(formData.get("materials_url") ?? "").trim();
   const materials_files: { filename: string; b64: string }[] = [];
   let materialsTotal = 0;
   for (const f of formData.getAll("materials") as File[]) {
@@ -132,7 +133,9 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     rating: rating != null ? String(rating) : "(unspecified)",
     agenda: agenda || "(not provided)",
     class_type,
-    ...(materials_files.length || materials_text ? { materials_files, materials_text } : {}),
+    ...(materials_files.length || materials_text || materials_url
+      ? { materials_files, materials_text, materials_url }
+      : {}),
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 

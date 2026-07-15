@@ -350,12 +350,13 @@ def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_clas
 
 SYNTH_SYS = (
     "You are a senior instructional reviewer. You consolidate per-segment findings into a verified, "
-    "de-duplicated assessment, then produce two SEPARATE things: coaching feedback for the instructor, "
-    "and a PM-only recommendation on whether the class needs to be re-taught. You DROP any finding whose "
-    "quote does not clearly support its claim, whose quote is actually a LEARNER speaking (not the "
-    "instructor), or that the whole-session map shows was resolved later in the session. The re-class "
-    "recommendation is for the PM and must never appear in the instructor feedback. Output JSON only — "
-    "no prose, no code fences."
+    "de-duplicated assessment, then produce THREE SEPARATE things: (1) DETAILED coaching feedback with "
+    "timestamps, for the INTERNAL team; (2) a SHORT, warm summary note to SEND to the instructor "
+    "(6-7 sentences, may state the class rating); (3) a PM-only recommendation on whether the class "
+    "needs to be re-taught. You DROP any finding whose quote does not clearly support its claim, whose "
+    "quote is actually a LEARNER speaking (not the instructor), or that the whole-session map shows was "
+    "resolved later in the session. The re-class recommendation is for the PM and must never appear in "
+    "either instructor-facing text. Output JSON only — no prose, no code fences."
 )
 
 def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class") -> str:
@@ -388,8 +389,18 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         "     then a one-line close.\n"
         "   - Every improvement point MUST cite at least one timestamp. Never invent quotes or timestamps.\n"
         + frame +
-        "   - Do NOT mention the numeric rating, that the class was low-rated, or re-classing — purely coaching.\n"
-        "4. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in the feedback above): decide whether this\n"
+        "   - This DETAILED feedback is for the internal team; it may be candid but stays kind. Do NOT mention\n"
+        "     the numeric rating, that the class was low-rated, or re-classing here — purely coaching.\n"
+        "4. WRITE the SUMMARY NOTE TO SEND TO THE INSTRUCTOR (field 'instructor_summary'). This is the polished\n"
+        "   message the instructor actually receives. STYLE — strict:\n"
+        "   - MAX 6-7 sentences total. Warm, respectful, encouraging; specific but never harsh; no timestamps needed.\n"
+        "   - Cover, in this order: (a) 1-2 sentences on what genuinely went WELL; (b) 1-2 sentences on what did\n"
+        "     NOT go well / needs improvement; (c) STATE the average class rating (use the rating from CLASS\n"
+        "     CONTEXT — e.g. 'This session averaged X/5'; if the rating is unknown, omit this sentence);\n"
+        "     (d) ONE clear, concrete suggestion for improvement; (e) a single closing line capturing the essence\n"
+        "     of what worked and an encouraging conclusion.\n"
+        "   - Self-contained prose (no bullet list, no headings). Do NOT mention re-classing.\n"
+        "5. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in either instructor text): decide whether this\n"
         "   class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:\n"
         + yes_rule +
         '     - "no"    : the problems are about pace / style / engagement, but the content was delivered correctly.\n'
@@ -399,7 +410,8 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         '{"overall":"2-3 sentence summary of what likely drove the low rating",'
         '"flags":[{"flag":"...","severity":"minor|moderate|major","confidence":"low|medium|high",'
         '"evidence":[{"timestamp":"HH:MM:SS","quote":"..."}]}],'
-        '"feedback":"the coaching message the INSTRUCTOR receives, referencing timestamps",'
+        '"feedback":"the DETAILED coaching message (internal), referencing timestamps",'
+        '"instructor_summary":"the 6-7 sentence note to SEND to the instructor, stating the rating",'
         '"reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}'
     )
 
@@ -442,7 +454,7 @@ def validate_result(obj: Any, allowed: set | None = None) -> list[str]:
     if not isinstance(obj, dict):
         return ["result must be an object"]
     errs: list[str] = []
-    for key in ("overall", "feedback"):
+    for key in ("overall", "feedback", "instructor_summary"):
         if not isinstance(obj.get(key), str) or not obj.get(key).strip():
             errs.append(f"missing/empty '{key}'")
     if not isinstance(obj.get("flags"), list):
@@ -648,7 +660,8 @@ def report_markdown(result: dict, ctx: str, meta: dict) -> str:
     for f in flags:
         ev = "; ".join(f'[{e.get("timestamp","")}] “{e.get("quote","")}”' for e in f.get("evidence", []))
         lines.append(f"- **{f.get('flag')}** ({f.get('severity')}, {f.get('confidence')} confidence) — {ev}")
-    lines += ["", "## Feedback for the instructor", result.get("feedback", "").strip(), "",
+    lines += ["", "## Summary to send to the instructor", result.get("instructor_summary", "").strip(), "",
+              "## Detailed feedback (internal team)", result.get("feedback", "").strip(), "",
               "## Re-class recommendation (PM only — not for the instructor)",
               f"**{str(rc.get('recommended','?')).upper()}** — {rc.get('reason','')}".strip()]
     if rc.get("deciding_flags"):

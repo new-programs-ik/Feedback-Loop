@@ -152,6 +152,24 @@ instead of guessing, it can say *"Slide 14's topic was never taught"* or *"the i
 this differently from the notebook."* **Your materials are used only for that one analysis and are
 never stored** (more on that in §7).
 
+You can give materials **three ways**: **upload** the file, **paste** the text, or — best for big
+decks — **paste a link** (a Google Drive / Docs / Slides link, or an internal materials-app link). With
+a link, a small "materials agent" quietly downloads the file, reads it, and hands the content to the
+analysis — so a huge deck never has to be uploaded. For a Drive link, the file must be shared
+*"Anyone with the link → Viewer"* (or be an IK link the system can open). One trade-off to know:
+giving the AI the materials **improves the analysis but uses noticeably more tokens** (a little more
+cost per class).
+
+### 📨 Two feedbacks: one to send, one for the team
+Every analysis now writes **two** versions:
+- A **short summary to send the instructor** — 6–7 warm sentences: what went well, what didn't, the
+  **class rating**, one suggestion, and an encouraging close. This is the message you actually send.
+- The **detailed, timestamped analysis for the internal team** — every flag with its exact quote and
+  time. This stays in-house for coaching and records; the instructor doesn't receive it.
+
+On the review page the summary is marked **"Send this"** (with a copy button); the detailed version is
+labelled **"internal team."**
+
 ### 📋 The rubrics — the AI's "checklist" (Live vs ARS)
 The AI doesn't judge randomly — it follows a **fixed checklist** of things to look for, and there are
 **two different checklists** because the two class types are different:

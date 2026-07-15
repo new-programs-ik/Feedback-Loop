@@ -9,9 +9,10 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# All modules the worker imports at runtime. store.py does the async DB write-back — it MUST be here,
-# or the container crashes on startup with "No module named 'store'".
-COPY engine.py service.py vimeo.py config.py store.py ./
+# All modules the worker imports at runtime. Every local import in service.py must be listed here, or
+# the container crashes on startup with "No module named '<x>'" (store.py = async DB write-back;
+# materials_fetch.py = fetch materials from a link).
+COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py ./
 
 ENV PORT=8000
 EXPOSE 8000

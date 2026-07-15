@@ -9,6 +9,7 @@ import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 import { ReviewActions } from "./review-actions";
 import { DeleteButton } from "../delete-button";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { CopyButton } from "@/components/copy-button";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -20,6 +21,7 @@ type Result = {
   overall?: string;
   flags?: Flag[];
   feedback?: string;
+  instructor_summary?: string;
   reclass?: { recommended?: string; reason?: string; deciding_flags?: string[] };
 };
 
@@ -123,6 +125,25 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             </Card>
           )}
 
+          {result.instructor_summary && (
+            <Card className="border-emerald-300/60">
+              <CardHeader className="flex-row items-center justify-between pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Summary to send to the instructor
+                  <Badge variant="success">Send this</Badge>
+                </CardTitle>
+                <CopyButton text={result.instructor_summary} label="Copy" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{result.instructor_summary}</p>
+                <p className="text-muted-foreground mt-3 text-xs">
+                  A short, ready-to-send note (includes the class rating). The detailed, timestamped analysis
+                  below is for the <strong>internal team</strong> — it is not part of this message.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Flags ({result.flags?.length ?? 0})</CardTitle>
@@ -150,10 +171,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
           <Card>
             <CardHeader className="flex-row items-center justify-between pb-2">
-              <CardTitle className="text-base">Instructor feedback</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                Detailed feedback
+                <Badge variant="outline">internal team</Badge>
+              </CardTitle>
               {done && <Badge variant="success">Approved</Badge>}
             </CardHeader>
             <CardContent>
+              <p className="text-muted-foreground mb-3 text-xs">
+                The full, timestamped coaching notes for the internal team. Edit or ask the AI to rewrite,
+                then approve to store it. (The instructor receives the short summary above, not this.)
+              </p>
               <ReviewActions classId={String(klass.id)} initialText={draft} done={done} />
             </CardContent>
           </Card>

@@ -53,6 +53,13 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("PROBLEMS reviewed", a)
         self.assertIn("canonical", a)
 
+    def test_synth_produces_instructor_summary(self):
+        # the concise, send-to-instructor note (separate from the detailed internal feedback)
+        s = E.build_synth_user("ctx", "[]", "live_class")
+        self.assertIn("instructor_summary", s)
+        self.assertIn("6-7 sentences", s)
+        self.assertIn("average class rating", s)
+
     def test_ars_complexity_conditional(self):
         self.assertIn("If the session involves no code, do NOT raise this", E.RUBRIC_ARS)
 

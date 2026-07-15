@@ -33,6 +33,7 @@ import config
 config.load_env()
 
 import engine as E  # noqa: E402  (after load_env so config is present)
+import materials_fetch as MF  # noqa: E402
 import store as ST  # noqa: E402
 import vimeo as V  # noqa: E402
 
@@ -68,6 +69,7 @@ class AnalyzeRequest(BaseModel):
     class_type: Literal["live_class", "ars"] = "live_class"
     materials_text: str = ""                     # pasted class-materials text (optional)
     materials_files: list[MaterialFile] = []     # one or more uploaded files (slides/notebook/doc)
+    materials_url: str = ""                       # link(s) to fetch instead of uploading (Drive/Docs/web-manager)
     # NOTE: materials are used in-memory for this analysis only and are NEVER persisted.
 
     @model_validator(mode="after")
@@ -98,7 +100,7 @@ def extract_text(filename: str, data: bytes) -> str:
     """Pull plain text out of an uploaded materials file (slides / notebook / doc)."""
     name = (filename or "").lower()
     try:
-        if name.endswith((".txt", ".md", ".vtt", ".srt")):
+        if name.endswith((".txt", ".md", ".vtt", ".srt", ".csv")):
             return data.decode("utf-8", "ignore")
         if name.endswith(".ipynb"):
             nb = _json.loads(data.decode("utf-8", "ignore"))
@@ -135,7 +137,7 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 def gather_materials(req: AnalyzeRequest) -> str:
-    """Combine pasted materials text + one or more uploaded materials files into one string.
+    """Combine pasted text + uploaded files + fetched link(s) into one materials string.
     Held in memory for this request only — never persisted anywhere."""
     parts = []
     if req.materials_text and req.materials_text.strip():
@@ -148,6 +150,16 @@ def gather_materials(req: AnalyzeRequest) -> str:
         text = extract_text(mf.filename or "materials.txt", data)
         if text.strip():
             parts.append(f"=== {mf.filename} ===\n{text}")
+    # Materials-by-link: the "materials agent" fetches the deck/notebook from a Drive/Docs/web-manager
+    # link so big files never hit the upload limit. Fetched in memory, extracted, then discarded.
+    if req.materials_url and req.materials_url.strip():
+        try:
+            for filename, data in MF.fetch_all(req.materials_url):
+                text = extract_text(filename, data)
+                if text.strip():
+                    parts.append(f"=== {filename} (from link) ===\n{text}")
+        except MF.MaterialsFetchError as e:
+            raise HTTPException(status_code=422, detail=f"couldn't read the materials link: {e}")
     return "\n\n".join(parts)
 
 

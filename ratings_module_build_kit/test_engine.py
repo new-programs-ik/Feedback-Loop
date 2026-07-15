@@ -131,6 +131,8 @@ class TestFindingsValidation(unittest.TestCase):
 class TestResultValidation(unittest.TestCase):
     def _result(self, **over):
         r = {"overall": "rushed coverage", "feedback": "Nice energy; watch the pace near the end.",
+             "instructor_summary": "Your explanations were clear and engaging. The final topics felt rushed. "
+                                   "This session averaged 4.1/5. Try a mid-class time-check. Overall a solid session.",
              "flags": [{"flag": "coverage", "severity": "major", "confidence": "high",
                         "evidence": [{"timestamp": "04:30:00", "quote": "we'll do the rest next class"}]}],
              "reclass": {"recommended": "yes", "reason": "last two topics not covered",
@@ -149,6 +151,9 @@ class TestResultValidation(unittest.TestCase):
 
     def test_missing_feedback(self):
         self.assertTrue(E.validate_result(self._result(feedback="")))
+
+    def test_missing_instructor_summary(self):
+        self.assertTrue(E.validate_result(self._result(instructor_summary="")))
 
 
 if __name__ == "__main__":

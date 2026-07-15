@@ -24,8 +24,12 @@ One analysis makes several calls to the AI, in this order:
 | 0 | **(optional) Digest materials** | `MATERIALS_SYS` | A short outline of the slides/notebook you attached |
 | 1 | **Map the whole conversation** | `CONV_MAP_SYS` | A neutral map: who speaks, the flow, what got resolved |
 | 2 | **Extract findings per ~30-min window** | `EXTRACT_SYS` + rubric | Evidence-backed issues about the instructor |
-| 3 | **Synthesise** | `SYNTH_SYS` | Final flags + instructor feedback + PM re-class call |
+| 3 | **Synthesise** | `SYNTH_SYS` | Final flags + **two** feedbacks (detailed internal + short send-to-instructor) + PM re-class call |
 | — | **Revise (later, on the review page)** | `REVISE_SYS` | A reworded feedback draft when a PM asks |
+
+> **Two feedback outputs (since v3):** the synthesis now writes BOTH a **detailed, timestamped** analysis
+> for the **internal team** (`feedback`) AND a **short 6–7 sentence note to send the instructor**
+> (`instructor_summary`, which states the class rating). See §7.
 
 Every finding must carry a **verbatim quote + timestamp**, and the golden rule throughout is
 **precision over completeness**: *if unsure, stay silent — a false criticism is worse than a miss.*
@@ -68,6 +72,12 @@ planned examples/exercises/problems, and anything marked as important. No commen
 > down to *"what was supposed to be taught."* The analysis then checks the class **against that outline**
 > (e.g. *"Slide 14's topic was never covered"*). Materials under ~4,000 characters skip this and go in as-is.
 > **To change:** raise the 400-word limit, or tell it to keep code snippets, formulas, etc.
+
+> **Where the materials come from:** you can **upload** files, **paste** text, or give a **link** (a
+> Google Drive / Docs / Slides link, or an internal materials-app URL). The link path is handled by the
+> "materials agent" (`materials_fetch.py`): it downloads the file, extracts its text, and feeds it in here
+> — so a huge deck never has to be uploaded. The file must be shared *"Anyone with the link → Viewer"* (or
+> be an IK link the worker can open). Note: giving materials **improves accuracy but uses more tokens**.
 
 ---
 
@@ -287,12 +297,13 @@ and drops** weak findings, then writes the two outputs.
 
 ```
 You are a senior instructional reviewer. You consolidate per-segment findings into a verified,
-de-duplicated assessment, then produce two SEPARATE things: coaching feedback for the instructor,
-and a PM-only recommendation on whether the class needs to be re-taught. You DROP any finding whose
-quote does not clearly support its claim, whose quote is actually a LEARNER speaking (not the
-instructor), or that the whole-session map shows was resolved later in the session. The re-class
-recommendation is for the PM and must never appear in the instructor feedback. Output JSON only —
-no prose, no code fences.
+de-duplicated assessment, then produce THREE SEPARATE things: (1) DETAILED coaching feedback with
+timestamps, for the INTERNAL team; (2) a SHORT, warm summary note to SEND to the instructor
+(6-7 sentences, may state the class rating); (3) a PM-only recommendation on whether the class
+needs to be re-taught. You DROP any finding whose quote does not clearly support its claim, whose
+quote is actually a LEARNER speaking (not the instructor), or that the whole-session map shows was
+resolved later in the session. The re-class recommendation is for the PM and must never appear in
+either instructor-facing text. Output JSON only — no prose, no code fences.
 ```
 
 **The instruction (`build_synth_user`) — the LIVE-class version:**
@@ -319,8 +330,16 @@ DO THIS, IN ORDER:
      anchored to its [HH:MM:SS] timestamp(s) and ending in ONE concrete, actionable suggestion;
      then a one-line close.
    - Every improvement point MUST cite at least one timestamp. Never invent quotes or timestamps.
-   - Do NOT mention the numeric rating, that the class was low-rated, or re-classing — purely coaching.
-4. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in the feedback above): decide whether this
+   - This DETAILED feedback is for the internal team; it may be candid but stays kind. Do NOT mention
+     the numeric rating, that the class was low-rated, or re-classing here — purely coaching.
+4. WRITE the SUMMARY NOTE TO SEND TO THE INSTRUCTOR (field 'instructor_summary'). This is the polished
+   message the instructor actually receives. STYLE — strict:
+   - MAX 6-7 sentences total. Warm, respectful, encouraging; specific but never harsh; no timestamps needed.
+   - Cover, in this order: (a) what genuinely went WELL; (b) what did NOT go well / needs improvement;
+     (c) STATE the average class rating (from CLASS CONTEXT, e.g. 'This session averaged X/5'; omit if unknown);
+     (d) ONE clear, concrete suggestion; (e) a single closing line capturing the essence + an encouraging conclusion.
+   - Self-contained prose (no bullet list, no headings). Do NOT mention re-classing.
+5. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in either instructor text): decide whether this
    class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:
      - "yes"   : important planned agenda content was not covered or was badly rushed, OR core
                  concepts were explained incorrectly or so unclearly that learners likely did not get them.
@@ -332,9 +351,14 @@ Return JSON ONLY:
 {"overall":"2-3 sentence summary of what likely drove the low rating",
 "flags":[{"flag":"...","severity":"minor|moderate|major","confidence":"low|medium|high",
 "evidence":[{"timestamp":"HH:MM:SS","quote":"..."}]}],
-"feedback":"the coaching message the INSTRUCTOR receives, referencing timestamps",
+"feedback":"the DETAILED coaching message (internal), referencing timestamps",
+"instructor_summary":"the 6-7 sentence note to SEND to the instructor, stating the rating",
 "reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}
 ```
+
+> **The two instructor outputs:** `feedback` is the **internal**, timestamped coaching detail; `instructor_summary`
+> is the **short note the instructor receives** (and the only one that states the rating). The review page shows
+> the summary as "**Send this**" and keeps the detailed version labelled "internal team".
 
 For an **ARS**, two lines change: the feedback is framed around the *problems reviewed* (not agenda
 items), and the "yes" re-class rule becomes *"assigned problems were skipped or badly rushed, OR a
