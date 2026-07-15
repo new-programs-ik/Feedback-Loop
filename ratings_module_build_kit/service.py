@@ -168,6 +168,7 @@ class ReviseRequest(BaseModel):
     instruction: str              # the PM's plain-English change request
     context: str = ""             # optional class context for grounding
     flags_json: str = ""          # optional verified flags (grounding)
+    kind: Literal["feedback", "summary"] = "feedback"   # which text: detailed feedback or send-summary
 
 
 @app.get("/health")
@@ -242,7 +243,7 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict
 def revise(req: ReviseRequest) -> dict:
     """Rewrite a feedback draft per the PM's instruction (the review-page 'fix it' agent)."""
     try:
-        text, meta = E.revise_feedback(req.feedback, req.instruction, req.context, req.flags_json)
+        text, meta = E.revise_feedback(req.feedback, req.instruction, req.context, req.flags_json, req.kind)
         return {"feedback": text, "meta": meta}
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

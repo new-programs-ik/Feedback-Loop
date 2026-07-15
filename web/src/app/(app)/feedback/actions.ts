@@ -165,7 +165,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 async function latestFeedbackId(supabase: Awaited<ReturnType<typeof createClient>>, classId: string) {
   const { data } = await supabase
     .from("feedback")
-    .select("id, draft_text, edited_text")
+    .select("id, draft_text, edited_text, summary_draft_text, summary_edited_text")
     .eq("class_id", classId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -179,6 +179,7 @@ export async function approveFeedback(formData: FormData) {
   if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
   const classId = String(formData.get("class_id") ?? "");
   const edited = String(formData.get("edited_text") ?? "").trim();
+  const summaryEdited = String(formData.get("summary_edited") ?? "").trim();
   if (!classId) throw new Error("Missing class.");
 
   const supabase = await createClient();
@@ -186,10 +187,12 @@ export async function approveFeedback(formData: FormData) {
   if (!fb) throw new Error("No feedback to approve.");
 
   const changed = edited.length > 0 && edited !== fb.draft_text;
+  const summaryChanged = summaryEdited.length > 0 && summaryEdited !== fb.summary_draft_text;
   const upd = await supabase
     .from("feedback")
     .update({
       edited_text: changed ? edited : fb.edited_text,
+      summary_edited_text: summaryChanged ? summaryEdited : fb.summary_edited_text,
       status: "approved",
       approved_by: user.id,
       approved_at: new Date().toISOString(),
@@ -198,9 +201,10 @@ export async function approveFeedback(formData: FormData) {
   if (upd.error) throw new Error("Could not approve: " + upd.error.message);
 
   await supabase.from("classes").update({ status: "approved" }).eq("id", classId);
-  if (changed) {
+  if (changed || summaryChanged) {
     await supabase.from("audit_log").insert({
-      class_id: classId, actor_id: user.id, action: "edited", detail: { chars: edited.length },
+      class_id: classId, actor_id: user.id, action: "edited",
+      detail: { feedback_chars: edited.length, summary_chars: summaryEdited.length },
     });
   }
   await supabase.from("audit_log").insert({
@@ -236,6 +240,7 @@ export async function reviseDraft(
   classId: string,
   instruction: string,
   currentText: string,
+  kind: "feedback" | "summary" = "feedback",
 ): Promise<ReviseResult> {
   const user = await getCurrentUser();
   if (!user || (user.role !== "admin" && user.role !== "pm")) return { error: "Not authorized." };
@@ -270,7 +275,7 @@ export async function reviseDraft(
     res = await fetch(`${workerUrl}/revise`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ feedback: currentText, instruction, context: contextStr, flags_json: flagsJson }),
+      body: JSON.stringify({ feedback: currentText, instruction, context: contextStr, flags_json: flagsJson, kind }),
     });
   } catch {
     return { error: "Could not reach the AI service — try again in a moment (it may be waking up)." };

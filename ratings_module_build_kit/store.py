@@ -39,8 +39,9 @@ def persist_analysis(class_id: str, result: dict, meta: dict, transcript_text: s
              meta.get("tokens_in"), meta.get("tokens_out"), meta.get("cost_usd")))
         analysis_id = cur.fetchone()[0]
         cur.execute(
-            "insert into feedback(class_id, analysis_id, draft_text, status) values (%s,%s,%s,'draft')",
-            (class_id, analysis_id, result.get("feedback", "")))
+            "insert into feedback(class_id, analysis_id, draft_text, summary_draft_text, status) "
+            "values (%s,%s,%s,%s,'draft')",
+            (class_id, analysis_id, result.get("feedback", ""), result.get("instructor_summary", "")))
         cur.execute("update classes set status='draft_ready', updated_at=now() where id=%s", (class_id,))
         cur.execute(
             "insert into audit_log(class_id, actor_label, action, detail) values (%s,'worker','analyzed',%s)",

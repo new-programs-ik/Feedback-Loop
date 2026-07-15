@@ -14,6 +14,9 @@ Built for Interview Kickstart's New Programs team, now used across teams.
 
 🔗 **Live app:** https://feedback-loop-ten.vercel.app · sign in with your **@interviewkickstart.com** Google account.
 
+> ⚙️ **Deploying the worker?** Step-by-step (non-technical) setup incl. `DATABASE_URL`:
+> [docs/RENDER_SETUP.md](docs/RENDER_SETUP.md).
+
 ---
 
 ## What it does (the short version)

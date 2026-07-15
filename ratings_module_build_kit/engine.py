@@ -555,6 +555,8 @@ def _digest_materials(client, text: str, usage: Usage) -> str:
                  1500, usage).strip()
 
 
+# Two revise modes — the DETAILED internal feedback keeps timestamps and hides the rating; the
+# send-to-instructor SUMMARY keeps it short and MAY state the rating.
 REVISE_SYS = (
     "You revise coaching feedback that a PM will send to a class instructor, following the PM's "
     "instruction exactly. Rules you never break: stay formal, concise, respectful and specific; never "
@@ -564,8 +566,19 @@ REVISE_SYS = (
     'Output JSON only — no prose, no code fences: {"feedback":"..."}'
 )
 
-def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: str = "") -> tuple[str, dict]:
-    """Rewrite an existing feedback draft per the PM's plain-English instruction (the review-page agent)."""
+REVISE_SUMMARY_SYS = (
+    "You revise the SHORT summary note a PM will SEND to a class instructor, following the PM's "
+    "instruction exactly. Rules you never break: keep it a warm, respectful, self-contained note of "
+    "roughly 6-7 sentences (no bullet lists, no headings, no timestamps needed); never use harsh words; "
+    "you MAY keep the class rating if it is present; never invent new claims that are not in the current "
+    "summary or the provided flags; never mention any re-class decision. "
+    'Output JSON only — no prose, no code fences: {"feedback":"..."}'
+)
+
+def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: str = "",
+                    kind: str = "feedback") -> tuple[str, dict]:
+    """Rewrite an existing draft per the PM's plain-English instruction (the review-page agent).
+    kind='feedback' rewrites the detailed internal note; kind='summary' rewrites the send-to-instructor note."""
     if not current or not current.strip():
         raise ValueError("no feedback text to revise")
     if not instruction or not instruction.strip():
@@ -587,7 +600,8 @@ def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: s
             return ["top level must be an object with a non-empty 'feedback' string"]
         return []
 
-    obj = _call_json(client, REVISE_SYS, "\n".join(parts), CFG.max_tokens_synth, _validate, usage)
+    sys_prompt = REVISE_SUMMARY_SYS if kind == "summary" else REVISE_SYS
+    obj = _call_json(client, sys_prompt, "\n".join(parts), CFG.max_tokens_synth, _validate, usage)
     meta = {"model": CFG.model, "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens,
             "llm_calls": usage.calls, "cost_usd": round(usage.cost_usd(), 4),
             "seconds": round(time.time() - t0, 1)}
