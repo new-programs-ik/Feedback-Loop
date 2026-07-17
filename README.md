@@ -5,6 +5,9 @@ minutes, approved by a human before anyone sees it.**
 
 Built for Interview Kickstart's New Programs team, now used across teams.
 
+> 🧭 **Executives / new stakeholders:** start with the **[Executive Summary](docs/EXECUTIVE_SUMMARY.md)**
+> (2-page overview with links).
+>
 > 📖 **New here? Read [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)** — a deep, plain-English guide to
 > everything this system does (written for *anyone*, no tech background needed). Managers, start there.
 >
