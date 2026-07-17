@@ -1,88 +1,133 @@
-# 🚀 Setting up the Worker on Render — step by step (simple English)
+# 🚀 Setting up the Worker on Render — the complete, click-by-click guide
 
-The **worker** ("AI brain") runs on [Render](https://render.com). For the live website's analysis to
-work, the worker needs a few **environment variables** (settings) — most importantly the
-**`DATABASE_URL`**, which lets it save the finished analysis back to the database.
+The **worker** ("AI brain") runs on [Render](https://render.com). For the **live website's** analysis
+to work, the worker needs a few **environment variables** (settings). The most important one is
+**`DATABASE_URL`** — the address + password of your database — because the worker uses it to save each
+finished analysis back into the database.
 
-This guide is written for a non-technical reader. You only need to do this **once** (and again only if
-you change a password).
+Written for a non-technical reader. You do this **once**. Take it slowly, one step at a time.
+
+> ✅ **You do NOT need to be able to "find things in Supabase."** The value you need is already sitting
+> in a file on your computer. **Method 1 below is the easy way — start there.** Method 2 (Supabase) is
+> only a backup if you can't find the file.
 
 ---
 
-## Part 1 — What is `DATABASE_URL` and where do I get it?
+## STEP 1 — Get the `DATABASE_URL` value
 
-`DATABASE_URL` is the **address + password of your database** (Supabase), in one line. It looks like:
+The value is one long line that looks exactly like this (yours is already filled in except the password):
 
 ```
 postgresql://postgres.hedtphkfatmpqhuyndwk:YOUR_DB_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
 ```
 
-You have two easy ways to get the exact value:
+You only need to swap **`YOUR_DB_PASSWORD`** for your real database password. Pick ONE method below.
 
-### Option A — copy it from Supabase (most reliable)
-1. Go to **[supabase.com/dashboard](https://supabase.com/dashboard)** and open your project
-   (**hedtphkfatmpqhuyndwk**).
-2. Click the **⚙️ Project Settings** (bottom-left) → **Database**.
-3. Find the **"Connection string"** section → choose the **"Session pooler"** tab (or "Connection
-   pooling"). Copy the **URI** shown. It starts with `postgresql://postgres...`.
-4. That string has a placeholder like `[YOUR-PASSWORD]`. Replace it with your **database password**
-   (the one you set when creating the project — the same one in your local `.env` file).
-5. Make sure the end has `?sslmode=require` (add it if it's missing).
+### ⭐ Method 1 — Copy it from the file on your computer (easiest, no Supabase)
 
-### Option B — it's already in your project
-Open the file `ratings_module_build_kit/.env` on your computer. The line that starts with
-`DATABASE_URL=` is exactly the value you need. Copy everything **after** the `=`.
+Your project already has the complete, correct value saved in a settings file. Just copy it:
 
-> 🔒 This value contains your database password. Treat it like a password — paste it only into
-> Render's secure Environment settings (below), never into public places or the code.
+1. On your computer, open the project folder:
+   `C:\Users\DELL\Documents\NP team automation\ratings_module_build_kit`
+2. Find the file named **`.env`** (just ".env", no name before the dot).
+   - Can't see it? In File Explorer click the **View** menu → tick **Hidden items** (files starting
+     with a dot are hidden by default). Or open the folder in **VS Code**, which shows it.
+3. Open `.env` (right-click → **Open with → Notepad**, or open it in VS Code).
+4. Find the line that starts with **`DATABASE_URL=`**.
+5. Select and copy **everything after the `=` sign** — the whole `postgresql://...sslmode=require` line.
+   That copied text is your value. **Done — skip to Step 2.**
+
+> This line already has the real password in it, so you don't have to type or find anything else.
+
+### Method 2 — Get it from the Supabase website (backup)
+
+Use this only if you couldn't find the `.env` file.
+
+1. Go to **[supabase.com/dashboard](https://supabase.com/dashboard)** and sign in.
+2. Click your project to open it. (Its id is **hedtphkfatmpqhuyndwk** — the name may differ.)
+3. Look at the **top bar** of the project. Click the green **`Connect`** button (top-right area, near
+   the project name). *(This is the new location. If you don't see a Connect button, use the old path:
+   click **⚙️ Project Settings** at the very bottom of the left menu → **Database**.)*
+4. A **"Connect to your project"** popup opens. Near the top there are tabs like **Direct connection**,
+   **Transaction pooler**, **Session pooler**. Click **Session pooler**.
+5. It shows a line starting with `postgresql://postgres...`. Copy that whole line (there's a small
+   **copy icon** ⧉ on the right).
+6. The line has `[YOUR-PASSWORD]` in the middle. Replace `[YOUR-PASSWORD]` (including the square
+   brackets) with your **database password** — the one you chose when the project was created (it's the
+   same password stored in the `.env` file from Method 1).
+7. Make sure the very end reads `?sslmode=require`. If it's missing, add it.
+
+> 🔒 This value contains your database password — treat it like a password. Only paste it into Render's
+> secure Environment box (Step 2). Never put it in a chat, email, or the public code.
 
 ---
 
-## Part 2 — Add it to Render (and the other settings)
+## STEP 2 — Open your Worker on Render
 
 1. Go to **[dashboard.render.com](https://dashboard.render.com)** and sign in.
-2. Click your worker service (the one that runs the analysis — its name is something like
-   **feedback-loop-worker**).
-3. In the left menu, click **Environment**.
-4. Under **Environment Variables**, click **Add Environment Variable** and add each of these
-   (Key on the left, Value on the right):
+2. You'll see your services listed. Click the **worker** service — it's the one that runs the analysis
+   (its type is **Web Service**; the name is something like **feedback-loop-worker**).
+   - Not sure which one? It's the service whose logs mention **uvicorn** / **service:app**, not the
+     Next.js website.
 
-   | Key | Value | Needed for |
+---
+
+## STEP 3 — Add the environment variables
+
+1. In the worker's page, look at the **left-side menu** and click **Environment**.
+2. You'll see a section called **Environment Variables**. Click **+ Add Environment Variable**.
+3. Add the first one:
+   - **Key** (or "NAME") box: type `DATABASE_URL`
+   - **Value** box: paste the line you copied in Step 1.
+4. Click **+ Add Environment Variable** again for each of the others you need:
+
+   | Key (type this exactly) | Value (paste this) | Do I need it? |
    |---|---|---|
-   | `DATABASE_URL` | the string from Part 1 | **Required** — saving the analysis (background jobs) |
-   | `ANTHROPIC_API_KEY` | your Claude API key (starts with `sk-ant-…`) | **Required** — running the AI |
-   | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Fetching transcripts from Vimeo links |
-   | `WORKER_API_KEY` | a shared secret (only if your website sends one) | Optional security |
-   | `GOOGLE_ACCESS_TOKEN` | a Google OAuth token | Optional — only for **private** Drive materials |
+   | `DATABASE_URL` | the line from Step 1 | **Yes — required.** Lets the worker save results. |
+   | `ANTHROPIC_API_KEY` | your Claude key (starts with `sk-ant-`) | **Yes — required.** Runs the AI. |
+   | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Yes, if you analyze **Vimeo links**. |
+   | `WORKER_API_KEY` | a shared secret word | Only if your website already sends one. |
+   | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |
 
-5. Click **Save Changes**. Render will **automatically redeploy** the worker (takes ~1–3 minutes).
-6. Watch the **Logs** tab. Success looks like:
-   ```
-   Application startup complete.
-   Uvicorn running on http://0.0.0.0:10000
-   ```
-   If you instead see `No module named ...` or a crash, tell your developer — it usually means a file
-   wasn't included in the deploy.
+   *(The Claude / Vimeo values are also in the same `.env` file from Step 1 — lines
+   `ANTHROPIC_API_KEY=` and `VIMEO_ACCESS_TOKEN=`.)*
+5. Click **Save Changes** (bottom or top-right of the Environment page).
+6. Render will show **"Deploying"** and automatically restart the worker. This takes about **1–3 minutes**.
 
 ---
 
-## Part 3 — Check it actually works
+## STEP 4 — Check it worked
 
-1. Open the **live website** and run a **New analysis** on a class.
-2. It should show **"Analyzing…"** and then, about a minute later, fill in the feedback on its own.
-3. If it stays stuck on "Analyzing…" forever, the most common cause is a **missing or wrong
-   `DATABASE_URL`** — re-check Part 1 (especially the password and the `?sslmode=require` at the end).
+1. Still on the worker's page, click the **Logs** tab (left menu).
+2. Wait for the deploy to finish. **Success looks like this:**
+   ```
+   INFO:     Application startup complete.
+   INFO:     Uvicorn running on http://0.0.0.0:10000
+   ```
+3. Now open the **live website**, sign in, and run a **New analysis** on a class.
+4. It should show **"Analyzing…"** and then, about a minute later, fill in the feedback on its own. 🎉
 
 ---
 
-## Quick FAQ
+## If something goes wrong
 
-- **Do I need Render for local testing?** No. On your own computer the worker already has these
-  settings from `ratings_module_build_kit/.env`. Render is only for the shared live website.
-- **The worker "sleeps"?** On Render's free tier the worker sleeps when idle, so the *first* analysis
-  after a quiet period takes ~1 extra minute to wake up. That's normal.
-- **I changed my database password.** Update `DATABASE_URL` in Render (Part 2) with the new password
-  and Save — Render redeploys automatically.
+| What you see | What it usually means | Fix |
+|---|---|---|
+| Class stuck on **"Analyzing…"** forever | `DATABASE_URL` is missing or wrong | Redo Step 1 → Step 3. Check the **password** is correct and the line ends with `?sslmode=require`. |
+| Logs say **`No module named ...`** | A code file wasn't included in the deploy | Tell your developer (this is a code/Dockerfile fix, not a settings one). |
+| Logs say **`DATABASE_URL is not set`** | The variable name is misspelled | It must be exactly `DATABASE_URL` (all caps, underscore). Re-check Step 3. |
+| **"password authentication failed"** | Wrong DB password in the value | Get the password again (it's in the `.env` file) and re-paste the whole line. |
+| First analysis of the day is slow (~1 min extra) | The free worker "sleeps" when idle and has to wake up | Normal — nothing to fix. |
 
-Related: the connection string and keys are secrets — see the confidentiality notes in
-[HOW_IT_WORKS.md](HOW_IT_WORKS.md) §7.
+---
+
+## Quick answers
+
+- **Do I need Render for testing on my own laptop?** No. Locally the worker reads these settings from
+  the `.env` file automatically. Render is only for the shared **live** website.
+- **I changed my database password.** Update `DATABASE_URL` in Render (Step 3) with the new password
+  and click **Save Changes** — it redeploys on its own.
+- **Which env vars are truly required?** Just two: `DATABASE_URL` and `ANTHROPIC_API_KEY`. The rest are
+  optional depending on features.
+
+Related: keeping these secrets safe — see [HOW_IT_WORKS.md](HOW_IT_WORKS.md) §7.
