@@ -7,3 +7,4 @@ psycopg2-binary>=2.9      # Postgres driver for db.py (prod); tests use stdlib s
 pypdf>=4.0                # class-materials extraction: slides/docs the analysis checks against
 python-pptx>=0.6.23
 python-docx>=1.1
+imageio-ffmpeg>=0.5       # static ffmpeg binary (with https) for the video-frames stage

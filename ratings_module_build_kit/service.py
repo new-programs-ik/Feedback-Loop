@@ -35,6 +35,7 @@ config.load_env()
 import engine as E  # noqa: E402  (after load_env so config is present)
 import materials_fetch as MF  # noqa: E402
 import store as ST  # noqa: E402
+import video as VD  # noqa: E402
 import vimeo as V  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -70,7 +71,9 @@ class AnalyzeRequest(BaseModel):
     materials_text: str = ""                     # pasted class-materials text (optional)
     materials_files: list[MaterialFile] = []     # one or more uploaded files (slides/notebook/doc)
     materials_url: str = ""                       # link(s) to fetch instead of uploading (Drive/Docs/web-manager)
-    # NOTE: materials are used in-memory for this analysis only and are NEVER persisted.
+    video_url: Optional[str] = None               # direct video link (mp4/Drive) for the frames stage
+    analyze_video: bool = False                   # opt-in: sample + analyse recording frames too
+    # NOTE: materials and video frames are used in-memory for this analysis only and are NEVER persisted.
 
     @model_validator(mode="after")
     def _need_a_source(self):
@@ -178,6 +181,10 @@ def health() -> dict:
         "model": E.CFG.model,
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "vimeo_token": bool(os.environ.get("VIMEO_ACCESS_TOKEN")),
+        "ffmpeg": VD.ffmpeg_path() is not None,
+        "video_enabled": not os.environ.get("VIDEO_DISABLED"),
+        "video_max_frames": VD.VCFG.max_frames,
+        "review_enabled": E.CFG.review_enabled,
     }
 
 
@@ -211,8 +218,27 @@ def transcript(req: TranscriptRequest) -> dict:
         raise HTTPException(status_code=502, detail=str(e))
 
 
+def _run_video_stage(req: AnalyzeRequest, cues) -> tuple[str, dict]:
+    """The opt-in frames stage. VD.analyze_video never raises — a broken video can never kill the
+    analysis; it degrades to transcript-only with a clear video_error."""
+    if not req.analyze_video:
+        return "", {"video_used": False}
+    duration = cues[-1].end if cues else None
+    return VD.analyze_video(req.vimeo_url, req.video_url, duration, class_hint=req.topic)
+
+
+def _merge_video_meta(result: dict, meta: dict, video_meta: dict) -> None:
+    """Roll video tokens/cost into the meta totals (→ analyses columns) and ride the video meta
+    inside result jsonb so the UI can show it."""
+    meta.update(video_meta)
+    meta["tokens_in"] = meta.get("tokens_in", 0) + video_meta.get("video_tokens_in", 0)
+    meta["tokens_out"] = meta.get("tokens_out", 0) + video_meta.get("video_tokens_out", 0)
+    meta["cost_usd"] = round(meta.get("cost_usd", 0) + video_meta.get("video_cost_usd", 0), 4)
+    result["video"] = video_meta
+
+
 def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
-    """The background job: fetch transcript + digest materials + analyze + save to the DB."""
+    """The background job: fetch transcript + digest materials (+ sample video) + analyze + save."""
     try:
         transcript_text = req.transcript
         source = "upload"
@@ -221,7 +247,11 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
             transcript_text = info["text"]
             source = "vimeo"
         materials = gather_materials(req)
-        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type, materials)
+        cues = E.parse_cues(transcript_text)
+        visual_track, video_meta = _run_video_stage(req, cues)
+        result, meta = E.analyse_cues(cues, req.context(), req.class_type, materials,
+                                      visual_track=visual_track)
+        _merge_video_meta(result, meta, video_meta)
         ST.persist_analysis(req.class_id, result, meta, transcript_text, source)
         logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
@@ -262,7 +292,11 @@ def analyze(req: AnalyzeRequest) -> dict:
             transcript_text = info["text"]
             source = "vimeo"
         materials = gather_materials(req)
-        result, meta = E.analyse_text(transcript_text, req.context(), req.class_type, materials)
+        cues = E.parse_cues(transcript_text)
+        visual_track, video_meta = _run_video_stage(req, cues)
+        result, meta = E.analyse_cues(cues, req.context(), req.class_type, materials,
+                                      visual_track=visual_track)
+        _merge_video_meta(result, meta, video_meta)
         return {
             "result": result,
             "meta": meta,
@@ -270,6 +304,7 @@ def analyze(req: AnalyzeRequest) -> dict:
             "transcript_chars": len(transcript_text),
             "transcript_used": transcript_text,
             "materials_chars": len(materials),
+            "video": video_meta,
         }
     except HTTPException:
         raise  # e.g. a 422 from materials extraction — don't relabel as 500

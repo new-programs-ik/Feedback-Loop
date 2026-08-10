@@ -291,8 +291,7 @@ If a dimension is fine, raise nothing for it.
   engagement     - interactive vs a monologue; does the instructor invite questions / check understanding ("does that make sense?").
   learner_gap    - a learner points out a concept that was not covered, and how the instructor responds.
 
-[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
-  camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
+[[SECTION_C]]
 
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
@@ -351,8 +350,7 @@ If a dimension is fine, raise nothing for it.
   learner_gap    - a learner (or the instructor) notes a prerequisite wasn't taught, or the assignment
                    didn't match what the class covered.
 
-[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue):
-  camera - whether the instructor's camera is on; only flag if they say e.g. "can you see me?".
+[[SECTION_C]]
 
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
@@ -361,6 +359,27 @@ RULES:
 - Never invent or paraphrase quotes."""
 
 RUBRICS = {"live_class": RUBRIC_LIVE, "ars": RUBRIC_ARS}
+
+# Section [C] of each rubric depends on whether the recording's frames were analysed. Swapped in by
+# build_extract_user via the [[SECTION_C]] token (.replace — .format would fight the JSON braces).
+SECTION_C_TRANSCRIPT_ONLY = """\
+[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
+  camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
+  screen_share   - screen-sharing problems. Only flag on a clear verbal cue (e.g. "can you see my screen?", "it's frozen").
+  slides_mismatch - do NOT raise without video; leave for the recording check."""
+
+SECTION_C_WITH_VIDEO = """\
+[C] Judged from the VISUAL TRACK in CONTEXT (sampled frames from the recording — treat it as ground
+    truth about what was on screen, with the stated sampling gaps):
+  camera         - instructor camera off or absent for a meaningful span of the class.
+  screen_share   - screen not shared, frozen, wrong window, or unreadably small text while teaching.
+  slides_mismatch - what is visibly on screen does not match the PLANNED CLASS MATERIALS outline
+                    (planned slides/topics never appear on screen).
+  Also CROSS-CHECK coding_time: if the transcript claims live coding but no notebook/code is visible
+  in that span of the visual track, flag it.
+  Visual evidence items use {"timestamp":"HH:MM:SS","quote":"<visual: camera off 00:14:30-00:31:00>",
+  "source":"video"} — the '<visual: ...>' form is exempt from the verbatim-transcript rule but MUST
+  restate a line from the VISUAL TRACK, never an invented one."""
 
 # ── Pass 0: understand the WHOLE conversation before judging any part of it ──────────────────
 # This is what makes the analysis intelligent rather than a per-segment text matcher: one pass reads
@@ -406,10 +425,13 @@ EXTRACT_SYS = (
     "you output JSON only — no prose, no code fences."
 )
 
-def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class") -> str:
+def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class",
+                       has_video: bool = False) -> str:
     allowed = "|".join(sorted(flags_for(class_type)))
+    rubric = RUBRICS[class_type].replace(
+        "[[SECTION_C]]", SECTION_C_WITH_VIDEO if has_video else SECTION_C_TRANSCRIPT_ONLY)
     return (
-        f"CLASS CONTEXT\n{ctx}\n\n{RUBRICS[class_type]}\n\n{SEVERITY_ANCHORS}\n\n"
+        f"CLASS CONTEXT\n{ctx}\n\n{rubric}\n\n{SEVERITY_ANCHORS}\n\n"
         f"TRANSCRIPT SEGMENT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known — "
         f"lines with no name are usually the instructor, but confirm from content):\n{segment_text}\n\n"
         "BEFORE extracting: attribute each line to the instructor or a learner. Judge ONLY the instructor. "
@@ -434,7 +456,8 @@ SYNTH_SYS = (
     "either instructor-facing text. Output JSON only — no prose, no code fences."
 )
 
-def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class") -> str:
+def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class",
+                     has_video: bool = False) -> str:
     if class_type == "ars":
         frame = ("   - Frame the points around the PROBLEMS reviewed (coverage, walkthrough depth, reasoning),\n"
                  "     not agenda items.\n")
@@ -456,7 +479,10 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         "   - the concern is RESOLVED or addressed later in the session (per the whole-session map) — a\n"
         "     text-segmentation artefact, not a real problem;\n"
         "   - read in full context, the moment is not actually a problem.\n"
-        "2. MERGE duplicates across segments; give each surviving flag an overall severity PER THE\n"
+        + ("   NOTE: a quote beginning '<visual:' is a visual observation from the recording's VISUAL\n"
+           "   TRACK — verify it against that track instead of the transcript; do NOT drop it for not\n"
+           "   being a verbatim transcript quote.\n" if has_video else "")
+        + "2. MERGE duplicates across segments; give each surviving flag an overall severity PER THE\n"
         "   SEVERITY ANCHORS above (tie-break low) and a confidence.\n"
         "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:\n"
         "   - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.\n"
@@ -824,17 +850,19 @@ def _call_json(client, system: str, user: str, max_tokens: int, validate: Callab
     raise RuntimeError("unreachable")
 
 def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
-                     class_type: str = "live_class") -> list[dict]:
+                     class_type: str = "live_class", has_video: bool = False) -> list[dict]:
     allowed = flags_for(class_type)
-    obj = _call_json(client, EXTRACT_SYS, build_extract_user(ctx, format_segment(seg), class_type),
+    obj = _call_json(client, EXTRACT_SYS,
+                     build_extract_user(ctx, format_segment(seg), class_type, has_video),
                      CFG.max_tokens_extract, lambda o: validate_findings(o, allowed), usage)
     return obj.get("findings", [])
 
 def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
-               class_type: str = "live_class") -> dict:
+               class_type: str = "live_class", has_video: bool = False) -> dict:
     allowed = flags_for(class_type)
     return _call_json(client, SYNTH_SYS,
-                      build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2), class_type),
+                      build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2),
+                                       class_type, has_video),
                       CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
 
 MATERIALS_SYS = (
@@ -951,12 +979,15 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
 
 
 def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
-                 materials: str = "") -> tuple[dict, dict]:
+                 materials: str = "", visual_track: str = "") -> tuple[dict, dict]:
     """Run the full LLM pipeline over already-parsed cues. Returns (result, run_metadata).
 
     ``materials`` is the raw text of the planned class content (slides/notebook/doc); when given,
     it is digested to an outline and added to the context so coverage/correctness are judged
     against what was actually supposed to be taught.
+
+    ``visual_track`` is the timestamped summary of sampled video frames (built by video.py); when
+    given, camera/screen/slides findings become evidence-based instead of guesswork.
     """
     if class_type not in CLASS_TYPES:
         raise ValueError(f"unknown class_type: {class_type!r} (expected one of {sorted(CLASS_TYPES)})")
@@ -976,12 +1007,16 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     convo_map = map_conversation(client, cues, ctx, usage)
     ctx = ctx + ("\n\nWHOLE-SESSION MAP (read this FIRST — it tells you who speaks, the real flow, and what "
                  "gets resolved later; do not flag anything resolved elsewhere):\n" + convo_map)
+    has_video = bool(visual_track and visual_track.strip())
+    if has_video:
+        ctx = ctx + ("\n\nVISUAL TRACK (sampled frames from the recording — ground truth for what was "
+                     "on camera/screen; states between samples are interpolated):\n" + visual_track)
     findings: list[dict] = []
     for i, seg in enumerate(chunks, 1):
         log.info("extract %d/%d  %s–%s", i, len(chunks), _seconds_to_ts(seg[0].start), _seconds_to_ts(seg[-1].end))
-        findings += extract_findings(client, seg, ctx, usage, class_type)
+        findings += extract_findings(client, seg, ctx, usage, class_type, has_video)
     log.info("synthesise %d raw findings", len(findings))
-    result = synthesise(client, findings, ctx, usage, class_type)
+    result = synthesise(client, findings, ctx, usage, class_type, has_video)
 
     # Stage 4 — adversarial verification: a skeptic tries to REFUTE every serious finding, then code
     # applies the verdicts and gates the re-class call. This is what stops over-flagged "criticals".
@@ -1022,6 +1057,7 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         "speakers": sorted({c.speaker for c in cues if c.speaker}),
         "conversation_mapped": True,
         "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
+        "video_used": has_video,
         "review_ran": bool(CFG.review_enabled),
         "flags_raised": flags_raised,
         "flags_reviewed": n_candidates,
@@ -1037,9 +1073,9 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     return result, meta
 
 def analyse_text(raw: str, ctx: str, class_type: str = "live_class",
-                 materials: str = "") -> tuple[dict, dict]:
+                 materials: str = "", visual_track: str = "") -> tuple[dict, dict]:
     """Analyse transcript *text* (used by the HTTP service)."""
-    return analyse_cues(parse_cues(raw), ctx, class_type, materials)
+    return analyse_cues(parse_cues(raw), ctx, class_type, materials, visual_track)
 
 def analyse(transcript_path: str, ctx: str, class_type: str = "live_class",
             materials: str = "") -> tuple[dict, dict]:

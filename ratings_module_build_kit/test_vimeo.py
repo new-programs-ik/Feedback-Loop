@@ -24,6 +24,44 @@ def make_client(handler, token="tok", retries=2):
                          transport=httpx.MockTransport(handler))
 
 
+class TestProgressiveSource(unittest.TestCase):
+    """get_progressive_source = runtime capability detection for the video-frames stage."""
+
+    def test_empty_play_returns_none(self):
+        # Today's verified reality: token lacks the video_files scope → play is empty → None.
+        def handler(req):
+            return httpx.Response(200, json={"play": [], "duration": 8776})
+        self.assertIsNone(make_client(handler).get_progressive_source("https://vimeo.com/9"))
+
+    def test_picks_smallest_rendition_at_least_360p(self):
+        def handler(req):
+            return httpx.Response(200, json={"duration": 100, "play": {"progressive": [
+                {"link": "https://cdn/1080.mp4", "height": 1080, "width": 1920},
+                {"link": "https://cdn/360.mp4", "height": 360, "width": 640},
+                {"link": "https://cdn/240.mp4", "height": 240, "width": 426},
+            ]}})
+        src = make_client(handler).get_progressive_source("https://vimeo.com/9")
+        self.assertEqual(src["link"], "https://cdn/360.mp4")   # smallest ≥360p, not the 240p
+        self.assertEqual(src["duration"], 100)
+
+    def test_unlisted_hash_retry_on_404(self):
+        calls = []
+        def handler(req):
+            calls.append(str(req.url))
+            if ":abc123" in str(req.url):
+                return httpx.Response(200, json={"duration": 60, "play": {"progressive": [
+                    {"link": "https://cdn/v.mp4", "height": 540, "width": 960}]}})
+            return httpx.Response(404)
+        src = make_client(handler).get_progressive_source("https://vimeo.com/9/abc123")
+        self.assertIsNotNone(src)
+        self.assertTrue(any("/videos/9:abc123" in c for c in calls))   # the hash form was used
+
+    def test_403_returns_none_not_raise(self):
+        def handler(req):
+            return httpx.Response(403, json={"error": "no access"})
+        self.assertIsNone(make_client(handler).get_progressive_source("https://vimeo.com/9"))
+
+
 class TestParse(unittest.TestCase):
     def test_forms(self):
         cases = {

@@ -169,6 +169,33 @@ class VimeoClient:
             "text": text,
         }
 
+    def get_progressive_source(self, url: str) -> Optional[dict]:
+        """Return {"link", "width", "height", "duration"} for the smallest usable progressive MP4
+        rendition, or None when the token can't see video files.
+
+        None is RUNTIME CAPABILITY DETECTION, not an error: today's token has only the
+        `private public` scopes, so `play` comes back empty. The day the token is regenerated with
+        the `video_files` scope (see docs/VIMEO_VIDEO_ACCESS.md), this starts returning links —
+        no code change, no redeploy. Unlisted videos use the /videos/{id}:{hash} address form.
+        """
+        video_id, phash = parse_vimeo_ref(url)
+        fields = "play.progressive,duration,name"
+        r = self._request("GET", f"{API_BASE}/videos/{video_id}?fields={fields}")
+        if r.status_code == 404 and phash:
+            r = self._request("GET", f"{API_BASE}/videos/{video_id}:{phash}?fields={fields}")
+        if r.status_code in (401, 403) or r.status_code == 404 or not r.is_success:
+            return None      # no access / not found → treat as "no video capability"
+        data = r.json() if r.content else {}
+        prog = ((data.get("play") or {}).get("progressive")) or []
+        usable = [p for p in prog if p.get("link") and (p.get("height") or 0) >= 360]
+        if not usable:
+            usable = [p for p in prog if p.get("link")]
+        if not usable:
+            return None      # token lacks video_files scope (or no progressive files)
+        best = min(usable, key=lambda p: p.get("height") or 10_000)  # smallest → least bytes streamed
+        return {"link": best["link"], "width": best.get("width"), "height": best.get("height"),
+                "duration": data.get("duration")}
+
     def close(self) -> None:
         self._client.close()
 
@@ -181,5 +208,20 @@ def fetch_transcript(url: str, config: Optional[VimeoConfig] = None) -> dict:
     client = VimeoClient(cfg)
     try:
         return client.fetch_transcript(url)
+    finally:
+        client.close()
+
+
+def get_progressive_source(url: str, config: Optional[VimeoConfig] = None) -> Optional[dict]:
+    """Convenience wrapper for the video-frames stage. Returns None (never raises) when the token
+    can't see video files — the video stage degrades to transcript-only."""
+    cfg = config or VimeoConfig.from_env()
+    if not cfg.access_token:
+        return None
+    client = VimeoClient(cfg)
+    try:
+        return client.get_progressive_source(url)
+    except VimeoError:
+        return None
     finally:
         client.close()

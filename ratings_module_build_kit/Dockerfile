@@ -11,8 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # All modules the worker imports at runtime. Every local import in service.py must be listed here, or
 # the container crashes on startup with "No module named '<x>'" (store.py = async DB write-back;
-# materials_fetch.py = fetch materials from a link).
-COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py ./
+# materials_fetch.py = fetch materials from a link; video.py = the video-frames stage).
+# ffmpeg arrives via the imageio-ffmpeg wheel (static build with https support, ~30MB). If that wheel
+# ever loses https support, switch to:
+#   RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py video.py ./
 
 ENV PORT=8000
 EXPOSE 8000

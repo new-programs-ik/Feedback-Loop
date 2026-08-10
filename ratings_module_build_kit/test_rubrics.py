@@ -143,6 +143,37 @@ class TestSkepticPrompt(unittest.TestCase):
             self.assertIn("PRECISION over completeness", r)
 
 
+class TestSectionCSwap(unittest.TestCase):
+    """Rubric section [C] swaps by video availability; the placeholder never leaks to the model."""
+
+    def test_transcript_only_default(self):
+        for ct in ("live_class", "ars"):
+            u = E.build_extract_user("ctx", "seg", ct)
+            self.assertIn("Needs the video, not the transcript", u)
+            self.assertNotIn("Judged from the VISUAL TRACK", u)
+            self.assertNotIn("[[SECTION_C]]", u)   # placeholder must be resolved
+
+    def test_with_video_variant(self):
+        u = E.build_extract_user("ctx", "seg", "live_class", has_video=True)
+        self.assertIn("Judged from the VISUAL TRACK", u)
+        self.assertIn("slides_mismatch", u)
+        self.assertIn("<visual:", u)
+        self.assertNotIn("[[SECTION_C]]", u)
+
+    def test_synth_visual_exemption_only_with_video(self):
+        base = E.build_synth_user("ctx", "[]", "live_class")
+        vid = E.build_synth_user("ctx", "[]", "live_class", has_video=True)
+        self.assertNotIn("<visual:", base)
+        self.assertIn("<visual:", vid)
+
+    def test_video_evidence_extra_keys_validate(self):
+        f = {"flag": "camera", "observation": "camera off for 17 min", "severity": "moderate",
+             "confidence": "high",
+             "evidence": [{"timestamp": "00:14:30", "quote": "<visual: camera off 00:14:30-00:31:00>",
+                           "source": "video"}]}
+        self.assertEqual(E.validate_findings({"findings": [f]}, E.FLAGS_LIVE), [])
+
+
 class TestClassTypeGuard(unittest.TestCase):
     def test_bad_class_type_raises(self):
         cues = [E.Cue(1, 0, 1, "hello")]
