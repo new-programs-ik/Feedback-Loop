@@ -28,8 +28,6 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 
   let course_id = String(formData.get("course_id") ?? "");
   const newCourse = String(formData.get("new_course") ?? "").trim();
-  const cohortIdRaw = String(formData.get("cohort_id") ?? "").trim();
-  const cohortName = String(formData.get("cohort") ?? "").trim();
   const instructorName = String(formData.get("instructor") ?? "").trim();
   const topic = String(formData.get("topic") ?? "").trim();
   const class_date = String(formData.get("class_date") ?? "");
@@ -85,7 +83,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const { data: course } = await supabase.from("courses").select("name").eq("id", course_id).maybeSingle();
   if (!course) return { error: "That course was not found." };
 
-  // Resolve instructor + cohort (create if new).
+  // Resolve the instructor (create if new).
   let instructor_id: string | null = null;
   if (instructorName) {
     const found = await supabase.from("instructors").select("id").eq("name", instructorName).maybeSingle();
@@ -94,21 +92,12 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
       (await supabase.from("instructors").insert({ name: instructorName }).select("id").single()).data?.id ??
       null;
   }
-  let cohort_id: string | null = cohortIdRaw || null;
-  if (!cohort_id && cohortName) {
-    const found = await supabase
-      .from("cohorts").select("id").eq("course_id", course_id).eq("name", cohortName).maybeSingle();
-    cohort_id =
-      found.data?.id ??
-      (await supabase.from("cohorts").insert({ course_id, name: cohortName }).select("id").single()).data?.id ??
-      null;
-  }
 
   // Create the class row (status: analyzing).
   const ins = await supabase
     .from("classes")
     .insert({
-      course_id, cohort_id, instructor_id, topic, class_date, session_type: class_type,
+      course_id, instructor_id, topic, class_date, session_type: class_type,
       rating, num_ratings, vimeo_link: vimeo_url || null, agenda: agenda || null,
       status: "analyzing", created_by: user.id,
     })
@@ -316,36 +305,3 @@ export async function deleteClass(formData: FormData) {
   redirect("/feedback");
 }
 
-/** Instructor Assignment tab: save the live instructor for each class in a cohort. */
-export async function saveAssignments(formData: FormData) {
-  const user = await getCurrentUser();
-  if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
-  const cohortId = String(formData.get("cohort_id") ?? "");
-  const supabase = await createClient();
-
-  const cache = new Map<string, string | null>();
-  async function instId(name: string): Promise<string | null> {
-    const n = name.trim();
-    if (!n) return null;
-    if (cache.has(n)) return cache.get(n)!;
-    const up = await supabase.from("instructors").upsert({ name: n }, { onConflict: "name" }).select("id").single();
-    const id = up.data?.id ?? null;
-    cache.set(n, id);
-    return id;
-  }
-
-  let changed = 0;
-  for (const [key, value] of formData.entries()) {
-    if (!key.startsWith("inst_")) continue;
-    const classId = key.slice(5);
-    const id = await instId(String(value));
-    const res = await supabase
-      .from("cohort_classes")
-      .update({ instructor_id: id, updated_at: new Date().toISOString() })
-      .eq("id", classId);
-    if (!res.error) changed++;
-  }
-
-  revalidatePath("/assignments");
-  redirect(`/assignments?cohort=${encodeURIComponent(cohortId)}&saved=${changed}`);
-}

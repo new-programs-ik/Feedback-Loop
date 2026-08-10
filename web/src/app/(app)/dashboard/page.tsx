@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { MessageSquareText, ArrowRight } from "lucide-react";
+import {
+  ArrowRight, BadgeCheck, CircleDollarSign, Hourglass, MessageSquareText, Plus, RefreshCcw,
+} from "lucide-react";
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -12,7 +14,7 @@ export default async function DashboardPage() {
 
   const { data: rows } = await supabase
     .from("classes")
-    .select("id, topic, class_date, created_at, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd, created_at), feedback(status)")
+    .select("id, topic, class_date, created_at, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd, created_at)")
     .order("created_at", { ascending: false });
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
@@ -40,7 +42,7 @@ export default async function DashboardPage() {
     const cost = Number(a?.cost_usd ?? 0);
     totalCost += cost;
     const src = a?.created_at || (c.created_at as string) || (c.class_date as string) || "";
-    const mk = String(src).slice(0, 7); // YYYY-MM
+    const mk = String(src).slice(0, 7);
     if (!mk) continue;
     const cur = spendByMonth.get(mk) ?? { count: 0, cost: 0 };
     cur.count += 1;
@@ -52,140 +54,151 @@ export default async function DashboardPage() {
   const avgCost = analyzed.length ? totalCost / analyzed.length : 0;
 
   const stats = [
-    { label: "Classes analyzed", value: analyzed.length, note: "all courses" },
-    { label: "Awaiting review", value: awaiting, note: "drafts ready" },
-    { label: "Approved", value: approved, note: "feedback stored" },
-    { label: "Re-class flagged", value: reclass, note: "PM to decide" },
+    { label: "Classes analyzed", value: analyzed.length, note: "all courses", icon: MessageSquareText, tone: "text-primary" },
+    { label: "Awaiting review", value: awaiting, note: "drafts ready", icon: Hourglass, tone: "text-warning" },
+    { label: "Approved", value: approved, note: "feedback stored", icon: BadgeCheck, tone: "text-success" },
+    { label: "Re-class flagged", value: reclass, note: "PM to decide", icon: RefreshCcw, tone: "text-destructive" },
   ];
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Welcome, {user.name.split(" ").slice(-1)[0]}</h1>
-        <p className="text-muted-foreground mt-1">Interview Kickstart · Feedback & Analytics.</p>
+    <div className="animate-in-up space-y-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Welcome back, {user.name.split(" ")[0]}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Here&apos;s where your class feedback stands today.
+          </p>
+        </div>
+        {user.role !== "learner" && (
+          <Button asChild>
+            <Link href="/feedback/new"><Plus className="size-4" /> New analysis</Link>
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((s) => (
-          <Card key={s.label}>
-            <CardHeader className="pb-2">
-              <CardDescription>{s.label}</CardDescription>
-              <CardTitle className="text-3xl">{s.value}</CardTitle>
-            </CardHeader>
-            <CardContent><span className="text-muted-foreground text-xs">{s.note}</span></CardContent>
-          </Card>
-        ))}
+        {stats.map((s) => {
+          const Icon = s.icon;
+          return (
+            <Card key={s.label} className="shadow-soft">
+              <CardContent className="flex items-start justify-between pt-6">
+                <div>
+                  <div className="text-muted-foreground text-[13px] font-medium">{s.label}</div>
+                  <div className="mt-1 text-3xl font-semibold tracking-tight" data-numeric>{s.value}</div>
+                  <div className="text-muted-foreground/80 mt-1 text-xs">{s.note}</div>
+                </div>
+                <div className="bg-muted flex size-9 items-center justify-center rounded-lg">
+                  <Icon className={`size-4.5 ${s.tone}`} />
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      {byCourse.size > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Analyses by course</CardTitle></CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {[...byCourse.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => (
-              <Badge key={name} variant="secondary">{name}: {n}</Badge>
-            ))}
+      <div className="grid gap-6 lg:grid-cols-5">
+        {/* Recent analyses */}
+        <Card className="shadow-soft lg:col-span-3">
+          <CardHeader className="flex-row items-center justify-between pb-2">
+            <CardTitle className="text-base">Recent analyses</CardTitle>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/feedback">View all <ArrowRight className="size-4" /></Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {analyzed.length === 0 ? (
+              <div className="text-muted-foreground flex flex-col items-center gap-3 py-10 text-center text-sm">
+                <MessageSquareText className="size-6" />
+                No analyses yet.
+                {user.role !== "learner" && (
+                  <Button asChild size="sm"><Link href="/feedback/new">Run your first analysis</Link></Button>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y">
+                {analyzed.slice(0, 7).map((c) => {
+                  const course = (c.courses as { name?: string } | null)?.name ?? "—";
+                  const instructor = (c.instructors as { name?: string } | null)?.name ?? "—";
+                  const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number; cost_usd?: number }>)?.[0];
+                  const rc = a?.reclass;
+                  const cost = Number(a?.cost_usd ?? 0);
+                  return (
+                    <Link key={String(c.id)} href={`/feedback/${String(c.id)}`}
+                          className="hover:bg-accent/40 -mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{String(c.topic)}</div>
+                        <div className="text-muted-foreground truncate text-xs">
+                          {course} · {instructor} · {String(c.class_date)} · {c.session_type === "ars" ? "ARS" : "Live"}
+                          {cost > 0 && <> · <span className="text-foreground/80 font-medium">{money(cost)}</span></>}
+                        </div>
+                      </div>
+                      {rc && <Badge variant={rc === "yes" ? "destructive" : rc === "maybe" ? "warning" : "secondary"} className="uppercase">{rc}</Badge>}
+                      <Badge variant={c.status === "approved" || c.status === "sent" ? "success" : c.status === "draft_ready" ? "warning" : "outline"}>
+                        {String(c.status).replace("_", " ")}
+                      </Badge>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
 
-      {analyzed.length > 0 && (
-        <Card>
+        {/* Spending */}
+        <Card className="shadow-soft lg:col-span-2">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Spending on AI analysis</CardTitle>
-            <CardDescription>What the AI analysis has cost — this month, in total, and month by month.</CardDescription>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CircleDollarSign className="text-primary size-4" /> AI spending
+            </CardTitle>
+            <CardDescription>Exact cost, tracked per analysis.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-8">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <div className="text-2xl font-semibold">{money(thisMonth.cost)}</div>
-                <div className="text-muted-foreground text-xs">this month · {thisMonth.count} analyses</div>
+                <div className="text-xl font-semibold" data-numeric>{money(thisMonth.cost)}</div>
+                <div className="text-muted-foreground text-[11px]">this month</div>
               </div>
               <div>
-                <div className="text-2xl font-semibold">{money(totalCost)}</div>
-                <div className="text-muted-foreground text-xs">all time · {analyzed.length} analyses</div>
+                <div className="text-xl font-semibold" data-numeric>{money(totalCost)}</div>
+                <div className="text-muted-foreground text-[11px]">all time</div>
               </div>
               <div>
-                <div className="text-2xl font-semibold">{money(avgCost)}</div>
-                <div className="text-muted-foreground text-xs">avg per analysis</div>
+                <div className="text-xl font-semibold" data-numeric>{money(avgCost)}</div>
+                <div className="text-muted-foreground text-[11px]">avg / class</div>
               </div>
             </div>
             {spendByMonth.size > 0 && (
-              <div className="overflow-hidden rounded-lg border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-muted-foreground text-left">
-                    <tr>
-                      <th className="px-4 py-2 font-medium">Month</th>
-                      <th className="px-4 py-2 font-medium">Analyses</th>
-                      <th className="px-4 py-2 font-medium">Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...spendByMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6).map(([m, v]) => (
-                      <tr key={m} className="border-t">
-                        <td className="px-4 py-2">{prettyMonth(m)}</td>
-                        <td className="text-muted-foreground px-4 py-2">{v.count}</td>
-                        <td className="px-4 py-2 font-medium">{money(v.cost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-1.5">
+                {[...spendByMonth.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 6).map(([m, v]) => {
+                  const max = Math.max(...[...spendByMonth.values()].map((x) => x.cost), 0.01);
+                  return (
+                    <div key={m} className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground w-16 shrink-0">{prettyMonth(m)}</span>
+                      <div className="bg-muted h-2 flex-1 overflow-hidden rounded-full">
+                        <div className="bg-primary/70 h-full rounded-full"
+                             style={{ width: `${Math.max(4, (v.cost / max) * 100)}%` }} />
+                      </div>
+                      <span className="w-14 shrink-0 text-right font-medium" data-numeric>{money(v.cost)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
-            <p className="text-muted-foreground text-xs">
-              Reading the transcript costs $3 per million tokens; writing the feedback costs $15 per million —
-              usually about $1 per class. Exact costs are tracked per analysis.
-            </p>
+            {byCourse.size > 0 && (
+              <div className="border-t pt-3">
+                <div className="text-muted-foreground mb-2 text-[11px] font-medium uppercase tracking-wide">By course</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...byCourse.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => (
+                    <Badge key={name} variant="secondary">{name} · {n}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
-      )}
-
-      <Card>
-        <CardHeader className="flex-row items-center justify-between pb-2">
-          <CardTitle className="text-base">Recent analyses</CardTitle>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/feedback">View all <ArrowRight className="size-4" /></Link>
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {analyzed.length === 0 ? (
-            <div className="text-muted-foreground flex flex-col items-center gap-3 py-8 text-center text-sm">
-              <MessageSquareText className="size-6" />
-              No analyses yet.
-              {user.role !== "learner" && (
-                <Button asChild size="sm"><Link href="/feedback/new">New analysis</Link></Button>
-              )}
-            </div>
-          ) : (
-            <div className="divide-y">
-              {analyzed.slice(0, 6).map((c) => {
-                const course = (c.courses as { name?: string } | null)?.name ?? "—";
-                const instructor = (c.instructors as { name?: string } | null)?.name ?? "—";
-                const a = (c.analyses as Array<{ reclass?: string; tokens_in?: number; tokens_out?: number; cost_usd?: number }>)?.[0];
-                const rc = a?.reclass;
-                const tokens = (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
-                const cost = Number(a?.cost_usd ?? 0);
-                return (
-                  <Link key={String(c.id)} href={`/feedback/${String(c.id)}`}
-                        className="hover:bg-muted/40 -mx-2 flex items-center gap-3 rounded px-2 py-2.5">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{String(c.topic)}</div>
-                      <div className="text-muted-foreground truncate text-xs">
-                        {course} · {instructor} · {String(c.class_date)} · {c.session_type === "ars" ? "ARS" : "Live"}
-                        {tokens > 0 && <> · {(tokens / 1000).toFixed(1)}k tokens</>}
-                        {cost > 0 && <> · <span className="font-medium">{money(cost)}</span></>}
-                      </div>
-                    </div>
-                    {rc && <Badge variant={rc === "yes" ? "destructive" : rc === "maybe" ? "warning" : "secondary"} className="uppercase">{rc}</Badge>}
-                    <Badge variant={c.status === "approved" || c.status === "sent" ? "success" : c.status === "draft_ready" ? "warning" : "outline"}>
-                      {String(c.status).replace("_", " ")}
-                    </Badge>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 }

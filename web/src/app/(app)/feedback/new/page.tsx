@@ -6,7 +6,7 @@ import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
-// Give the analysis (Vimeo fetch + materials + Claude) up to the platform max (Vercel Hobby = 60s).
+// Give the analysis kick-off (Vimeo fetch + handing the job to the worker) the platform max.
 export const maxDuration = 60;
 
 export default async function NewAnalysisPage() {
@@ -14,46 +14,28 @@ export default async function NewAnalysisPage() {
   if (user.role === "learner") redirect("/dashboard");
 
   const supabase = await createClient();
-  const [{ data: courses }, { data: cohorts }, { data: classes }, { data: instructors }] = await Promise.all([
+  const [{ data: courses }, { data: instructors }] = await Promise.all([
     supabase.from("courses").select("id, name").order("name"),
-    supabase.from("cohorts").select("id, course_id, name").order("name"),
-    supabase.from("cohort_classes")
-      .select("id, cohort_id, topic, class_date, instructor:instructor_id(name)")
-      .order("class_date"),
     supabase.from("instructors").select("name").order("name"),
   ]);
-
-  const cohortsByCourse: Record<string, { id: string; name: string }[]> = {};
-  for (const c of (cohorts ?? []) as Array<Record<string, unknown>>) {
-    (cohortsByCourse[String(c.course_id)] ??= []).push({ id: String(c.id), name: String(c.name) });
-  }
-  const classesByCohort: Record<string, { id: string; topic: string; date: string; instructor: string }[]> = {};
-  for (const c of (classes ?? []) as Array<Record<string, unknown>>) {
-    (classesByCohort[String(c.cohort_id)] ??= []).push({
-      id: String(c.id),
-      topic: String(c.topic),
-      date: c.class_date ? String(c.class_date) : "",
-      instructor: (c.instructor as { name?: string } | null)?.name ?? "",
-    });
-  }
   const instructorNames = ((instructors ?? []) as Array<{ name: string }>).map((i) => i.name);
 
   return (
-    <div className="space-y-6">
+    <div className="animate-in-up space-y-6">
       <div className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
           <Link href="/feedback" aria-label="Back to queue">
             <ArrowLeft className="size-4" />
           </Link>
         </Button>
-        <h1 className="text-2xl font-semibold tracking-tight">New analysis</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">New analysis</h1>
+          <p className="text-muted-foreground text-sm">
+            Point the AI at a class recording — it drafts the feedback, you approve it.
+          </p>
+        </div>
       </div>
-      <NewAnalysisForm
-        courses={courses ?? []}
-        cohortsByCourse={cohortsByCourse}
-        classesByCohort={classesByCohort}
-        instructorNames={instructorNames}
-      />
+      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} />
     </div>
   );
 }

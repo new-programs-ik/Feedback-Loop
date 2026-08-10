@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,8 +11,10 @@ export type SessionUser = {
   role: Role;
 };
 
-/** The signed-in user + role (read from user_roles via RLS), or null if signed out. */
-export async function getCurrentUser(): Promise<SessionUser | null> {
+/** The signed-in user + role (read from user_roles via RLS), or null if signed out.
+ *  Wrapped in React cache() so the layout and the page share ONE auth lookup per request —
+ *  previously every navigation paid for it twice. */
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<SessionUser | null> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -30,7 +33,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     email: user.email ?? profile?.email ?? "",
     role,
   };
-}
+});
 
 /** Use in protected pages/layouts: returns the user or redirects to /login. */
 export async function requireUser(): Promise<SessionUser> {

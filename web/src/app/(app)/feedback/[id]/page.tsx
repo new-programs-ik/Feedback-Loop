@@ -40,7 +40,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
   const { data: klass } = await supabase
     .from("classes")
-    .select("*, courses(name), instructors(name), cohorts(name), analyses(*), feedback(*)")
+    .select("*, courses(name), instructors(name), analyses(*), feedback(*)")
     .eq("id", id)
     .single();
   if (!klass) notFound();
@@ -74,7 +74,6 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const done = fbStatus === "approved" || fbStatus === "sent";
   const course = (klass.courses as { name?: string } | null)?.name ?? "—";
   const instructor = (klass.instructors as { name?: string } | null)?.name ?? "—";
-  const cohort = (klass.cohorts as { name?: string } | null)?.name ?? "—";
   const rating = klass.rating as number | null;
   const reclass = result.reclass;
 
@@ -92,7 +91,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             <Badge variant="outline">{klass.session_type === "ars" ? "ARS" : "Live"}</Badge>
           </div>
           <p className="text-muted-foreground text-sm">
-            {course} · {instructor} · {cohort} · {String(klass.class_date)}
+            {course} · {instructor} · {String(klass.class_date)}
             {rating != null && <> · rating <strong>{Number(rating).toFixed(2)}</strong></>}
             {creator && <> · by {creator}</>}
           </p>

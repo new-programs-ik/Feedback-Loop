@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navForRole } from "@/lib/nav";
-import { Badge } from "@/components/ui/badge";
 import type { Role } from "@/lib/session";
 
 export function AppSidebar({ role }: { role: Role }) {
@@ -12,16 +12,23 @@ export function AppSidebar({ role }: { role: Role }) {
   const sections = navForRole(role);
 
   return (
-    <aside className="bg-sidebar text-sidebar-foreground hidden w-64 shrink-0 flex-col border-r md:flex">
-      <div className="flex h-14 items-center gap-2 border-b px-5">
-        <div className="bg-primary size-6 rounded" />
-        <span className="font-semibold">IK · New Programs</span>
+    <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border hidden w-60 shrink-0 flex-col border-r md:flex">
+      {/* Brand */}
+      <div className="flex h-16 items-center gap-2.5 px-5">
+        <div className="from-primary flex size-8 items-center justify-center rounded-lg bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-white shadow-sm">
+          <RefreshCw className="size-4" strokeWidth={2.5} />
+        </div>
+        <div className="leading-tight">
+          <div className="text-[15px] font-semibold tracking-tight">Feedback Loop</div>
+          <div className="text-muted-foreground text-[11px]">Interview Kickstart</div>
+        </div>
       </div>
-      <nav className="flex-1 space-y-6 overflow-y-auto p-3">
+
+      <nav className="flex-1 space-y-5 overflow-y-auto px-3 pt-2 pb-4">
         {sections.map((section, i) => (
-          <div key={i} className="space-y-1">
+          <div key={i} className="space-y-0.5">
             {section.title && (
-              <div className="text-muted-foreground px-2 text-xs font-medium uppercase tracking-wider">
+              <div className="text-muted-foreground/80 px-3 pb-1.5 text-[10.5px] font-semibold tracking-[0.08em] uppercase">
                 {section.title}
               </div>
             )}
@@ -33,18 +40,25 @@ export function AppSidebar({ role }: { role: Role }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                    "group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] transition-all duration-150",
                     active
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                      : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
                   )}
                 >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="flex-1">{item.label}</span>
+                  {active && (
+                    <span className="bg-primary absolute top-1/2 left-0 h-5 w-1 -translate-y-1/2 rounded-r-full" />
+                  )}
+                  <Icon
+                    className={cn("size-4 shrink-0 transition-colors",
+                      active ? "text-primary" : "text-muted-foreground/70 group-hover:text-foreground")}
+                    strokeWidth={active ? 2.25 : 2}
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
                   {!item.live && (
-                    <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                    <span className="text-muted-foreground/70 rounded-full border px-1.5 py-px text-[9.5px] font-medium">
                       soon
-                    </Badge>
+                    </span>
                   )}
                 </Link>
               );
@@ -52,6 +66,10 @@ export function AppSidebar({ role }: { role: Role }) {
           </div>
         ))}
       </nav>
+
+      <div className="text-muted-foreground/60 border-sidebar-border border-t px-5 py-3 text-[11px]">
+        AI drafts · humans approve
+      </div>
     </aside>
   );
 }
