@@ -35,3 +35,8 @@ Thumbs.db
 
 # ─────────────────────────────────── Claude ───────────────────────────────
 .claude/
+
+# personal/local video files — never commit (GitHub 100MB limit + confidentiality)
+*.mp4
+*.mov
+*.mkv
