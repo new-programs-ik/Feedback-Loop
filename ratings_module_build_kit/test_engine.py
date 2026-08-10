@@ -156,5 +156,217 @@ class TestResultValidation(unittest.TestCase):
         self.assertTrue(E.validate_result(self._result(instructor_summary="")))
 
 
+class TestSeverityHelpers(unittest.TestCase):
+    def test_rank_ordering(self):
+        self.assertLess(E.severity_rank("minor"), E.severity_rank("moderate"))
+        self.assertLess(E.severity_rank("moderate"), E.severity_rank("major"))
+        self.assertEqual(E.severity_rank("nonsense"), -1)
+
+    def test_one_level_down_clamps_at_minor(self):
+        self.assertEqual(E.one_level_down("major"), "moderate")
+        self.assertEqual(E.one_level_down("moderate"), "minor")
+        self.assertEqual(E.one_level_down("minor"), "minor")
+
+
+class TestQuoteCheck(unittest.TestCase):
+    TX = "Alright everyone — today we cover “decision trees”, and then ensembles."
+
+    def test_quote_present_normalises_whitespace_and_curly_quotes(self):
+        self.assertTrue(E.quote_present(self.TX, 'today we cover "decision trees"'))
+        self.assertTrue(E.quote_present(self.TX, "TODAY   we cover decision trees"))
+
+    def test_absent_quote_false(self):
+        self.assertFalse(E.quote_present(self.TX, "we will skip the ensembles"))
+        self.assertFalse(E.quote_present(self.TX, ""))
+
+    def test_excerpt_around_window(self):
+        cues = [E.Cue(i, i * 60, i * 60 + 5, f"line {i}") for i in range(10)]
+        out = E.excerpt_around(cues, "00:05:00", window_s=120)
+        self.assertIn("line 5", out)
+        self.assertIn("line 3", out)      # 2 min before
+        self.assertNotIn("line 8", out)   # 3 min after — outside the window
+        self.assertEqual(E.excerpt_around(cues, "garbage"), "")
+
+
+def _cand(i, flag="pace", severity="major", quote="we're out of time"):
+    return {"id": i, "flag": flag, "severity": severity, "confidence": "high",
+            "evidence": [{"timestamp": "00:10:00", "quote": quote}]}
+
+
+def _verdict(i, verdict="uphold", corrected=None, anchor="tie-break low", reason="checked"):
+    v = {"id": i, "verdict": verdict, "anchor_rule": anchor, "reason": reason}
+    if corrected:
+        v["corrected_severity"] = corrected
+    return v
+
+
+class TestVerdictValidation(unittest.TestCase):
+    def test_good_verdicts_pass(self):
+        cands = [_cand(0), _cand(1, severity="moderate")]
+        obj = {"verdicts": [_verdict(0), _verdict(1, "downgrade", "minor")]}
+        self.assertEqual(E.validate_verdicts(obj, cands), [])
+
+    def test_missing_candidate_id_fails(self):
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0)]}, [_cand(0), _cand(1)]))
+
+    def test_extra_invented_id_fails(self):
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0), _verdict(9)]}, [_cand(0)]))
+
+    def test_unknown_verdict_fails(self):
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "escalate")]}, [_cand(0)]))
+
+    def test_downgrade_requires_lower_corrected_severity(self):
+        cands = [_cand(0, severity="moderate")]
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade", "major")]}, cands))
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade")]}, cands))  # missing
+        self.assertEqual(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade", "minor")]}, cands), [])
+
+    def test_empty_reason_or_anchor_fails(self):
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, reason=" ")]}, [_cand(0)]))
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, anchor="")]}, [_cand(0)]))
+
+
+class TestApplyVerdicts(unittest.TestCase):
+    def _result(self, flags):
+        return {"overall": "x", "feedback": "f", "instructor_summary": "s", "flags": flags,
+                "reclass": {"recommended": "no", "reason": "r"}}
+
+    def test_uphold_keeps_flag_and_records(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, review = E.apply_verdicts(res, [_verdict(0)], "live_class")
+        self.assertEqual(len(out["flags"]), 1)
+        self.assertEqual(review[0]["verdict"], "uphold")
+        self.assertEqual(review[0]["to_severity"], "major")
+
+    def test_downgrade_major_to_moderate(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, review = E.apply_verdicts(res, [_verdict(0, "downgrade", "moderate")], "live_class")
+        self.assertEqual(out["flags"][0]["severity"], "moderate")
+        self.assertEqual(review[0]["to_severity"], "moderate")
+
+    def test_two_level_downgrade_clamped_to_one(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, review = E.apply_verdicts(res, [_verdict(0, "downgrade", "minor")], "live_class")
+        self.assertEqual(out["flags"][0]["severity"], "moderate")   # clamped
+        self.assertEqual(review[0]["skeptic_wanted"], "minor")      # but recorded
+
+    def test_ars_correctness_floor_blocks_downgrade(self):
+        res = self._result([{"flag": "correctness", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, review = E.apply_verdicts(res, [_verdict(0, "downgrade", "moderate")], "ars")
+        self.assertEqual(out["flags"][0]["severity"], "major")      # floor wins
+        self.assertEqual(review[0]["verdict"], "uphold")
+        self.assertIn("floor", review[0]["reason"])
+
+    def test_drop_removes_flag_but_keeps_review_record(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, review = E.apply_verdicts(res, [_verdict(0, "drop", reason="learner speaking")], "live_class")
+        self.assertEqual(out["flags"], [])
+        self.assertEqual(review[0]["verdict"], "drop")
+        self.assertIsNone(review[0]["to_severity"])
+
+    def test_input_result_not_mutated(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        E.apply_verdicts(res, [_verdict(0, "drop")], "live_class")
+        self.assertEqual(res["flags"][0]["severity"], "major")      # original untouched
+
+    def test_confidence_and_evidence_untouched(self):
+        res = self._result([{"flag": "pace", "severity": "major", "confidence": "high",
+                             "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}])
+        out, _ = E.apply_verdicts(res, [_verdict(0, "downgrade", "moderate")], "live_class")
+        self.assertEqual(out["flags"][0]["confidence"], "high")
+        self.assertEqual(out["flags"][0]["evidence"][0]["quote"], "q")
+
+
+class TestMergeConservative(unittest.TestCase):
+    def test_drop_beats_downgrade_beats_uphold(self):
+        v1 = [_verdict(0, "uphold"), _verdict(1, "downgrade", "moderate"), _verdict(2, "drop")]
+        v2 = [_verdict(0, "downgrade", "moderate"), _verdict(1, "drop"), _verdict(2, "uphold")]
+        merged = {v["id"]: v["verdict"] for v in E.merge_conservative(v1, v2)}
+        self.assertEqual(merged, {0: "downgrade", 1: "drop", 2: "drop"})
+
+    def test_second_vote_never_adds_ids(self):
+        merged = E.merge_conservative([_verdict(0)], [_verdict(0, "drop"), _verdict(5, "drop")])
+        self.assertEqual([v["id"] for v in merged], [0])
+
+
+class TestReclassGating(unittest.TestCase):
+    def _res(self, recommended, flags):
+        return {"flags": flags, "reclass": {"recommended": recommended, "reason": "orig reason"}}
+
+    def _major(self, flag):
+        return {"flag": flag, "severity": "major", "confidence": "high",
+                "evidence": [{"timestamp": "00:01:00", "quote": "q"}]}
+
+    def test_yes_with_upheld_content_major_stays_yes(self):
+        out = E.gate_reclass(self._res("yes", [self._major("coverage")]))
+        self.assertEqual(out["reclass"]["recommended"], "yes")
+
+    def test_yes_with_only_engagement_major_softens_to_maybe(self):
+        out = E.gate_reclass(self._res("yes", [self._major("engagement")]))
+        self.assertEqual(out["reclass"]["recommended"], "maybe")
+        self.assertEqual(out["reclass"]["softened_from"], "yes")
+        self.assertIn("orig reason", out["reclass"]["reason"])   # original preserved
+
+    def test_yes_with_zero_flags_softens(self):
+        out = E.gate_reclass(self._res("yes", []))
+        self.assertEqual(out["reclass"]["recommended"], "maybe")
+
+    def test_maybe_never_upgraded(self):
+        out = E.gate_reclass(self._res("maybe", [self._major("coverage")]))
+        self.assertEqual(out["reclass"]["recommended"], "maybe")
+        self.assertNotIn("softened_from", out["reclass"])
+
+    def test_no_untouched(self):
+        out = E.gate_reclass(self._res("no", []))
+        self.assertEqual(out["reclass"]["recommended"], "no")
+
+
+class TestSelectCandidates(unittest.TestCase):
+    def test_majors_and_moderates_selected_minors_skipped(self):
+        res = {"flags": [{"flag": "pace", "severity": "major"},
+                         {"flag": "clarity", "severity": "minor"},
+                         {"flag": "coverage", "severity": "moderate"}],
+               "reclass": {"recommended": "no"}}
+        ids = [c["id"] for c in E.select_review_candidates(res)]
+        self.assertEqual(ids, [0, 2])
+
+    def test_deciding_flag_force_included_on_yes(self):
+        res = {"flags": [{"flag": "coverage", "severity": "minor"}],
+               "reclass": {"recommended": "yes", "deciding_flags": ["coverage"]}}
+        self.assertEqual([c["id"] for c in E.select_review_candidates(res)], [0])
+
+
+class TestResultValidationReview(unittest.TestCase):
+    def _base(self):
+        return {"overall": "o", "feedback": "f", "instructor_summary": "s", "flags": [],
+                "reclass": {"recommended": "no", "reason": "r"}}
+
+    def test_review_optional(self):
+        self.assertEqual(E.validate_result(self._base()), [])
+
+    def test_result_with_review_list_passes(self):
+        r = self._base()
+        r["review"] = [{"flag": "pace", "verdict": "downgrade", "from_severity": "major",
+                        "to_severity": "moderate", "anchor_rule": "a", "reason": "b"}]
+        self.assertEqual(E.validate_result(r), [])
+
+    def test_bad_review_verdict_fails(self):
+        r = self._base()
+        r["review"] = [{"flag": "pace", "verdict": "escalate", "from_severity": "major",
+                        "to_severity": None, "reason": "x"}]
+        self.assertTrue(E.validate_result(r))
+
+    def test_bad_softened_from_fails(self):
+        r = self._base()
+        r["reclass"]["softened_from"] = "no"
+        self.assertTrue(E.validate_result(r))
+
+
 if __name__ == "__main__":
     unittest.main()

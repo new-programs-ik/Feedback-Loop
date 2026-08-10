@@ -97,6 +97,52 @@ class TestMultiSpeaker(unittest.TestCase):
         self.assertIn("RESOLVED", s)
 
 
+class TestSeverityAnchors(unittest.TestCase):
+    """The anchors are ONE constant injected everywhere — never copy-pasted (identity is the proof)."""
+
+    def test_anchors_single_source(self):
+        for ct in ("live_class", "ars"):
+            self.assertIn(E.SEVERITY_ANCHORS, E.build_extract_user("ctx", "seg", ct))
+            self.assertIn(E.SEVERITY_ANCHORS, E.build_synth_user("ctx", "[]", ct))
+        self.assertIn(E.SEVERITY_ANCHORS, E.build_skeptic_user("ctx", "[]", ""))
+
+    def test_anchor_content(self):
+        a = E.SEVERITY_ANCHORS
+        self.assertIn("use the LOWER", a)               # tie-break
+        self.assertIn("provably WRONG", a)
+        self.assertIn("skipped ENTIRELY", a)
+        self.assertIn("never recovered", a)
+        for f in ("engagement", "camera", "logistics"):
+            self.assertIn(f, a)                          # ceilings named
+        self.assertIn("MAJOR at minimum", a)             # ARS correctness floor
+
+    def test_floors_and_content_flags(self):
+        self.assertEqual(E.SEVERITY_FLOORS[("ars", "correctness")], "major")
+        self.assertIn("coverage", E.CONTENT_DELIVERY_FLAGS)
+        self.assertIn("solution_walkthrough", E.CONTENT_DELIVERY_FLAGS)
+
+
+class TestSkepticPrompt(unittest.TestCase):
+    def test_skeptic_hygiene(self):
+        s = E.SKEPTIC_SYS
+        self.assertIn("REFUTE", s)
+        self.assertIn("NEVER invent new problems", s)
+        self.assertIn("raise a severity", s)             # forbidden
+        self.assertIn("downgrade instead", s)            # unsure → downgrade, not drop
+        self.assertIn("anchor", s.lower())               # must cite the anchor rule
+        self.assertIn("specific contradiction", s)       # drop needs a stated contradiction
+
+    def test_reclass_framing_only_when_asked(self):
+        base = E.build_skeptic_user("ctx", "[]", "")
+        framed = E.build_skeptic_user("ctx", "[]", "", reclass_framing=True)
+        self.assertNotIn("RE-ATTEND", base)
+        self.assertIn("RE-ATTEND", framed)
+
+    def test_precision_creed_intact(self):
+        for r in (E.RUBRIC_LIVE, E.RUBRIC_ARS):
+            self.assertIn("PRECISION over completeness", r)
+
+
 class TestClassTypeGuard(unittest.TestCase):
     def test_bad_class_type_raises(self):
         cues = [E.Cue(1, 0, 1, "hello")]

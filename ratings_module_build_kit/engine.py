@@ -44,7 +44,9 @@ class Config:
     timeout_s: float = 120.0
     max_tokens_extract: int = 4000
     max_tokens_synth: int = 3000
+    max_tokens_skeptic: int = 1500       # the adversarial second-pass verdict call
     repair_attempts: int = 1             # re-ask once if the JSON is malformed/invalid
+    review_enabled: bool = True          # kill-switch: False restores the un-verified pipeline exactly
     price_in_per_mtok: float = 3.0       # USD, for cost reporting only
     price_out_per_mtok: float = 15.0
 
@@ -54,11 +56,11 @@ CLASS_TYPES = {"live_class", "ars"}   # ars = Assignment Review Session
 
 FLAGS_LIVE = {"pace", "clarity", "structure", "examples", "correctness", "logistics", "coverage",
               "coding_time", "agenda_balance", "concept_left", "doubt_handling", "engagement",
-              "learner_gap", "camera"}
+              "learner_gap", "camera", "screen_share", "slides_mismatch"}
 FLAGS_ARS = {"problem_coverage", "time_balance", "solution_walkthrough", "approach_reasoning",
              "complexity_tradeoffs", "edge_cases", "common_mistakes", "problem_deferred",
              "pace", "clarity", "structure", "correctness", "logistics",
-             "doubt_handling", "engagement", "learner_gap", "camera"}
+             "doubt_handling", "engagement", "learner_gap", "camera", "screen_share"}
 FLAGS = FLAGS_LIVE | FLAGS_ARS        # union — fallback when the class type is unknown
 
 
@@ -66,9 +68,52 @@ def flags_for(class_type: str) -> set[str]:
     return FLAGS_ARS if class_type == "ars" else FLAGS_LIVE
 
 
-SEVERITY = {"minor", "moderate", "major"}
+SEVERITY_ORDER = ("minor", "moderate", "major")   # ordinal, low → high
+SEVERITY = set(SEVERITY_ORDER)
 CONFIDENCE = {"low", "medium", "high"}
 RECLASS = {"yes", "no", "maybe"}
+
+
+def severity_rank(s: str) -> int:
+    """minor→0, moderate→1, major→2 (unknown → -1 so it always compares lowest)."""
+    return SEVERITY_ORDER.index(s) if s in SEVERITY_ORDER else -1
+
+
+def one_level_down(s: str) -> str:
+    """One severity step softer; minor stays minor."""
+    return SEVERITY_ORDER[max(0, severity_rank(s) - 1)]
+
+
+# Flags whose MAJOR failures mean the LEARNING itself wasn't delivered — the only flags that can
+# justify a re-class "yes" (see gate_reclass).
+CONTENT_DELIVERY_FLAGS = {"coverage", "correctness", "problem_coverage", "solution_walkthrough"}
+
+# Code-enforced severity floors: (class_type, flag) → minimum severity. A floor violation is never
+# legitimate (learners treat reviewed ARS solutions as canonical), so this is code, not just prompt.
+SEVERITY_FLOORS = {("ars", "correctness"): "major"}
+
+# The severity bars. ONE constant, injected into the extraction, synthesis AND skeptic prompts —
+# never copy-pasted into rubric literals (tests assert identity). This is the fix for
+# "the AI called something critical that wasn't".
+SEVERITY_ANCHORS = """\
+SEVERITY — use these exact bars; they are checkable claims, not impressions:
+  major    - reserved for a provable delivery failure. At least ONE of:
+             (a) content taught that is provably WRONG (contradicts the planned materials or
+                 established fact - quote the wrong statement);
+             (b) a PLANNED core agenda item / assigned problem skipped ENTIRELY, or compressed so
+                 badly it cannot have landed (cite the time range);
+             (c) learners demonstrably lost - their OWN quoted words show confusion - and the
+                 session map shows it was never recovered by the end.
+  moderate - a real, evidenced problem that hurt the session but did not break the learning:
+             noticeably rushed or unbalanced time, a muddled explanation later patched, a doubt
+             handled poorly but eventually addressed, a shallow walkthrough of a covered item.
+  minor    - a polish issue with little learning impact: brief dead air, a missed recap, sparse
+             check-ins, a small logistics hiccup, low interactivity in an otherwise clear class.
+TIE-BREAK: if the evidence does not CLEARLY meet the bar for a severity, use the LOWER one.
+CEILINGS: engagement, camera, screen_share, logistics, structure, examples and coding_time are at
+most MODERATE unless the evidence is catastrophic AND quoted (e.g. a tech failure consuming a large
+fraction of the class). FLOOR: correctness in an ARS is MAJOR at minimum - learners treat reviewed
+solutions as canonical."""
 
 # ──────────────────────────────────────────────────────── transcript: parse + chunk
 @dataclass
@@ -171,6 +216,36 @@ def format_segment(seg: list[Cue]) -> str:
 
 def est_tokens(cues: list[Cue]) -> int:
     return int(sum(len(c.text.split()) for c in cues) * 1.33)
+
+
+# ── verification helpers (pure) ────────────────────────────────────────────────
+def _normalise_quote(s: str) -> str:
+    """Lowercase, straighten curly quotes/dashes, collapse whitespace, strip punctuation edges —
+    so 'did the model quote the transcript?' survives cosmetic differences."""
+    s = s.lower()
+    for a, b in (("‘", "'"), ("’", "'"), ("“", '"'), ("”", '"'),
+                 ("—", "-"), ("–", "-"), ("…", "...")):
+        s = s.replace(a, b)
+    s = re.sub(r"[^a-z0-9' ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def quote_present(transcript_text: str, quote: str) -> bool:
+    """True if the (normalised) quote appears in the (normalised) transcript. A visual observation
+    ('<visual: …>') is not a transcript quote — callers handle those separately."""
+    q = _normalise_quote(quote)
+    return bool(q) and q in _normalise_quote(transcript_text)
+
+
+def excerpt_around(cues: list[Cue], timestamp: str, window_s: int = 120) -> str:
+    """The transcript ±window_s around an HH:MM:SS timestamp — the skeptic reads the REAL context,
+    not just the 450-word session map."""
+    try:
+        centre = _ts_to_seconds(timestamp)
+    except Exception:
+        return ""
+    seg = [c for c in cues if centre - window_s <= c.start <= centre + window_s]
+    return format_segment(seg)
 
 # ─────────────────────────────────────────────────────────────────────── prompts
 RUBRIC_LIVE = """\
@@ -334,7 +409,7 @@ EXTRACT_SYS = (
 def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class") -> str:
     allowed = "|".join(sorted(flags_for(class_type)))
     return (
-        f"CLASS CONTEXT\n{ctx}\n\n{RUBRICS[class_type]}\n\n"
+        f"CLASS CONTEXT\n{ctx}\n\n{RUBRICS[class_type]}\n\n{SEVERITY_ANCHORS}\n\n"
         f"TRANSCRIPT SEGMENT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known — "
         f"lines with no name are usually the instructor, but confirm from content):\n{segment_text}\n\n"
         "BEFORE extracting: attribute each line to the instructor or a learner. Judge ONLY the instructor. "
@@ -373,6 +448,7 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
     return (
         f"CLASS CONTEXT\n{ctx}\n\n"
         f"RAW FINDINGS collected from segment passes:\n{findings_json}\n\n"
+        f"{SEVERITY_ANCHORS}\n\n"
         "DO THIS, IN ORDER:\n"
         "1. VERIFY each finding against the WHOLE SESSION, and DROP it if ANY of these is true:\n"
         "   - the quote does not actually support the observation;\n"
@@ -380,7 +456,8 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         "   - the concern is RESOLVED or addressed later in the session (per the whole-session map) — a\n"
         "     text-segmentation artefact, not a real problem;\n"
         "   - read in full context, the moment is not actually a problem.\n"
-        "2. MERGE duplicates across segments; give each surviving flag an overall severity and confidence.\n"
+        "2. MERGE duplicates across segments; give each surviving flag an overall severity PER THE\n"
+        "   SEVERITY ANCHORS above (tie-break low) and a confidence.\n"
         "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:\n"
         "   - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.\n"
         "   - CONCISE and to the point: 150-250 words total.\n"
@@ -414,6 +491,214 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         '"instructor_summary":"the 6-7 sentence note to SEND to the instructor, stating the rating",'
         '"reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}'
     )
+
+# ── Stage 4: adversarial verification (the skeptic) ────────────────────────────────
+# A second, independent reviewer that tries to REFUTE each serious finding before the PM sees it.
+# Verdicts are applied by CODE (apply_verdicts/gate_reclass) — the skeptic cannot invent findings,
+# raise severities, or rewrite text. This is the fix for over-flagged "critical" findings.
+SKEPTIC_SYS = (
+    "You are an adversarial verifier — an independent second reviewer whose job is to try to REFUTE "
+    "each finding, not to confirm it. For each finding check exactly three things: "
+    "(1) QUOTE — is the quote real (see quote_found) and, read in its transcript excerpt, does it "
+    "actually show what the finding claims, said by the INSTRUCTOR (not a learner)? A quote beginning "
+    "'<visual:' is an observation from the recording's VISUAL TRACK — verify it against that track "
+    "instead of the transcript. "
+    "(2) CONTEXT — does the whole-session map (or visual track) contradict the finding: resolved "
+    "later, wrong attribution, mischaracterised arc? "
+    "(3) SEVERITY BAR — does the evidence CLEARLY meet the anchor bar for the stated severity? "
+    "Verdicts: 'uphold' (survives all three); 'downgrade' (a real problem, but the evidence does not "
+    "meet the severity bar — state the corrected_severity); 'drop' (refuted — you MUST state the "
+    "specific contradiction: the map line, excerpt evidence, or attribution error that refutes it; "
+    "'feels harsh' or general doubt is NEVER a reason to drop; if merely unsure, downgrade instead). "
+    "HARD LIMITS: you may NEVER invent new problems, add findings, raise a severity, or rewrite any "
+    "text — only uphold, downgrade, or drop what you are given. Every verdict must name the anchor "
+    "rule it applied. Output JSON only — no prose, no code fences."
+)
+
+
+def build_skeptic_user(ctx: str, candidates_json: str, excerpts: str,
+                       reclass_framing: bool = False) -> str:
+    frame = (
+        "These majors are the sole basis for a recommendation that learners RE-ATTEND this class. "
+        "Would you sign off on that? Hold them to the strictest reading of the anchors.\n\n"
+        if reclass_framing else ""
+    )
+    return (
+        f"CLASS CONTEXT\n{ctx}\n\n"
+        f"{SEVERITY_ANCHORS}\n\n"
+        + frame +
+        "FINDINGS TO VERIFY (each has an id; quote_found tells you whether the quote appears "
+        "verbatim in the transcript — if false, treat that evidence as suspect):\n"
+        f"{candidates_json}\n\n"
+        "TRANSCRIPT EXCERPTS around each finding's evidence (about 2 minutes either side):\n"
+        f"{excerpts}\n\n"
+        "Try to REFUTE each finding. Return exactly one verdict per id. JSON ONLY:\n"
+        '{"verdicts":[{"id":0,"verdict":"uphold|downgrade|drop",'
+        '"corrected_severity":"minor|moderate|major",'
+        '"anchor_rule":"the anchor line you applied",'
+        '"reason":"1-2 sentences; for drop this MUST state the specific contradiction"}]}'
+    )
+
+
+def select_review_candidates(result: dict) -> list[dict]:
+    """Flags worth a second look: severity major/moderate, plus anything the re-class call leans on.
+    Minors are never reviewed — verifying polish notes is ceremony."""
+    flags = result.get("flags") or []
+    deciding = set((result.get("reclass") or {}).get("deciding_flags") or []) \
+        if (result.get("reclass") or {}).get("recommended") == "yes" else set()
+    out = []
+    for i, f in enumerate(flags):
+        if not isinstance(f, dict):
+            continue
+        if f.get("severity") in ("major", "moderate") or f.get("flag") in deciding:
+            out.append({"id": i, **f})
+    return out
+
+
+def validate_verdicts(obj: Any, candidates: list[dict]) -> list[str]:
+    """The skeptic must return exactly one verdict per candidate id — an extra id is the verifier
+    inventing a finding, and it is rejected."""
+    if not isinstance(obj, dict) or not isinstance(obj.get("verdicts"), list):
+        return ["top level must be an object with a 'verdicts' list"]
+    errs: list[str] = []
+    want = {c["id"] for c in candidates}
+    seen: list = []
+    by_id = {c["id"]: c for c in candidates}
+    for i, v in enumerate(obj["verdicts"]):
+        if not isinstance(v, dict):
+            errs.append(f"verdicts[{i}] must be an object"); continue
+        vid = v.get("id")
+        if vid not in want:
+            errs.append(f"verdicts[{i}]: unknown id {vid!r} — verdicts only for the given findings")
+            continue
+        seen.append(vid)
+        if v.get("verdict") not in ("uphold", "downgrade", "drop"):
+            errs.append(f"verdicts[{i}]: verdict must be uphold|downgrade|drop")
+        if v.get("verdict") == "downgrade":
+            corr = v.get("corrected_severity")
+            if corr not in SEVERITY:
+                errs.append(f"verdicts[{i}]: downgrade needs corrected_severity")
+            elif severity_rank(corr) >= severity_rank(by_id[vid].get("severity", "major")):
+                errs.append(f"verdicts[{i}]: corrected_severity must be LOWER than the original")
+        for key in ("anchor_rule", "reason"):
+            if not isinstance(v.get(key), str) or not v.get(key).strip():
+                errs.append(f"verdicts[{i}]: missing {key}")
+    missing = want - set(seen)
+    if missing:
+        errs.append(f"missing verdicts for ids: {sorted(missing)}")
+    dupes = {x for x in seen if seen.count(x) > 1}
+    if dupes:
+        errs.append(f"duplicate verdicts for ids: {sorted(dupes)}")
+    return errs
+
+
+def merge_conservative(v1: list[dict], v2: list[dict]) -> list[dict]:
+    """Two votes on the same ids → the more skeptical verdict wins (drop > downgrade > uphold);
+    for two downgrades keep the lower corrected severity."""
+    strength = {"uphold": 0, "downgrade": 1, "drop": 2}
+    by_id = {v["id"]: v for v in v1}
+    for v in v2:
+        cur = by_id.get(v["id"])
+        if cur is None:
+            continue  # the second vote may only cover a subset — never adds new ids
+        if strength[v["verdict"]] > strength[cur["verdict"]]:
+            by_id[v["id"]] = v
+        elif v["verdict"] == cur["verdict"] == "downgrade":
+            if severity_rank(v.get("corrected_severity", "major")) < severity_rank(cur.get("corrected_severity", "major")):
+                by_id[v["id"]] = v
+    return [by_id[k] for k in sorted(by_id)]
+
+
+def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple[dict, list[dict]]:
+    """Apply skeptic verdicts mechanically. Guards: downgrades move at most ONE level per pass
+    (a bigger swing is recorded, not applied); code-side severity floors always win; drops keep a
+    full review record so nothing disappears silently. Input is not mutated."""
+    import copy
+    out = copy.deepcopy(result)
+    flags = out.get("flags") or []
+    by_id = {v["id"]: v for v in verdicts}
+    review: list[dict] = []
+    kept: list = []
+    for i, f in enumerate(flags):
+        v = by_id.get(i)
+        if v is None:
+            kept.append(f)
+            continue
+        name = f.get("flag", "?")
+        sev = f.get("severity", "moderate")
+        rec = {"flag": name, "verdict": v["verdict"], "from_severity": sev,
+               "anchor_rule": v.get("anchor_rule", ""), "reason": v.get("reason", "")}
+        if v["verdict"] == "drop":
+            rec["to_severity"] = None
+            review.append(rec)
+            continue  # flag removed
+        if v["verdict"] == "downgrade":
+            wanted = v.get("corrected_severity", one_level_down(sev))
+            applied = one_level_down(sev)                       # one-level clamp
+            if severity_rank(wanted) < severity_rank(applied):
+                rec["skeptic_wanted"] = wanted
+            floor = SEVERITY_FLOORS.get((class_type, name))
+            if floor and severity_rank(applied) < severity_rank(floor):
+                # floor blocks the downgrade entirely (a false claim should be dropped, not softened)
+                rec["verdict"] = "uphold"
+                rec["to_severity"] = sev
+                rec["reason"] = (rec["reason"] + " [floor: ARS correctness is major minimum]").strip()
+                review.append(rec)
+                kept.append(f)
+                continue
+            f["severity"] = applied
+            rec["to_severity"] = applied
+            review.append(rec)
+            kept.append(f)
+            continue
+        rec["to_severity"] = sev                                 # uphold
+        review.append(rec)
+        kept.append(f)
+    out["flags"] = kept
+    return out, review
+
+
+def gate_reclass(result: dict) -> dict:
+    """A re-class 'yes' must rest on at least one surviving MAJOR content-delivery flag; otherwise
+    it is auto-softened to 'maybe' (visibly). 'maybe' is never upgraded; 'no' is never touched."""
+    rc = result.get("reclass") or {}
+    if rc.get("recommended") != "yes":
+        return result
+    has_support = any(
+        f.get("severity") == "major" and f.get("flag") in CONTENT_DELIVERY_FLAGS
+        for f in (result.get("flags") or []) if isinstance(f, dict)
+    )
+    if not has_support:
+        rc["softened_from"] = "yes"
+        rc["recommended"] = "maybe"
+        rc["reason"] = ("[auto-softened from 'yes': no confirmed major content-delivery flag "
+                        "survived verification] " + str(rc.get("reason", ""))).strip()
+    return result
+
+
+def skeptic_review(client, candidates: list[dict], cues: list[Cue], transcript_text: str,
+                   ctx: str, usage: "Usage", reclass_framing: bool = False) -> list[dict]:
+    """One adversarial call covering every candidate (cross-flag context beats per-flag calls).
+    Each candidate is annotated with quote_found + a real transcript excerpt first."""
+    annotated = []
+    excerpt_parts = []
+    for c in candidates:
+        evs = c.get("evidence") or []
+        ann_evs = []
+        for e in evs:
+            q = str(e.get("quote", ""))
+            found = True if q.startswith("<visual:") else quote_present(transcript_text, q)
+            ann_evs.append({**e, "quote_found": found})
+            ex = excerpt_around(cues, str(e.get("timestamp", "")))
+            if ex:
+                excerpt_parts.append(f"--- finding id {c['id']} ({c.get('flag')}) around [{e.get('timestamp')}] ---\n{ex}")
+        annotated.append({**c, "evidence": ann_evs})
+    obj = _call_json(client, SKEPTIC_SYS,
+                     build_skeptic_user(ctx, json.dumps(annotated, ensure_ascii=False, indent=1),
+                                        "\n\n".join(excerpt_parts), reclass_framing),
+                     CFG.max_tokens_skeptic, lambda o: validate_verdicts(o, candidates), usage)
+    return obj["verdicts"]
+
 
 # ──────────────────────────────────────────────────────────────── schema validation
 def _check_evidence(ev: Any) -> list[str]:
@@ -470,6 +755,24 @@ def validate_result(obj: Any, allowed: set | None = None) -> list[str]:
             errs.append(f"reclass.recommended must be yes/no/maybe, got {rc.get('recommended')!r}")
         if not isinstance(rc.get("reason"), str) or not rc.get("reason").strip():
             errs.append("reclass.reason missing/empty")
+        if "softened_from" in rc and rc["softened_from"] != "yes":
+            errs.append("reclass.softened_from, when present, must be 'yes'")
+    # 'review' is added by code after the skeptic pass (the synthesiser never emits it) — but the
+    # final persisted result must stay self-validating.
+    if "review" in obj:
+        if not isinstance(obj["review"], list):
+            errs.append("'review' must be a list")
+        else:
+            for i, r in enumerate(obj["review"]):
+                if not isinstance(r, dict) or r.get("verdict") not in ("uphold", "downgrade", "drop"):
+                    errs.append(f"review[{i}]: bad verdict")
+                    continue
+                if r.get("from_severity") not in SEVERITY:
+                    errs.append(f"review[{i}]: bad from_severity")
+                if r.get("to_severity") is not None and r.get("to_severity") not in SEVERITY:
+                    errs.append(f"review[{i}]: bad to_severity")
+                if not str(r.get("reason", "")).strip():
+                    errs.append(f"review[{i}]: missing reason")
     return errs
 
 # ──────────────────────────────────────────────────────────────────── LLM client
@@ -608,6 +911,45 @@ def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: s
     log.info("revise done  cost=$%.4f  %.1fs", meta["cost_usd"], meta["seconds"])
     return obj["feedback"].strip(), meta
 
+RECONCILE_SYS = (
+    "You adjust two feedback texts after a second-pass review changed the findings behind them. "
+    "Remove or soften ONLY what the review changed: strip any point that rests on a DROPPED finding; "
+    "soften the emphasis of DOWNGRADED ones. Change nothing else — keep the tone, structure, length "
+    "style, timestamps and every other point exactly as they are. Never add new claims. "
+    'Output JSON only — no prose, no code fences: {"feedback":"...","instructor_summary":"..."}'
+)
+
+
+def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") -> dict:
+    """After drops/downgrades, one call keeps the two prose outputs honest (they may still reference
+    a removed finding). Flags/severities/reclass stay exactly as code applied them."""
+    user = (
+        "REVIEW CHANGES (what the second-pass verification did):\n"
+        + json.dumps(changed, ensure_ascii=False, indent=1)
+        + "\n\nSURVIVING FLAGS (the only claims allowed):\n"
+        + json.dumps(result.get("flags") or [], ensure_ascii=False, indent=1)
+        + "\n\nCURRENT DETAILED FEEDBACK (internal):\n" + str(result.get("feedback", ""))
+        + "\n\nCURRENT SUMMARY TO SEND THE INSTRUCTOR:\n" + str(result.get("instructor_summary", ""))
+        + '\n\nAdjust both texts per the review changes. Return JSON ONLY: '
+          '{"feedback":"...","instructor_summary":"..."}'
+    )
+
+    def _validate(obj: Any) -> list[str]:
+        errs = []
+        for key in ("feedback", "instructor_summary"):
+            if not isinstance(obj.get(key), str) or not obj.get(key).strip():
+                errs.append(f"missing/empty '{key}'")
+        return errs
+
+    try:
+        obj = _call_json(client, RECONCILE_SYS, user, CFG.max_tokens_synth, _validate, usage)
+        result["feedback"] = obj["feedback"].strip()
+        result["instructor_summary"] = obj["instructor_summary"].strip()
+    except Exception:  # reconciliation is best-effort — never lose the analysis over prose polish
+        log.exception("prose reconciliation failed; keeping the original texts")
+    return result
+
+
 def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                  materials: str = "") -> tuple[dict, dict]:
     """Run the full LLM pipeline over already-parsed cues. Returns (result, run_metadata).
@@ -640,11 +982,54 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         findings += extract_findings(client, seg, ctx, usage, class_type)
     log.info("synthesise %d raw findings", len(findings))
     result = synthesise(client, findings, ctx, usage, class_type)
+
+    # Stage 4 — adversarial verification: a skeptic tries to REFUTE every serious finding, then code
+    # applies the verdicts and gates the re-class call. This is what stops over-flagged "criticals".
+    transcript_text = "\n".join(c.text for c in cues)
+    review_records: list[dict] = []
+    flags_raised = len(result.get("flags") or [])
+    n_candidates = 0
+    reclass_softened = False
+    if CFG.review_enabled:
+        candidates = select_review_candidates(result)
+        n_candidates = len(candidates)
+        if candidates:
+            log.info("skeptic review of %d finding(s)", len(candidates))
+            verdicts = skeptic_review(client, candidates, cues, transcript_text, ctx, usage)
+            if (result.get("reclass") or {}).get("recommended") == "yes":
+                # highest-stakes output → a second, narrower vote on the content-delivery majors
+                content_majors = [c for c in candidates
+                                  if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
+                if content_majors:
+                    log.info("re-class second vote on %d content major(s)", len(content_majors))
+                    vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx, usage,
+                                           reclass_framing=True)
+                    verdicts = merge_conservative(verdicts, vote2)
+            result, review_records = apply_verdicts(result, verdicts, class_type)
+        before = (result.get("reclass") or {}).get("recommended")
+        result = gate_reclass(result)
+        reclass_softened = bool(before == "yes"
+                                and (result.get("reclass") or {}).get("recommended") == "maybe")
+        changed = [r for r in review_records if r["verdict"] in ("drop", "downgrade")]
+        if changed:
+            log.info("reconciling prose after %d verification change(s)", len(changed))
+            result = _reconcile_prose(client, result, changed, usage)
+    result["review"] = review_records
+
+    dropped = sum(1 for r in review_records if r["verdict"] == "drop")
     meta = {
         "model": CFG.model, "class_type": class_type, "windows": len(chunks), "cues": len(cues),
         "speakers": sorted({c.speaker for c in cues if c.speaker}),
         "conversation_mapped": True,
         "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
+        "review_ran": bool(CFG.review_enabled),
+        "flags_raised": flags_raised,
+        "flags_reviewed": n_candidates,
+        "flags_upheld": sum(1 for r in review_records if r["verdict"] == "uphold"),
+        "flags_downgraded": sum(1 for r in review_records if r["verdict"] == "downgrade"),
+        "flags_dropped": dropped,
+        "reclass_softened": reclass_softened,
+        "review_heavy_drop": bool(n_candidates and dropped > n_candidates / 2),
         "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
         "cost_usd": round(usage.cost_usd(), 4), "seconds": round(time.time() - t0, 1),
     }
@@ -674,6 +1059,14 @@ def report_markdown(result: dict, ctx: str, meta: dict) -> str:
     for f in flags:
         ev = "; ".join(f'[{e.get("timestamp","")}] “{e.get("quote","")}”' for e in f.get("evidence", []))
         lines.append(f"- **{f.get('flag')}** ({f.get('severity')}, {f.get('confidence')} confidence) — {ev}")
+    review = result.get("review") or []
+    if review:
+        lines += ["", "## Verification (second-pass review)"]
+        for r in review:
+            arrow = ("dropped" if r.get("verdict") == "drop"
+                     else f"{r.get('from_severity')} → {r.get('to_severity')}"
+                     if r.get("verdict") == "downgrade" else "upheld")
+            lines.append(f"- **{r.get('flag')}**: {arrow} — {r.get('reason','')}")
     lines += ["", "## Summary to send to the instructor", result.get("instructor_summary", "").strip(), "",
               "## Detailed feedback (internal team)", result.get("feedback", "").strip(), "",
               "## Re-class recommendation (PM only — not for the instructor)",
