@@ -454,6 +454,8 @@ if __name__ == "__main__":
         frames = extract_frames(src, times[:6], time.monotonic() + 120)
         print(f"extracted {len(frames)} test frames; sizes:", [len(b) for _, b in frames])
         raise SystemExit(0)
-    track, meta = analyze_video(None, a.url, dur, class_hint="CLI test")
+    is_vimeo = "vimeo.com" in a.url.lower()
+    track, meta = analyze_video(a.url if is_vimeo else None,
+                                None if is_vimeo else a.url, dur, class_hint="CLI test")
     print("\n=== VISUAL TRACK ===\n" + (track or "(empty)"))
     print("\nmeta:", json.dumps(meta, indent=2))
