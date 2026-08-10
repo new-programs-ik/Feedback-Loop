@@ -32,6 +32,7 @@ export function NewAnalysisForm({
   const [instructor, setInstructor] = useState("");
   const [classType, setClassType] = useState<"live_class" | "ars">("live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
+  const [analyzeVideo, setAnalyzeVideo] = useState(false);
 
   const cohorts = cohortsByCourse[courseId] ?? [];
   const classes = classesByCohort[cohortId] ?? [];
@@ -186,6 +187,27 @@ export function NewAnalysisForm({
             ) : (
               <Input name="file" type="file" accept=".vtt,.srt" className="file:mr-3 file:text-sm" />
             )}
+          </div>
+
+          <div className="space-y-2 rounded-lg border p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" name="analyze_video"
+                     checked={analyzeVideo} onChange={(e) => setAnalyzeVideo(e.target.checked)} />
+              🎬 Analyze the video too (recommended for important classes)
+            </label>
+            {analyzeVideo && (
+              <Input name="video_url" type="url" className="mt-1"
+                     placeholder="Direct video link (mp4 or Google Drive) — needed until Vimeo video access is enabled" />
+            )}
+            <p className="text-muted-foreground text-xs">
+              The AI samples ~1 frame every 2–3 minutes to <strong>see</strong> the class: was the
+              camera on, was the screen shared, did the slides match the plan, was there real live
+              coding. Adds roughly <strong>$0.20–0.40</strong> and <strong>5–10 minutes</strong> per
+              class. Frames are analyzed in memory and <strong>never stored</strong>. Works with a
+              direct/Drive video link today; plain Vimeo links start working automatically once video
+              access is enabled on the Vimeo account (see the guide in the docs). If the video can&apos;t
+              be read, the analysis simply continues transcript-only.
+            </p>
           </div>
 
           {state.error && <p className="text-destructive text-sm">{state.error}</p>}

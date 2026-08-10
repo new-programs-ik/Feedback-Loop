@@ -19,6 +19,9 @@ Built for Interview Kickstart's New Programs team, now used across teams.
 
 > ⚙️ **Deploying the worker?** Step-by-step (non-technical) setup incl. `DATABASE_URL`:
 > [docs/RENDER_SETUP.md](docs/RENDER_SETUP.md).
+>
+> 🎬 **Want the AI to watch the class video too** (camera / screen / slides checks)? One-time Vimeo
+> setup: [docs/VIMEO_VIDEO_ACCESS.md](docs/VIMEO_VIDEO_ACCESS.md).
 
 ---
 

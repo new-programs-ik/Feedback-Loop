@@ -225,6 +225,32 @@ whole**:
    "text-segmentation" false alarms.
 5. **Write:** from the surviving, verified findings, Claude writes the summary, the instructor
    feedback, and the PM-only re-class call.
+6. **Self-check (the skeptic).** Before you see anything, a second, adversarial AI reviewer tries to
+   **refute** every serious finding: is the quote real and really the instructor's? does the whole
+   session contradict it? does the evidence truly meet the bar for that severity? Findings get
+   confirmed, softened, or removed — by fixed rules, not by mood — and every decision is shown on the
+   review page in a "Self-check" card, so nothing disappears silently. A "re-teach this class"
+   recommendation only survives if a genuine major content problem survived the check.
+
+### 🎬 Watching the video (optional)
+
+Tick **"Analyze the video too"** on New Analysis and the system also *watches* the class: it samples
+about one frame every 2–3 minutes from the recording (streamed, never downloaded or stored), and a
+neutral observer notes what's visible — camera on or off, screen shared or frozen, slides or a coding
+notebook on screen, slide titles. Those observations become extra evidence: "camera was off from
+00:14 to 00:31" is now a fact from the video, not a guess from the transcript. It adds roughly
+$0.20–0.40 and 5–10 minutes per class. If the video can't be read, the analysis simply continues
+transcript-only and tells you why. To enable it for plain Vimeo links, see
+**[VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md)** (a 5-minute, one-time setup); a direct mp4 or
+Google Drive link to the recording works today with no setup.
+
+### ⚖️ Why severity can be trusted
+
+"Critical" must be **earned**: the AI works to fixed severity bars (major = a provable delivery
+failure — wrong content, a planned item skipped entirely, or learners lost and never recovered), ties
+break to the softer level, and style issues (engagement, camera, logistics…) can't exceed "moderate"
+unless something catastrophic and quoted happened. The skeptic pass then re-tests every serious flag
+against those same bars. This is the fix for "it called something critical that wasn't."
 
 This is why the feedback is **specific and trustworthy** — every point traces back to a real moment,
 attributed to the right person, and checked against the flow of the whole class rather than a vague

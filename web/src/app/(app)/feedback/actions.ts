@@ -41,6 +41,8 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const transcript = file && file.size ? await file.text() : "";
   const materials_text = String(formData.get("materials_text") ?? "").trim();
   const materials_url = String(formData.get("materials_url") ?? "").trim();
+  const analyze_video = formData.get("analyze_video") === "on";
+  const video_url = String(formData.get("video_url") ?? "").trim();
   const materials_files: { filename: string; b64: string }[] = [];
   let materialsTotal = 0;
   for (const f of formData.getAll("materials") as File[]) {
@@ -136,6 +138,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     ...(materials_files.length || materials_text || materials_url
       ? { materials_files, materials_text, materials_url }
       : {}),
+    ...(analyze_video ? { analyze_video: true, ...(video_url ? { video_url } : {}) } : {}),
     ...(transcript ? { transcript } : { vimeo_url }),
   };
 

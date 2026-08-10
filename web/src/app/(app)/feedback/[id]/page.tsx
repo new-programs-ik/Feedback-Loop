@@ -14,14 +14,23 @@ function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
 }
 
-type Evidence = { timestamp?: string; quote?: string };
+type Evidence = { timestamp?: string; quote?: string; source?: string };
 type Flag = { flag?: string; severity?: string; confidence?: string; evidence?: Evidence[] };
+type ReviewRecord = {
+  flag?: string; verdict?: string; from_severity?: string; to_severity?: string | null;
+  anchor_rule?: string; reason?: string;
+};
+type VideoMeta = {
+  video_used?: boolean; frames_analyzed?: number; frames_sampled?: number; video_error?: string | null;
+};
 type Result = {
   overall?: string;
   flags?: Flag[];
   feedback?: string;
   instructor_summary?: string;
-  reclass?: { recommended?: string; reason?: string; deciding_flags?: string[] };
+  review?: ReviewRecord[];
+  video?: VideoMeta;
+  reclass?: { recommended?: string; reason?: string; deciding_flags?: string[]; softened_from?: string };
 };
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -141,7 +150,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                   </div>
                   {(f.evidence ?? []).map((e, j) => (
                     <p key={j} className="text-muted-foreground mt-1.5 text-sm">
-                      <span className="font-mono text-xs">[{e.timestamp}]</span> “{e.quote}”
+                      <span className="font-mono text-xs">[{e.timestamp}]</span>{" "}
+                      {e.source === "video" && <Badge variant="outline" className="mr-1 align-middle">🎬 video</Badge>}
+                      “{e.quote}”
                     </p>
                   ))}
                 </div>
@@ -149,8 +160,56 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               {(result.flags ?? []).length === 0 && (
                 <p className="text-muted-foreground text-sm">No flags raised.</p>
               )}
+              {result.video?.video_used ? (
+                <p className="text-muted-foreground text-xs">
+                  🎬 Video analyzed: {result.video.frames_analyzed} frames sampled from the recording —
+                  camera/screen/slides findings are evidence-based.
+                </p>
+              ) : result.video?.video_error ? (
+                <p className="text-muted-foreground text-xs">
+                  Video analysis skipped: {result.video.video_error} — findings are transcript-only.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
+
+          {(result.review ?? []).length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  Self-check
+                  <Badge variant="secondary">the AI double-checked its own findings</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(result.review ?? []).map((r, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm">
+                    <Badge
+                      variant={r.verdict === "drop" ? "destructive" : r.verdict === "downgrade" ? "warning" : "secondary"}
+                      className="mt-0.5 shrink-0"
+                    >
+                      {r.verdict === "drop" ? "removed" : r.verdict === "downgrade"
+                        ? `${r.from_severity} → ${r.to_severity}` : "confirmed"}
+                    </Badge>
+                    <div>
+                      <span className="font-medium">{r.flag}</span>
+                      <span className="text-muted-foreground"> — {r.reason}</span>
+                    </div>
+                  </div>
+                ))}
+                {result.reclass?.softened_from && (
+                  <p className="text-muted-foreground text-xs">
+                    ⚖️ The re-class call was auto-softened from <strong>yes</strong> to{" "}
+                    <strong>maybe</strong> because no major content-delivery issue survived verification.
+                  </p>
+                )}
+                <p className="text-muted-foreground text-xs">
+                  Every serious finding gets a second, adversarial review before you see it — severities
+                  are corrected and unsupported findings removed (shown here so nothing disappears silently).
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="flex-row items-center justify-between pb-2">

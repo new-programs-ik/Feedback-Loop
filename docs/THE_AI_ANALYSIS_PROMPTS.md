@@ -22,9 +22,11 @@ One analysis makes several calls to the AI, in this order:
 | # | Stage | Prompt used | What it produces |
 |---|---|---|---|
 | 0 | **(optional) Digest materials** | `MATERIALS_SYS` | A short outline of the slides/notebook you attached |
+| 0b | **(optional) Watch the video** | `FRAME_OBSERVER_SYS` | Neutral descriptions of sampled frames → a timestamped **visual track** (camera / screen / slides) |
 | 1 | **Map the whole conversation** | `CONV_MAP_SYS` | A neutral map: who speaks, the flow, what got resolved |
-| 2 | **Extract findings per ~30-min window** | `EXTRACT_SYS` + rubric | Evidence-backed issues about the instructor |
+| 2 | **Extract findings per ~30-min window** | `EXTRACT_SYS` + rubric + **severity anchors** | Evidence-backed issues about the instructor |
 | 3 | **Synthesise** | `SYNTH_SYS` | Final flags + **two** feedbacks (detailed internal + short send-to-instructor) + PM re-class call |
+| 4 | **Adversarial self-check (the skeptic)** | `SKEPTIC_SYS` | Uphold / downgrade / drop verdicts on every serious flag — applied by code, shown to the PM |
 | — | **Revise (later, on the review page)** | `REVISE_SYS` | A reworded feedback draft when a PM asks |
 
 > **Two feedback outputs (since v3):** the synthesis now writes BOTH a **detailed, timestamped** analysis
@@ -78,6 +80,38 @@ planned examples/exercises/problems, and anything marked as important. No commen
 > "materials agent" (`materials_fetch.py`): it downloads the file, extracts its text, and feeds it in here
 > — so a huge deck never has to be uploaded. The file must be shared *"Anyone with the link → Viewer"* (or
 > be an IK link the worker can open). Note: giving materials **improves accuracy but uses more tokens**.
+
+---
+
+## 3b. Stage 0b — watch the video (optional, opt-in)
+
+When "🎬 Analyze the video too" is ticked, the system samples **~1 frame every 2–3 minutes** from the
+recording (streamed frame-by-frame — the video is never downloaded or stored) and has the AI describe
+each frame as a **neutral observer that never judges**:
+
+**System prompt (`FRAME_OBSERVER_SYS`):**
+
+```
+You are a neutral visual observer describing sampled frames from a class recording. You describe
+only what is visibly present — you never evaluate, praise, or criticise. For each frame return
+strict JSON with: ts (the given timestamp string), camera_on (bool|null — is an instructor webcam
+feed visible and live), instructor_visible (bool|null), screen_shared (bool|null — is a
+screen/window being presented), content_type (one of slides|code|notebook|browser|doc|video|blank|
+other|null), heading_or_slide_title (string|null — verbatim ONLY if clearly legible; never guess),
+anomalies (array from: frozen, blank, tiny_text, low_light, notification_popup, wrong_window; empty
+if none). Use null whenever a frame is ambiguous. Output JSON only.
+```
+
+The observations are then merged **by plain code (no AI)** into a timestamped **VISUAL TRACK** —
+camera on/off spans, what was on screen when, slide titles seen, anomalies — ending with an honesty
+line: *"SAMPLED N frames at ~Xs intervals — states between samples are interpolated."* That track is
+added to the context, and rubric section [C] switches to its evidence-based variant (§6).
+
+> **What this is / why:** the transcript can't show a switched-off camera, a frozen screen, or slides
+> that don't match the plan. The frames can. Keeping the observer strictly neutral (describe, never
+> judge) prevents the vision pass from inventing criticism — judging stays with the auditor prompts.
+> **To change:** add fields to observe (e.g. "is a person's face large enough to read engagement") or
+> tighten what counts as an anomaly.
 
 ---
 
@@ -209,8 +243,9 @@ If a dimension is fine, raise nothing for it.
   engagement     - interactive vs a monologue; does the instructor invite questions / check understanding ("does that make sense?").
   learner_gap    - a learner points out a concept that was not covered, and how the instructor responds.
 
-[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
-  camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
+[C] — this section SWAPS depending on whether the video was analyzed (see the note after §6b):
+    transcript-only → camera/screen_share only on a clear verbal cue ("can you see me?");
+    with video → camera, screen_share and slides_mismatch judged from the VISUAL TRACK as evidence.
 
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
@@ -272,8 +307,7 @@ If a dimension is fine, raise nothing for it.
   learner_gap    - a learner (or the instructor) notes a prerequisite wasn't taught, or the assignment
                    didn't match what the class covered.
 
-[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue):
-  camera - whether the instructor's camera is on; only flag if they say e.g. "can you see me?".
+[C] — swaps by video availability, same as the live-class rubric (see the note after this section).
 
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
@@ -285,6 +319,33 @@ RULES:
 > **This is the most useful place to suggest changes.** If you think a check is missing (e.g. *"did the
 > instructor share the recording link?"*), or a flag is too aggressive, this is the list to edit. Each
 > line is one check — add, remove, or reword lines and the AI's behaviour changes accordingly.
+
+### 6c. Section [C] — the two variants (video off / video on)
+
+**Without video (`SECTION_C_TRANSCRIPT_ONLY`):**
+
+```
+[C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
+  camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
+  screen_share   - screen-sharing problems. Only flag on a clear verbal cue (e.g. "can you see my screen?", "it's frozen").
+  slides_mismatch - do NOT raise without video; leave for the recording check.
+```
+
+**With video (`SECTION_C_WITH_VIDEO`):**
+
+```
+[C] Judged from the VISUAL TRACK in CONTEXT (sampled frames from the recording — treat it as ground
+    truth about what was on screen, with the stated sampling gaps):
+  camera         - instructor camera off or absent for a meaningful span of the class.
+  screen_share   - screen not shared, frozen, wrong window, or unreadably small text while teaching.
+  slides_mismatch - what is visibly on screen does not match the PLANNED CLASS MATERIALS outline
+                    (planned slides/topics never appear on screen).
+  Also CROSS-CHECK coding_time: if the transcript claims live coding but no notebook/code is visible
+  in that span of the visual track, flag it.
+  Visual evidence items use {"timestamp":"HH:MM:SS","quote":"<visual: camera off 00:14:30-00:31:00>",
+  "source":"video"} — the '<visual: ...>' form is exempt from the verbatim-transcript rule but MUST
+  restate a line from the VISUAL TRACK, never an invented one.
+```
 
 ---
 
@@ -373,6 +434,79 @@ treat reviewed solutions as canonical)."*
 
 ---
 
+## 7b. The severity anchors — the exact bars ("critical" must be EARNED)
+
+This is the fix for *"the AI called something critical that wasn't."* One constant, injected into the
+extraction, synthesis AND skeptic prompts (tests assert it is literally the same text everywhere):
+
+```
+SEVERITY — use these exact bars; they are checkable claims, not impressions:
+  major    - reserved for a provable delivery failure. At least ONE of:
+             (a) content taught that is provably WRONG (contradicts the planned materials or
+                 established fact - quote the wrong statement);
+             (b) a PLANNED core agenda item / assigned problem skipped ENTIRELY, or compressed so
+                 badly it cannot have landed (cite the time range);
+             (c) learners demonstrably lost - their OWN quoted words show confusion - and the
+                 session map shows it was never recovered by the end.
+  moderate - a real, evidenced problem that hurt the session but did not break the learning:
+             noticeably rushed or unbalanced time, a muddled explanation later patched, a doubt
+             handled poorly but eventually addressed, a shallow walkthrough of a covered item.
+  minor    - a polish issue with little learning impact: brief dead air, a missed recap, sparse
+             check-ins, a small logistics hiccup, low interactivity in an otherwise clear class.
+TIE-BREAK: if the evidence does not CLEARLY meet the bar for a severity, use the LOWER one.
+CEILINGS: engagement, camera, screen_share, logistics, structure, examples and coding_time are at
+most MODERATE unless the evidence is catastrophic AND quoted (e.g. a tech failure consuming a large
+fraction of the class). FLOOR: correctness in an ARS is MAJOR at minimum - learners treat reviewed
+solutions as canonical.
+```
+
+> **To change:** these bars are the single most impactful place to tune strictness. Tighten or relax a
+> bar, add a ceiling for a flag that keeps over-firing — one edit changes all three prompts at once.
+
+## 7c. Stage 4 — the adversarial self-check (the skeptic)
+
+After synthesis, every **major or moderate** flag gets a second, independent review whose job is to
+**refute** it. The skeptic sees the whole-session map, the severity anchors, a code-computed
+`quote_found` check (did the quote really appear in the transcript?), and **real ±2-minute transcript
+excerpts** around each piece of evidence.
+
+**System prompt (`SKEPTIC_SYS`):**
+
+```
+You are an adversarial verifier — an independent second reviewer whose job is to try to REFUTE each
+finding, not to confirm it. For each finding check exactly three things:
+(1) QUOTE — is the quote real (see quote_found) and, read in its transcript excerpt, does it
+actually show what the finding claims, said by the INSTRUCTOR (not a learner)? A quote beginning
+'<visual:' is an observation from the recording's VISUAL TRACK — verify it against that track
+instead of the transcript.
+(2) CONTEXT — does the whole-session map (or visual track) contradict the finding: resolved later,
+wrong attribution, mischaracterised arc?
+(3) SEVERITY BAR — does the evidence CLEARLY meet the anchor bar for the stated severity?
+Verdicts: 'uphold' (survives all three); 'downgrade' (a real problem, but the evidence does not meet
+the severity bar — state the corrected_severity); 'drop' (refuted — you MUST state the specific
+contradiction: the map line, excerpt evidence, or attribution error that refutes it; 'feels harsh'
+or general doubt is NEVER a reason to drop; if merely unsure, downgrade instead).
+HARD LIMITS: you may NEVER invent new problems, add findings, raise a severity, or rewrite any
+text — only uphold, downgrade, or drop what you are given. Every verdict must name the anchor rule
+it applied. Output JSON only — no prose, no code fences.
+```
+
+**What happens with the verdicts — code, not AI:**
+- Downgrades move at most **one level per pass** (a bigger wish is recorded, not applied); the ARS
+  correctness **floor** can never be crossed; drops keep a full record.
+- A re-class **"yes"** must be backed by a surviving **major** in a content-delivery flag
+  (coverage / correctness / problem_coverage / solution_walkthrough) — otherwise code softens it to
+  **"maybe"**, visibly. When "yes" is at stake, a **second vote** runs with the framing *"would you
+  sign off on learners re-attending?"* and the more skeptical verdict wins.
+- Every verdict (with its reason) is stored in `result.review` and shown to the PM as the
+  **"Self-check"** card — nothing disappears silently. If the skeptic removes more than half the
+  findings, the UI warns "verifier disagreed heavily — review manually."
+- One final prose pass strips dropped findings from the two feedback texts so they stay honest.
+
+> **What this is / why:** a second reviewer with the explicit job of refuting, plus code-enforced
+> guard-rails, is what turns "the AI feels it's major" into "the AI proved it's major (or corrected
+> itself, and showed you)."
+
 ## 8. The review-page "Revise with AI" prompt
 
 On the review page, a PM can type a plain instruction ("make it warmer", "shorter", "focus on pacing")
@@ -408,6 +542,10 @@ You don't need to touch code to propose an improvement:
 - **Judge the instructor, never the learner.**
 - **Kind and specific** — feedback coaches, it never scolds.
 - **The re-class call is the PM's** — the AI only suggests; a human decides.
+- **"Critical" must be earned** — severity follows the anchor bars, and ties break to the softer level.
+- **Every harsh call gets a second, adversarial look** — and the double-check is shown to the PM.
+- **See, don't guess** — when the video is available, camera/screen/slides findings come from frames,
+  not inference; the visual observer describes and never judges.
 
 ---
 

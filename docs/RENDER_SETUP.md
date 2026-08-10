@@ -88,6 +88,14 @@ Use this only if you couldn't find the `.env` file.
    | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Yes, if you analyze **Vimeo links**. |
    | `WORKER_API_KEY` | a shared secret word | Only if your website already sends one. |
    | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |
+   | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video-analysis frames per class. |
+   | `VIDEO_DISABLED` | `1` | Optional kill-switch: turns video analysis off on this deployment. |
+
+   > 🎬 **About video analysis on the free tier:** it works, but the free worker is slow and can spin
+   > down mid-job, so keep `VIDEO_MAX_FRAMES=40`. If video jobs ever get stuck, either set
+   > `VIDEO_DISABLED=1` here (analyses continue transcript-only) or upgrade the worker to Render's
+   > Starter plan (~$7/mo — the paid tier's real benefit is no spin-down). Enabling video for plain
+   > Vimeo links is a separate one-time step: see [VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md).
 
    *(The Claude / Vimeo values are also in the same `.env` file from Step 1 — lines
    `ANTHROPIC_API_KEY=` and `VIMEO_ACCESS_TOKEN=`.)*
