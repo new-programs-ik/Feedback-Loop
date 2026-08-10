@@ -28,7 +28,7 @@ export default async function FeedbackPage({
 
   let q = supabase
     .from("classes")
-    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), analyses(reclass, tokens_in, tokens_out, cost_usd)")
+    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), analyses(reclass, tokens_in, tokens_out, cost_usd, video_used:result->video->>video_used)")
     .order("class_date", { ascending: false });
   if (sp.course) q = q.eq("course_id", sp.course);
   if (sp.month && /^\d{4}-\d{2}$/.test(sp.month)) {
@@ -137,9 +137,10 @@ export default async function FeedbackPage({
               <tbody>
                 {classes.map((c) => {
                   const course = (c.courses as { name?: string } | null)?.name ?? "—";
-                  const a = (c.analyses as Array<{ reclass?: string; cost_usd?: number }> | null)?.[0];
+                  const a = (c.analyses as Array<{ reclass?: string; cost_usd?: number; video_used?: string }> | null)?.[0];
                   const reclass = a?.reclass;
                   const cost = Number(a?.cost_usd ?? 0);
+                  const videoUsed = a?.video_used === "true";
                   const rating = c.rating as number | null;
                   const status = String(c.status);
                   return (
@@ -151,7 +152,12 @@ export default async function FeedbackPage({
                         <span className="text-muted-foreground text-xs">{course}</span>
                       </td>
                       <td className="text-muted-foreground px-4 py-3 whitespace-nowrap">{String(c.class_date ?? "—")}</td>
-                      <td className="px-4 py-3"><Badge variant="outline">{c.session_type === "ars" ? "ARS" : "Live"}</Badge></td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1">
+                          <Badge variant="outline">{c.session_type === "ars" ? "ARS" : "Live"}</Badge>
+                          {videoUsed && <span title="Video verified — the recording was analyzed">🎬</span>}
+                        </span>
+                      </td>
                       <td className="px-4 py-3" data-numeric>
                         <span className={rating != null && rating < 4.5 ? "text-destructive font-semibold" : "font-medium"}>
                           {rating != null ? Number(rating).toFixed(2) : "—"}

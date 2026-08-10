@@ -86,9 +86,27 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           </Link>
         </Button>
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">{String(klass.topic)}</h1>
             <Badge variant="outline">{klass.session_type === "ars" ? "ARS" : "Live"}</Badge>
+            {/* Trust tag: was the recording actually part of this analysis? */}
+            {analysis && (
+              result.video?.video_used ? (
+                <Badge variant="success" title={`${result.video.frames_analyzed} frames sampled from the recording`}>
+                  🎬 Video verified · {result.video.frames_analyzed} frames
+                </Badge>
+              ) : (
+                <Badge variant="outline"
+                       title={result.video?.video_error ? `Video skipped: ${result.video.video_error}` : "The recording was not analyzed"}>
+                  Transcript only
+                </Badge>
+              )
+            )}
+            {(result.review ?? []).length > 0 && (
+              <Badge variant="secondary" title="Every serious finding got a second, adversarial review">
+                ✓ Self-checked
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground text-sm">
             {course} · {instructor} · {String(klass.class_date)}
