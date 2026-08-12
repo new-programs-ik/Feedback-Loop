@@ -5,6 +5,11 @@
 # Fly.io, Railway, or internal Docker/Kubernetes).
 FROM python:3.12-slim
 
+# ffmpeg is REQUIRED by the video-frames stage. Install the real system binary: the pip wheel
+# (imageio-ffmpeg) did not work in the container, and a missing ffmpeg silently degrades every
+# analysis to transcript-only.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
@@ -12,9 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # All modules the worker imports at runtime. Every local import in service.py must be listed here, or
 # the container crashes on startup with "No module named '<x>'" (store.py = async DB write-back;
 # materials_fetch.py = fetch materials from a link; video.py = the video-frames stage).
-# ffmpeg arrives via the imageio-ffmpeg wheel (static build with https support, ~30MB). If that wheel
-# ever loses https support, switch to:
-#   RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py video.py ./
 
 ENV PORT=8000

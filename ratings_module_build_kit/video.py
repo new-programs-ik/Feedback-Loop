@@ -90,12 +90,13 @@ def ffmpeg_path() -> Optional[str]:
         return None
     if _FFMPEG_CACHE:
         return _FFMPEG_CACHE[0]
-    path: Optional[str] = None
-    try:
-        import imageio_ffmpeg
-        path = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        path = shutil.which("ffmpeg")
+    path: Optional[str] = shutil.which("ffmpeg")     # the container installs a real ffmpeg
+    if not path:
+        try:
+            import imageio_ffmpeg                     # dev fallback (Windows box)
+            path = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            path = None
     _FFMPEG_CACHE.append(path)
     return path
 
@@ -215,6 +216,7 @@ def extract_frames(source: VideoSource, times: list[float], deadline: float,
     row or at the deadline; require >= min_frames overall."""
     frames: list[tuple[float, bytes]] = []
     consecutive = 0
+    first_error = ""
     for t in times:
         if time.monotonic() > deadline:
             log.warning("video stage deadline hit at %.0fs — keeping %d frames", t, len(frames))
@@ -224,12 +226,16 @@ def extract_frames(source: VideoSource, times: list[float], deadline: float,
             consecutive = 0
         except (VideoStageError, subprocess.TimeoutExpired) as e:
             consecutive += 1
+            if not first_error:
+                first_error = str(e)[:300]
             log.warning("frame at %.0fs failed (%d in a row): %s", t, consecutive, str(e)[:160])
             if consecutive >= cfg.max_consecutive_failures:
                 log.warning("aborting extraction after %d consecutive failures", consecutive)
                 break
     if len(frames) < cfg.min_frames:
-        raise VideoStageError(f"too few frames extracted ({len(frames)}/{len(times)})")
+        raise VideoStageError(
+            f"could not read frames from the video ({len(frames)}/{len(times)} extracted)"
+            + (f" - first failure: {first_error}" if first_error else ""))
     return frames
 
 
