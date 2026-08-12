@@ -40,3 +40,6 @@ Thumbs.db
 *.mp4
 *.mov
 *.mkv
+
+# Study report with instructor names + ratings — keep out of the repo
+Video-Analysis-Study.pdf
