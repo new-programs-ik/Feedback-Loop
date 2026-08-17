@@ -215,11 +215,15 @@ class TestVerdictValidation(unittest.TestCase):
     def test_unknown_verdict_fails(self):
         self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "escalate")]}, [_cand(0)]))
 
-    def test_downgrade_requires_lower_corrected_severity(self):
+    def test_downgrade_severity_handling(self):
         cands = [_cand(0, severity="moderate")]
-        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade", "major")]}, cands))
-        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade")]}, cands))  # missing
+        # a real downgrade validates
         self.assertEqual(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade", "minor")]}, cands), [])
+        # a missing corrected_severity is still an error (the model must say what it means)
+        self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade")]}, cands))
+        # a "downgrade" that is not lower is ACCEPTED here and normalised to uphold by apply_verdicts —
+        # rejecting it used to burn the repair attempt and lose verification for the whole class.
+        self.assertEqual(E.validate_verdicts({"verdicts": [_verdict(0, "downgrade", "major")]}, cands), [])
 
     def test_empty_reason_or_anchor_fails(self):
         self.assertTrue(E.validate_verdicts({"verdicts": [_verdict(0, reason=" ")]}, [_cand(0)]))
@@ -370,3 +374,30 @@ class TestResultValidationReview(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVerificationIsNonFatal(unittest.TestCase):
+    """The self-check is a quality enhancement — it must never destroy an analysis."""
+
+    def test_bogus_downgrade_is_treated_as_uphold(self):
+        res = {"overall": "o", "feedback": "f", "instructor_summary": "s",
+               "flags": [{"flag": "pace", "severity": "moderate", "confidence": "high",
+                          "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}],
+               "reclass": {"recommended": "no", "reason": "r"}}
+        # skeptic says "downgrade" but hands back a HIGHER severity — must never raise it
+        bad = [{"id": 0, "verdict": "downgrade", "corrected_severity": "major",
+                "anchor_rule": "a", "reason": "b"}]
+        out, review = E.apply_verdicts(res, bad, "live_class")
+        self.assertEqual(out["flags"][0]["severity"], "moderate")   # unchanged
+        self.assertEqual(review[0]["verdict"], "uphold")
+
+    def test_equal_severity_downgrade_is_uphold(self):
+        res = {"overall": "o", "feedback": "f", "instructor_summary": "s",
+               "flags": [{"flag": "pace", "severity": "moderate", "confidence": "high",
+                          "evidence": [{"timestamp": "00:10:00", "quote": "q"}]}],
+               "reclass": {"recommended": "no", "reason": "r"}}
+        out, review = E.apply_verdicts(res, [{"id": 0, "verdict": "downgrade",
+                                              "corrected_severity": "moderate",
+                                              "anchor_rule": "a", "reason": "b"}], "live_class")
+        self.assertEqual(out["flags"][0]["severity"], "moderate")
+        self.assertEqual(review[0]["verdict"], "uphold")

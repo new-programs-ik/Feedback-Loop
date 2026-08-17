@@ -494,15 +494,27 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         + frame +
         "   - This DETAILED feedback is for the internal team; it may be candid but stays kind. Do NOT mention\n"
         "     the numeric rating, that the class was low-rated, or re-classing here — purely coaching.\n"
-        "4. WRITE the SUMMARY NOTE TO SEND TO THE INSTRUCTOR (field 'instructor_summary'). This is the polished\n"
-        "   message the instructor actually receives. STYLE — strict:\n"
-        "   - MAX 6-7 sentences total. Warm, respectful, encouraging; specific but never harsh; no timestamps needed.\n"
-        "   - Cover, in this order: (a) 1-2 sentences on what genuinely went WELL; (b) 1-2 sentences on what did\n"
-        "     NOT go well / needs improvement; (c) STATE the average class rating (use the rating from CLASS\n"
-        "     CONTEXT — e.g. 'This session averaged X/5'; if the rating is unknown, omit this sentence);\n"
-        "     (d) ONE clear, concrete suggestion for improvement; (e) a single closing line capturing the essence\n"
-        "     of what worked and an encouraging conclusion.\n"
-        "   - Self-contained prose (no bullet list, no headings). Do NOT mention re-classing.\n"
+        "4. WRITE the NOTE TO SEND TO THE INSTRUCTOR (field 'instructor_summary'). This is what the\n"
+        "   instructor actually receives. It must be CRISP AND SCANNABLE: a short opener, then BULLETS.\n"
+        "   FORMAT — strict:\n"
+        "   - ONE opening line only: name the single thing that genuinely worked, and state the class\n"
+        "     rating (from CLASS CONTEXT, e.g. 'This session averaged X/5'; omit if the rating is unknown).\n"
+        "   - Then BULLETS, one per real problem, each starting with '- '. Write AT LEAST 3-4 bullets; if\n"
+        "     the verified flags support more, write more (one per distinct issue). Never pad to hit a number.\n"
+        "   - EVERY bullet has exactly two parts: (a) the SPECIFIC error — what happened, concretely, with\n"
+        "     its [HH:MM:SS] timestamp when that helps them find the moment; then (b) 'Fix:' followed by the\n"
+        "     precise action to take next time. One or two sentences per bullet, no more.\n"
+        "   - Order the bullets MOST IMPORTANT FIRST (severity, then learning impact).\n"
+        "   - DO NOT walk through the whole class, do NOT summarise the agenda, do NOT repeat the same point\n"
+        "     in different words. Only real, evidenced problems. No filler praise, no closing pep-talk.\n"
+        "   - EVERY bullet is a PROBLEM to fix, never a compliment with a suggestion attached.\n"
+        "     Praise belongs only in the opening line.\n"
+        "   - Respectful and factual, never harsh. Do NOT mention re-classing.\n"
+        "   - Shape:\n"
+        "       <opening line, including the rating>\n"
+        "       - <specific error, with timestamp>. Fix: <concrete action>.\n"
+        "       - <specific error, with timestamp>. Fix: <concrete action>.\n"
+        "       - ...\n"
         "5. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in either instructor text): decide whether this\n"
         "   class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:\n"
         + yes_rule +
@@ -604,8 +616,9 @@ def validate_verdicts(obj: Any, candidates: list[dict]) -> list[str]:
             corr = v.get("corrected_severity")
             if corr not in SEVERITY:
                 errs.append(f"verdicts[{i}]: downgrade needs corrected_severity")
-            elif severity_rank(corr) >= severity_rank(by_id[vid].get("severity", "major")):
-                errs.append(f"verdicts[{i}]: corrected_severity must be LOWER than the original")
+            # A "downgrade" that is not actually lower is NOT rejected here: apply_verdicts turns it
+            # into an uphold, and code can never raise a severity. Rejecting it used to burn the repair
+            # attempt and then lose the whole verification pass for the class.
         for key in ("anchor_rule", "reason"):
             if not isinstance(v.get(key), str) or not v.get(key).strip():
                 errs.append(f"verdicts[{i}]: missing {key}")
@@ -659,7 +672,14 @@ def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple
             review.append(rec)
             continue  # flag removed
         if v["verdict"] == "downgrade":
-            wanted = v.get("corrected_severity", one_level_down(sev))
+            wanted = v.get("corrected_severity") or one_level_down(sev)
+            if severity_rank(wanted) >= severity_rank(sev):
+                # nonsensical "downgrade" (same or higher) -> treat as uphold; never raise a severity
+                rec["verdict"] = "uphold"
+                rec["to_severity"] = sev
+                review.append(rec)
+                kept.append(f)
+                continue
             applied = one_level_down(sev)                       # one-level clamp
             if severity_rank(wanted) < severity_rank(applied):
                 rec["skeptic_wanted"] = wanted
@@ -898,12 +918,13 @@ REVISE_SYS = (
 )
 
 REVISE_SUMMARY_SYS = (
-    "You revise the SHORT summary note a PM will SEND to a class instructor, following the PM's "
-    "instruction exactly. Rules you never break: keep it a warm, respectful, self-contained note of "
-    "roughly 6-7 sentences (no bullet lists, no headings, no timestamps needed); never use harsh words; "
-    "you MAY keep the class rating if it is present; never invent new claims that are not in the current "
-    "summary or the provided flags; never mention any re-class decision. "
-    'Output JSON only — no prose, no code fences: {"feedback":"..."}'
+    "You revise the SHORT note a PM will SEND to a class instructor, following the PM's instruction "
+    "exactly. Rules you never break: KEEP THE FORMAT — one opening line (with the class rating if it is "
+    "present), then bullets starting with '- ', each naming a SPECIFIC error and then 'Fix:' with the "
+    "concrete action; keep it crisp and scannable, one or two sentences per bullet; never pad, never "
+    "summarise the whole class, never turn it back into flowing paragraphs; never use harsh words; never "
+    "invent claims that are not in the current note or the provided flags; never mention any re-class "
+    'decision. Output JSON only — no prose, no code fences: {"feedback":"..."}'
 )
 
 def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: str = "",
@@ -1022,6 +1043,7 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     # applies the verdicts and gates the re-class call. This is what stops over-flagged "criticals".
     transcript_text = "\n".join(c.text for c in cues)
     review_records: list[dict] = []
+    review_error = ""
     flags_raised = len(result.get("flags") or [])
     n_candidates = 0
     reclass_softened = False
@@ -1030,17 +1052,27 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         n_candidates = len(candidates)
         if candidates:
             log.info("skeptic review of %d finding(s)", len(candidates))
-            verdicts = skeptic_review(client, candidates, cues, transcript_text, ctx, usage)
-            if (result.get("reclass") or {}).get("recommended") == "yes":
-                # highest-stakes output → a second, narrower vote on the content-delivery majors
-                content_majors = [c for c in candidates
-                                  if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
-                if content_majors:
-                    log.info("re-class second vote on %d content major(s)", len(content_majors))
-                    vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx, usage,
-                                           reclass_framing=True)
-                    verdicts = merge_conservative(verdicts, vote2)
-            result, review_records = apply_verdicts(result, verdicts, class_type)
+            try:
+                verdicts = skeptic_review(client, candidates, cues, transcript_text, ctx, usage)
+                if (result.get("reclass") or {}).get("recommended") == "yes":
+                    # highest-stakes output -> a second, narrower vote on the content-delivery majors
+                    content_majors = [c for c in candidates
+                                      if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
+                    if content_majors:
+                        log.info("re-class second vote on %d content major(s)", len(content_majors))
+                        try:
+                            vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx,
+                                                   usage, reclass_framing=True)
+                            verdicts = merge_conservative(verdicts, vote2)
+                        except Exception:  # the second vote is a bonus; never lose the first one
+                            log.exception("re-class second vote failed; keeping the first verdicts")
+                result, review_records = apply_verdicts(result, verdicts, class_type)
+            except Exception as e:  # noqa: BLE001
+                # The self-check is a quality ENHANCEMENT: if it cannot produce valid verdicts, keep the
+                # unverified analysis rather than failing the whole class.
+                log.exception("skeptic review failed; continuing without verification")
+                review_error = str(e)[:200]
+                review_records = []
         before = (result.get("reclass") or {}).get("recommended")
         result = gate_reclass(result)
         reclass_softened = bool(before == "yes"
@@ -1058,7 +1090,8 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         "conversation_mapped": True,
         "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
         "video_used": has_video,
-        "review_ran": bool(CFG.review_enabled),
+        "review_ran": bool(CFG.review_enabled and not review_error),
+        "review_error": review_error or None,
         "flags_raised": flags_raised,
         "flags_reviewed": n_candidates,
         "flags_upheld": sum(1 for r in review_records if r["verdict"] == "uphold"),

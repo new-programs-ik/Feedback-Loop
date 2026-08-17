@@ -54,11 +54,24 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("canonical", a)
 
     def test_synth_produces_instructor_summary(self):
-        # the concise, send-to-instructor note (separate from the detailed internal feedback)
+        # the crisp, bulleted send-to-instructor note (separate from the detailed internal feedback)
         s = E.build_synth_user("ctx", "[]", "live_class")
         self.assertIn("instructor_summary", s)
-        self.assertIn("6-7 sentences", s)
-        self.assertIn("average class rating", s)
+        self.assertIn("BULLETS", s)                       # bullet format, not prose
+        self.assertIn("AT LEAST 3-4 bullets", s)          # minimum, more when warranted
+        self.assertIn("Fix:", s)                          # every bullet carries the remedy
+        self.assertIn("state the class", s)          # the rating still appears
+
+    def test_summary_is_crisp_not_a_walkthrough(self):
+        s = E.build_synth_user("ctx", "[]", "live_class")
+        self.assertIn("DO NOT walk through the whole class", s)
+        self.assertIn("no closing pep-talk", s)
+
+    def test_revise_summary_keeps_the_bullet_format(self):
+        r = E.REVISE_SUMMARY_SYS
+        self.assertIn("KEEP THE FORMAT", r)
+        self.assertIn("Fix:", r)
+        self.assertIn("never turn it back into flowing paragraphs", r)
 
     def test_ars_complexity_conditional(self):
         self.assertIn("If the session involves no code, do NOT raise this", E.RUBRIC_ARS)

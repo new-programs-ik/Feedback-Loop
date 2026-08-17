@@ -35,8 +35,8 @@ When a class is rated low, this app:
    Review). It first reads the **whole conversation** to work out who's the instructor vs the
    learners and which doubts get resolved later — so it judges the *instructor*, in context, and
    never mistakes a learner's words (or a doubt answered later) for a problem. It produces: an
-   overall summary, specific issues (each with a **timestamp + exact quote**), a **short summary to
-   send the instructor** (what went well / what didn't / the rating / a suggestion), a **detailed
+   overall summary, specific issues (each with a **timestamp + exact quote**), a **short bulleted note to
+   send the instructor** (each bullet = one specific error + how to fix it), a **detailed
    internal** feedback draft, and a **PM-only "re-teach this class?"** call,
 4. Lets a PM **review, tweak (or tell the AI to rewrite it), and approve** — with a full history.
 
@@ -82,16 +82,15 @@ Full details, diagrams and a glossary: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORK
 
 - ✅ **Feedback module** — end to end (analyze → review → revise-with-AI → approve/delete), for **Live**
   and **ARS** class types with separate rubrics.
-- ✅ **Smart New-Analysis form** — Course → Cohort → Class dropdowns (instructor auto-fills), multiple
-  materials upload, Vimeo link or file upload.
+- ✅ **New-Analysis form** — course (or add one inline), topic, instructor autocomplete, class type,
+  materials by upload/link/paste, Vimeo link or transcript upload, optional **video analysis**.
 - ✅ **Courses** — any staff member adds their team's courses (B2B, DSA…), instantly usable.
-- ✅ **Assignments** — assign instructors to a cohort's schedule + download an updated sheet.
 - ✅ **Admin** — merge duplicate instructor names.
-- ✅ **Dashboard** — counts, by-course breakdown, recent analyses; queue with course filter + "created by".
+- ✅ **Dashboard** — counts, AI spend (monthly + all-time), recent analyses; queue with course/month filters.
 - ✅ **Security & privacy** — Google login (IK-only), database-level access control, materials never
   stored, transcripts auto-purged after 20 days, no confidential data in this repo.
 
-**Coming next (placeholders visible in the app):** Learner / Instructor / Course / Cohort analytics,
+**Coming next (placeholders visible in the app):** Learner / Instructor / Course analytics,
 and a Learner Health Score.
 
 ---

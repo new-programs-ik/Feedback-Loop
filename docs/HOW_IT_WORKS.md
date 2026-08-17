@@ -59,8 +59,8 @@ magic that's normally hidden.
 **Step 1 — You log in.** You go to the website and click **"Continue with Google"**. Only IK staff
 get in; anyone else is bounced out automatically.
 
-**Step 2 — You start a New Analysis.** You pick the **Course → Cohort → Class** from dropdowns (the
-instructor, topic and date fill in automatically from the schedule). You add the **rating**, choose
+**Step 2 — You start a New Analysis.** You pick the **course** (or add a new one right there) and type
+the **class topic**; the instructor name autocompletes. You add the **rating**, choose
 the **class type** (Live class or Assignment Review), and give it the recording — either **paste the
 Vimeo link** or **upload the transcript file**. Optionally, you attach the **class materials**
 (slides, coding notebook, docs) — as many as you like.
@@ -162,8 +162,10 @@ cost per class).
 
 ### 📨 Two feedbacks: one to send, one for the team
 Every analysis now writes **two** versions:
-- A **short summary to send the instructor** — 6–7 warm sentences: what went well, what didn't, the
-  **class rating**, one suggestion, and an encouraging close. This is the message you actually send.
+- A **short note to send the instructor** — one opening line (what genuinely worked, plus the
+  **class rating**), then **bullet points**: each names one specific problem, with its timestamp, and a
+  **"Fix:"** — the exact thing to do differently next time. Usually 3–5 bullets; more if there is more
+  to flag. No walk-through of the whole class, no padding. This is the message you actually send.
 - The **detailed, timestamped analysis for the internal team** — every flag with its exact quote and
   time. This stays in-house for coaching and records; the instructor doesn't receive it.
 
