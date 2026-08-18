@@ -132,7 +132,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   };
 
   async function failStart(where: string, detail: Record<string, unknown>, msg: string): Promise<AnalyzeState> {
-    await supabase.from("classes").update({ status: "needs_transcript" }).eq("id", classId);
+    await supabase.from("classes").update({ status: "failed" }).eq("id", classId);
     await supabase.from("audit_log").insert({ class_id: classId, actor_id: user!.id, action: "error", detail: { where, ...detail } });
     return { error: msg };
   }
@@ -282,6 +282,71 @@ export async function reviseDraft(
     detail: { instruction: instruction.slice(0, 300), cost_usd: body.meta?.cost_usd },
   });
   return { text: String(body.feedback ?? "") };
+}
+
+/** Re-run a failed (or lost) analysis using what the class row still knows.
+ *  Materials and the video toggle are not stored (by design), so a retry runs transcript-only —
+ *  delete + recreate the analysis if you need those. */
+export async function retryAnalysis(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
+  const classId = String(formData.get("class_id") ?? "");
+  if (!classId) throw new Error("Missing class.");
+  const supabase = await createClient();
+
+  const { data: klass } = await supabase
+    .from("classes")
+    .select("topic, agenda, rating, session_type, vimeo_link, courses(name), instructors(name)")
+    .eq("id", classId)
+    .single();
+  if (!klass?.vimeo_link) throw new Error("This class has no Vimeo link stored — delete it and create a new analysis.");
+
+  await supabase.from("classes").update({ status: "analyzing", updated_at: new Date().toISOString() }).eq("id", classId);
+  await supabase.from("audit_log").insert({ class_id: classId, actor_id: user.id, action: "retried" });
+
+  const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
+  try {
+    const res = await fetch(`${workerUrl}/analyze-async`, {
+      method: "POST", headers,
+      body: JSON.stringify({
+        class_id: classId,
+        vimeo_url: klass.vimeo_link,
+        course: (klass.courses as { name?: string } | null)?.name ?? "(unspecified)",
+        topic: klass.topic,
+        instructor: (klass.instructors as { name?: string } | null)?.name ?? "(unspecified)",
+        rating: klass.rating != null ? String(klass.rating) : "(unspecified)",
+        agenda: klass.agenda || "(not provided)",
+        class_type: klass.session_type === "ars" ? "ars" : "live_class",
+      }),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+  } catch {
+    await supabase.from("classes").update({ status: "failed" }).eq("id", classId);
+    await supabase.from("audit_log").insert({
+      class_id: classId, actor_id: user.id, action: "error",
+      detail: { where: "retry", message: "worker unreachable or rejected the retry" },
+    });
+  }
+  revalidatePath(`/feedback/${classId}`);
+  redirect(`/feedback/${classId}`);
+}
+
+/** After approval: record that the summary was actually delivered to the instructor. */
+export async function markAsSent(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
+  const classId = String(formData.get("class_id") ?? "");
+  if (!classId) throw new Error("Missing class.");
+  const supabase = await createClient();
+  const fb = await latestFeedbackId(supabase, classId);
+  if (!fb) throw new Error("No feedback on this class.");
+  await supabase.from("feedback").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", fb.id);
+  await supabase.from("audit_log").insert({ class_id: classId, actor_id: user.id, action: "sent" });
+  revalidatePath(`/feedback/${classId}`);
+  revalidatePath("/feedback");
+  redirect(`/feedback/${classId}`);
 }
 
 /** Delete an analysis + its class entirely (cascades analyses/feedback/transcripts). */

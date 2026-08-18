@@ -5,8 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, RefreshCcw, Send } from "lucide-react";
 import { ReviewActions } from "./review-actions";
+import { markAsSent, retryAnalysis } from "../actions";
 import { DeleteButton } from "../delete-button";
 import { AutoRefresh } from "@/components/auto-refresh";
 
@@ -72,6 +73,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   );
   const fbStatus = String(feedback?.status ?? "draft");
   const done = fbStatus === "approved" || fbStatus === "sent";
+  const wasSent = fbStatus === "sent";
+  const stuck =
+    klass.status === "analyzing" &&
+    Date.now() - new Date(String(klass.updated_at ?? klass.created_at)).getTime() > 30 * 60 * 1000;
+  const canRetry = Boolean(klass.vimeo_link);
   const course = (klass.courses as { name?: string } | null)?.name ?? "—";
   const instructor = (klass.instructors as { name?: string } | null)?.name ?? "—";
   const rating = klass.rating as number | null;
@@ -122,11 +128,18 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           <Card>
             <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
               <Loader2 className="text-muted-foreground size-7 animate-spin" />
-              <div className="font-medium">Analyzing…</div>
+              <div className="font-medium">{stuck ? "This analysis looks stuck" : "Analyzing…"}</div>
               <p className="text-muted-foreground max-w-md text-sm">
-                Fetching the transcript, reading your materials, and writing the feedback. A long class
-                can take a minute or two — this page updates on its own, no need to refresh.
+                {stuck
+                  ? "It has been running for over 30 minutes — the background worker probably restarted mid-job. Retry to run it again (materials and video are not stored, so a retry is transcript-only)."
+                  : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
               </p>
+              {stuck && canRetry && (
+                <form action={retryAnalysis}>
+                  <input type="hidden" name="class_id" value={String(klass.id)} />
+                  <Button type="submit"><RefreshCcw className="size-4" /> Retry analysis</Button>
+                </form>
+              )}
               <AutoRefresh />
             </CardContent>
           </Card>
@@ -137,7 +150,16 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               <div className="font-medium">The analysis didn&apos;t finish</div>
               <p className="text-muted-foreground max-w-md text-sm">
                 {failReason ||
-                  "Something went wrong — the video may have no captions, or a materials file couldn't be read. Delete this and try again, or upload the transcript directly."}
+                  "Something went wrong — the video may have no captions, or a materials file couldn't be read. Retry, or delete this and create it again."}
+              </p>
+              {canRetry && (
+                <form action={retryAnalysis}>
+                  <input type="hidden" name="class_id" value={String(klass.id)} />
+                  <Button type="submit"><RefreshCcw className="size-4" /> Retry analysis</Button>
+                </form>
+              )}
+              <p className="text-muted-foreground text-xs">
+                A retry re-fetches the transcript from Vimeo. Materials and video are not stored, so it runs transcript-only.
               </p>
             </CardContent>
           </Card>
@@ -231,7 +253,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
           <Card>
             <CardHeader className="flex-row items-center justify-between pb-2">
               <CardTitle className="text-base">Instructor feedback — review &amp; approve</CardTitle>
-              {done && <Badge variant="success">Approved</Badge>}
+              <span className="flex items-center gap-2">
+                {done && <Badge variant="success">{wasSent ? "Sent to instructor ✓" : "Approved"}</Badge>}
+                {done && !wasSent && (
+                  <form action={markAsSent}>
+                    <input type="hidden" name="class_id" value={String(klass.id)} />
+                    <Button type="submit" variant="outline" size="sm">
+                      <Send className="size-3.5" /> Mark as sent
+                    </Button>
+                  </form>
+                )}
+              </span>
             </CardHeader>
             <CardContent>
               <ReviewActions

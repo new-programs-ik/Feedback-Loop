@@ -12,10 +12,23 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const { data: rows } = await supabase
-    .from("classes")
-    .select("id, topic, class_date, created_at, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd, created_at)")
-    .order("created_at", { ascending: false });
+  // Ping the AI worker (3s cap). Doubles as a PRE-WARM: visiting the dashboard wakes the free-tier
+  // worker, so the first analysis of the day doesn't pay the cold-start wait.
+  const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
+  const healthPromise: Promise<{ ok: boolean; video?: boolean }> = fetch(`${workerUrl}/health`, {
+    signal: AbortSignal.timeout(3000),
+    cache: "no-store",
+  })
+    .then(async (r) => (r.ok ? { ok: true, video: Boolean((await r.json()).ffmpeg) } : { ok: false }))
+    .catch(() => ({ ok: false }));
+
+  const [{ data: rows }, health] = await Promise.all([
+    supabase
+      .from("classes")
+      .select("id, topic, class_date, created_at, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd, created_at)")
+      .order("created_at", { ascending: false }),
+    healthPromise,
+  ]);
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
   const analyzed = classes.filter((c) => (c.analyses as unknown[] | null)?.length);
@@ -67,8 +80,19 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight">
             Welcome back, {user.name.split(" ")[0]}
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
             Here&apos;s where your class feedback stands today.
+            {health.ok ? (
+              <span className="inline-flex items-center gap-1.5 text-xs">
+                <span className="bg-success inline-block size-2 rounded-full" />
+                AI engine online{health.video ? " · video ready" : ""}
+              </span>
+            ) : (
+              <span className="text-muted-foreground/80 inline-flex items-center gap-1.5 text-xs">
+                <span className="bg-warning inline-block size-2 rounded-full" />
+                AI engine waking up — the first analysis may take an extra minute
+              </span>
+            )}
           </p>
         </div>
         {user.role !== "learner" && (

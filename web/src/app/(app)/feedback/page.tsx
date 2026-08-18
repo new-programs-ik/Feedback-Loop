@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Inbox, Plus } from "lucide-react";
 
-function statusVariant(s: string): "default" | "secondary" | "success" | "warning" | "outline" {
+function statusVariant(s: string): "default" | "secondary" | "success" | "warning" | "outline" | "destructive" {
   return s === "approved" || s === "sent" ? "success"
     : s === "draft_ready" ? "warning"
     : s === "analyzing" ? "secondary"
+    : s === "failed" ? "destructive"
     : "outline";
 }
 function reclassVariant(r?: string): "destructive" | "warning" | "secondary" {

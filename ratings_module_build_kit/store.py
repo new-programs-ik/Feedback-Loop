@@ -56,7 +56,7 @@ def mark_failed(class_id: str, message: str) -> None:
     try:
         conn = _connect()
         cur = conn.cursor()
-        cur.execute("update classes set status='needs_transcript', updated_at=now() where id=%s", (class_id,))
+        cur.execute("update classes set status='failed', updated_at=now() where id=%s", (class_id,))
         cur.execute(
             "insert into audit_log(class_id, actor_label, action, detail) values (%s,'worker','error',%s)",
             (class_id, Json({"where": "analyze", "message": str(message)[:400]})))
