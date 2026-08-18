@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Loader2, AlertTriangle, RefreshCcw, Send } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, RefreshCcw, Send, SquarePlay } from "lucide-react";
 import { ReviewActions } from "./review-actions";
 import { markAsSent, retryAnalysis } from "../actions";
 import { DeleteButton } from "../delete-button";
@@ -114,10 +114,23 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               </Badge>
             )}
           </div>
-          <p className="text-muted-foreground text-sm">
-            {course} · {instructor} · {String(klass.class_date)}
-            {rating != null && <> · rating <strong>{Number(rating).toFixed(2)}</strong></>}
-            {creator && <> · by {creator}</>}
+          <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-sm">
+            <span>
+              {course} · {instructor} · {String(klass.class_date)}
+              {rating != null && <> · rating <strong>{Number(rating).toFixed(2)}</strong></>}
+              {creator && <> · by {creator}</>}
+            </span>
+            {klass.vimeo_link && (
+              <a
+                href={String(klass.vimeo_link)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary inline-flex items-center gap-1 font-medium hover:underline"
+                title="Open the class recording on Vimeo"
+              >
+                <SquarePlay className="size-3.5" /> Watch recording
+              </a>
+            )}
           </p>
         </div>
         <DeleteButton classId={String(klass.id)} />
