@@ -18,7 +18,9 @@ export function Topbar({ user }: { user: SessionUser }) {
         </Badge>
         <div className="hidden text-right leading-tight sm:block">
           <div className="text-sm font-medium">{user.name}</div>
-          <div className="text-muted-foreground text-xs">{user.email}</div>
+          {user.name !== user.email && (
+            <div className="text-muted-foreground text-xs">{user.email}</div>
+          )}
         </div>
         <div className="from-primary/90 flex size-9 items-center justify-center rounded-full bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-[13px] font-semibold text-white shadow-sm">
           {initials(user.name)}
