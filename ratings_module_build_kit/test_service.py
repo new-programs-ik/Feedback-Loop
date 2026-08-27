@@ -33,6 +33,13 @@ class TestService(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("model", r.json())
 
+    def test_health_identifies_the_running_build(self):
+        """Which build is live? Unanswerable during the 2026-08-27 SDK outage — now it isn't."""
+        body = client.get("/health").json()
+        self.assertIn("commit", body)                 # RENDER_GIT_COMMIT, or "local"
+        self.assertTrue(body["anthropic_sdk"])        # the SDK version actually installed
+        self.assertNotEqual(body["anthropic_sdk"], "missing")
+
     def test_dry_run(self):
         r = client.post("/dry-run", json={"transcript": SRT})
         self.assertEqual(r.status_code, 200)

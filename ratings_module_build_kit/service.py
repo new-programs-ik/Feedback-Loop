@@ -176,9 +176,18 @@ class ReviseRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
+    # 'commit' and 'anthropic_sdk' answer "which build is actually live?" — the question we could not
+    # answer during the 2026-08-27 outage, when a rebuild silently pulled a breaking SDK major.
+    try:
+        import anthropic
+        sdk = getattr(anthropic, "__version__", "unknown")
+    except Exception:                                   # pragma: no cover - import can't realistically fail
+        sdk = "missing"
     return {
         "status": "ok",
         "model": E.CFG.model,
+        "commit": (os.environ.get("RENDER_GIT_COMMIT") or "local")[:7],
+        "anthropic_sdk": sdk,
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "vimeo_token": bool(os.environ.get("VIMEO_ACCESS_TOKEN")),
         "ffmpeg": VD.ffmpeg_path() is not None,
