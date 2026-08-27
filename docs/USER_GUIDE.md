@@ -58,7 +58,7 @@ The analysis needs the recording's **Vimeo link**, which lives in IK's **UpLevel
 1. Open **UpLevel** → left sidebar → **Resources → Videos**.
 2. Find your class (search by class name and date) and open it.
 3. You land on the **Basic Details** tab. Scroll down past "YouTube URL".
-4. Copy the link in the **VIMEO URL** box — it looks like `https://vimeo.com/1207281822`.
+4. Copy the link in the **VIMEO URL** box — it looks like `https://vimeo.com/123456789`.
 
 > 🔜 **Coming soon:** this step will be automated — the tool will look the link up itself. For now,
 > copy-paste it.
