@@ -59,13 +59,24 @@ magic that's normally hidden.
 **Step 1 — You log in.** You go to the website and click **"Continue with Google"**. Only IK staff
 get in; anyone else is bounced out automatically.
 
-**Step 2 — You start a New Analysis.** You pick the **course** (or add a new one right there) and type
+**Step 2 — You decide whether this class needs analysing at all.** At the top of the New Analysis page
+there's a small helper: type the **class rating**, how many **attended**, how many **rated**, and tick
+**escalation** if there was one. It works out the *rating participation %* and tells you what to do —
+skip it, run a **transcript** analysis, or run a **video** analysis — and can switch video on for you
+with one click. (The team rule: above 4.5 → usually skip · below 4.5 with ≥ 80% participation → video ·
+below 80% → transcript · any escalation → always video.)
+
+**Step 2b — You fetch the recording link.** The class's **Vimeo link** lives in IK's **UpLevel**:
+*Resources → Videos →* open the class *→ Basic Details →* copy the **VIMEO URL** box. (This step will
+be automated later.)
+
+**Step 3 — You start a New Analysis.** You pick the **course** (or add a new one right there) and type
 the **class topic**; the instructor name autocompletes. You add the **rating**, choose
 the **class type** (Live class or Assignment Review), and give it the recording — either **paste the
-Vimeo link** or **upload the transcript file**. Optionally, you attach the **class materials**
-(slides, coding notebook, docs) — as many as you like.
+Vimeo link** or **upload the transcript file**. Optionally, you tick **"Analyze the video too"**, and
+attach the **class materials** (slides, coding notebook, docs) — as many as you like.
 
-**Step 3 — You click "Analyze."** Now the hidden work begins:
+**Step 4 — You click "Analyze."** Now the hidden work begins:
 
 ```mermaid
 sequenceDiagram
@@ -94,18 +105,29 @@ _**d.** It splits the long transcript into **30-minute chunks**, and for each ch
 _**e.** It **combines** all the findings, **double-checks** each one (drops anything the quote doesn't support), and writes four things:_
    - _an **overall summary** of what likely caused the low rating,_
    - _a **list of issues** (each with severity + a timestamped quote),_
-   - _a **polished feedback message** for the instructor (formal, kind, to the point, 150–250 words),_
+   - _a **short, crisp note for the instructor** — one opening line with the rating, then bullets, each naming one specific error (with its timestamp) and the concrete **Fix**,_
    - _a **private "should this class be re-taught?" call** — for the PM only, never shown to the instructor._
 
-**Step 4 — You review.** You see everything on one screen. If the draft wording isn't right, you
-have two options:
+**Step 5 — You review.** You see everything on one screen — including the badges that tell you
+*how* it was analysed (**🎬 Video verified · N frames** or **Transcript only**, and **✓ Self-checked**),
+a **▶ Watch recording** link to jump into the video and check any flag yourself, and a **Self-check**
+section showing what the second AI reviewer confirmed, softened or removed. If the draft wording isn't
+right, you have two options:
 - **Edit it directly**, or
 - Use the **"Tell the AI what to change"** box — type something like *"make it shorter"* or *"focus
   on the skipped problems"* and the AI **rewrites the draft right there**. Keep going until it's right.
 
-**Step 5 — You decide.** Click **Approve** (it's stored, with your edits kept separately from the
+**Step 6 — You decide.** Click **Approve** (it's stored, with your edits kept separately from the
 original so we can see how much you changed), **Discard**, or **Delete** it entirely. Nothing is ever
 sent to the instructor automatically — you're always in control.
+
+**Step 7 — You send it and mark it done.** Copy the note, send it to the instructor the way you
+normally do, then click **Mark as sent**. The class then shows **"Sent to instructor ✓"**, so anyone on
+the team can see at a glance what has actually gone out.
+
+> 🛟 **If something goes wrong.** The dashboard shows the AI engine's live status. If an analysis fails,
+> the class is marked **failed** with the reason on the page; if one stalls for more than 30 minutes,
+> the page says so. Both give you a one-click **Retry analysis** button — nothing gets silently stuck.
 
 ---
 
@@ -299,8 +321,16 @@ level. **Secrets** (the AI key, database keys) live in secure settings, never in
 
 ## 9. What it costs
 
-- **Each analysis:** roughly **$0.04–$0.08** of AI usage (a 4-hour class). Compare that to 2–4 hours
-  of a person's time.
+Measured on real classes (every analysis records its own exact cost, shown in the app):
+
+| What you run | AI cost | Time to result |
+|---|---|---|
+| Transcript only | **~$0.51** per class | ~3–4 minutes |
+| With video analysis | **~$0.70** per class | ~6–8 minutes |
+
+Short sessions cost less (a ~25-minute ARS runs about **$0.14**); attaching materials adds a little.
+Compare that to the 30–60 minutes of expert time — and up to a 4-hour recording — it replaces.
+
 - **Hosting:** the website, database, and AI Brain all run on **free tiers** today.
 
 ---
