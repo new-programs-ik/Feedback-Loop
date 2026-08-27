@@ -46,6 +46,29 @@ export function NewAnalysisForm({
   const [classType, setClassType] = useState<"live_class" | "ars">("live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
   const [analyzeVideo, setAnalyzeVideo] = useState(false);
+  // "Which analysis?" helper (the team's decision rules, built in)
+  const [hRating, setHRating] = useState("");
+  const [hAttended, setHAttended] = useState("");
+  const [hRated, setHRated] = useState("");
+  const [hEscalation, setHEscalation] = useState(false);
+  const r = parseFloat(hRating);
+  const att = parseInt(hAttended, 10);
+  const rat = parseInt(hRated, 10);
+  const participation = att > 0 && rat >= 0 ? Math.round((rat / att) * 100) : null;
+  let advice: { title: string; detail: string; video: boolean | null } | null = null;
+  if (hEscalation) {
+    advice = { title: "Video Analysis", detail: "There is an escalation — always use video for escalated classes.", video: true };
+  } else if (!Number.isNaN(r)) {
+    if (r > 4.5) {
+      advice = { title: "No analysis needed", detail: "Rating is above 4.5. Only analyse if a PM asked or you have a specific reason — then Transcript is enough.", video: false };
+    } else if (participation != null) {
+      advice = participation >= 80
+        ? { title: "Video Analysis", detail: `Rating is below 4.5 and ${participation}% of attendees rated it (≥ 80%) — the signal is strong, get the full picture.`, video: true }
+        : { title: "Transcript Analysis", detail: `Rating is below 4.5 but only ${participation}% of attendees rated it (< 80%) — transcript is enough.`, video: false };
+    } else {
+      advice = { title: "Almost there", detail: "Fill in attended + rated counts to get the recommendation.", video: null };
+    }
+  }
 
   return (
     <Card className="shadow-soft max-w-2xl">
@@ -57,6 +80,49 @@ export function NewAnalysisForm({
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-7">
+          <div className="bg-accent/40 space-y-3 rounded-xl border p-4">
+            <div className="text-sm font-semibold">🧭 Not sure which analysis? Answer three things:</div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">Class rating</label>
+                <input type="number" step="0.01" min="0" max="5" value={hRating}
+                       onChange={(e) => setHRating(e.target.value)} placeholder="4.3" className={field} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">Learners attended</label>
+                <input type="number" min="0" value={hAttended}
+                       onChange={(e) => setHAttended(e.target.value)} placeholder="10" className={field} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">Learners who rated</label>
+                <input type="number" min="0" value={hRated}
+                       onChange={(e) => setHRated(e.target.value)} placeholder="8" className={field} />
+              </div>
+              <label className="flex items-end gap-2 pb-2 text-sm">
+                <input type="checkbox" checked={hEscalation} onChange={(e) => setHEscalation(e.target.checked)} />
+                Escalation reported
+              </label>
+            </div>
+            {advice && (
+              <div className="bg-card flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+                <div className="text-sm">
+                  <span className="font-semibold">{advice.title}</span>
+                  <span className="text-muted-foreground"> — {advice.detail}</span>
+                </div>
+                {advice.video != null && advice.title !== "No analysis needed" && (
+                  <Button type="button" size="sm" variant={advice.video === analyzeVideo ? "outline" : "default"}
+                          onClick={() => setAnalyzeVideo(advice.video === true)}>
+                    {advice.video === analyzeVideo ? "Applied ✓" : advice.video ? "Turn video ON" : "Keep transcript only"}
+                  </Button>
+                )}
+              </div>
+            )}
+            <p className="text-muted-foreground text-xs">
+              Team rule: rating &gt; 4.5 → usually no analysis · below 4.5 with ≥ 80% of attendees rating →
+              video · below 80% → transcript · any escalation → video.
+            </p>
+          </div>
+
           <Section icon={FileText} title="The class">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">

@@ -6,8 +6,10 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "IK New Programs — Feedback & Analytics",
-  description: "Interview Kickstart · New Programs operations console",
+  title: { default: "Feedback Loop — Interview Kickstart", template: "%s · Feedback Loop" },
+  description:
+    "Turns a low-rated class recording into ready-to-send instructor feedback — drafted by AI, approved by a human.",
+  icons: { icon: "/icon.svg" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
