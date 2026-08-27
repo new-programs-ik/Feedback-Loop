@@ -48,3 +48,8 @@ VP-Video-Study.pdf
 Video-vs-Transcript-Comparison.csv
 backups/
 Feedback-Loop-User-Guide.pdf
+
+# one-off verification scripts (not part of the app)
+web/verify-prod.mjs
+web/shots.mjs
+web/live-check.mjs
