@@ -484,7 +484,8 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
            "   being a verbatim transcript quote.\n" if has_video else "")
         + "2. MERGE duplicates across segments; give each surviving flag an overall severity PER THE\n"
         "   SEVERITY ANCHORS above (tie-break low) and a confidence.\n"
-        "3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:\n"
+        "3. WRITE the DETAILED COACHING FEEDBACK FOR THE INTERNAL TEAM (field 'feedback'). The instructor\n"
+        "   does NOT receive this one — it is the full, timestamped record the team keeps. STYLE — strict:\n"
         "   - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.\n"
         "   - CONCISE and to the point: 150-250 words total.\n"
         "   - Shape: one sentence on what genuinely worked; then 2-4 numbered improvement points, each\n"
@@ -499,21 +500,26 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         "   FORMAT — strict:\n"
         "   - ONE opening line only: name the single thing that genuinely worked, and state the class\n"
         "     rating (from CLASS CONTEXT, e.g. 'This session averaged X/5'; omit if the rating is unknown).\n"
-        "   - Then BULLETS, one per real problem, each starting with '- '. Write AT LEAST 3-4 bullets; if\n"
-        "     the verified flags support more, write more (one per distinct issue). Never pad to hit a number.\n"
-        "   - EVERY bullet has exactly two parts: (a) the SPECIFIC error — what happened, concretely, with\n"
-        "     its [HH:MM:SS] timestamp when that helps them find the moment; then (b) 'Fix:' followed by the\n"
-        "     precise action to take next time. One or two sentences per bullet, no more.\n"
+        "   - Then BULLETS, one per real problem, each starting with '- '. Write 4 bullets, 5 at the very\n"
+        "     most, and never fewer than 3 unless there genuinely are fewer problems. If more issues were\n"
+        "     flagged than that, KEEP ONLY THE MOST IMPORTANT ONES — do not list them all, and never merge\n"
+        "     several issues into one overloaded bullet. Never pad to hit a number.\n"
+        "   - EVERY bullet has exactly two parts: (a) the SPECIFIC error — what happened, concretely; then\n"
+        "     (b) 'Fix:' followed by the precise action to take next time. ONE sentence each, two at the\n"
+        "     absolute most. Keep every bullet short enough to read at a glance.\n"
+        "   - NEVER put timestamps, [HH:MM:SS] markers or quoted transcript lines in this note. Timestamps\n"
+        "     belong ONLY in the detailed internal feedback. Describe the moment in plain words instead\n"
+        "     (e.g. 'when reviewing problem 3'), so the note reads like a human wrote it.\n"
         "   - Order the bullets MOST IMPORTANT FIRST (severity, then learning impact).\n"
         "   - DO NOT walk through the whole class, do NOT summarise the agenda, do NOT repeat the same point\n"
         "     in different words. Only real, evidenced problems. No filler praise, no closing pep-talk.\n"
         "   - EVERY bullet is a PROBLEM to fix, never a compliment with a suggestion attached.\n"
         "     Praise belongs only in the opening line.\n"
         "   - Respectful and factual, never harsh. Do NOT mention re-classing.\n"
-        "   - Shape:\n"
+        "   - Shape (4-5 bullets maximum, no timestamps anywhere):\n"
         "       <opening line, including the rating>\n"
-        "       - <specific error, with timestamp>. Fix: <concrete action>.\n"
-        "       - <specific error, with timestamp>. Fix: <concrete action>.\n"
+        "       - <specific error, in plain words>. Fix: <concrete action>.\n"
+        "       - <specific error, in plain words>. Fix: <concrete action>.\n"
         "       - ...\n"
         "5. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in either instructor text): decide whether this\n"
         "   class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:\n"
@@ -526,7 +532,8 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         '"flags":[{"flag":"...","severity":"minor|moderate|major","confidence":"low|medium|high",'
         '"evidence":[{"timestamp":"HH:MM:SS","quote":"..."}]}],'
         '"feedback":"the DETAILED coaching message (internal), referencing timestamps",'
-        '"instructor_summary":"the 6-7 sentence note to SEND to the instructor, stating the rating",'
+        '"instructor_summary":"the note to SEND to the instructor: one opening line with the rating, then '
+        '4-5 bullets max, each a specific problem + Fix, with NO timestamps",'
         '"reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}'
     )
 
@@ -877,13 +884,56 @@ def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
                      CFG.max_tokens_extract, lambda o: validate_findings(o, allowed), usage)
     return obj.get("findings", [])
 
+# The note the instructor RECEIVES carries no timestamps and stays short — timestamps and the full
+# list of issues live in the detailed internal feedback. The prompts say so, but a model can drift,
+# so this enforces it in code, on every path that can produce the note.
+SUMMARY_MAX_BULLETS = 5
+
+# "[00:12:34]", "(01:02)", "at 00:12:34 —" … with any bracketing and adjacent filler ("at", "around").
+_TS_IN_SUMMARY = re.compile(
+    r"""\s*(?:\b(?:at|around|near|from|by)\b\s*)?      # optional lead-in word
+        [\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?        # the timestamp itself
+        (?:\s*[-–—]\s*[\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?)?   # optional range
+    """,
+    re.VERBOSE,
+)
+
+
+def tidy_instructor_summary(text: str) -> str:
+    """Strip timestamps from the send-to-instructor note and cap it at SUMMARY_MAX_BULLETS.
+
+    Bullets are written most-important-first, so trimming keeps the ones that matter.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return text
+    out_lines: list[str] = []
+    bullets = 0
+    for raw in text.splitlines():
+        line = _TS_IN_SUMMARY.sub("", raw)
+        # Tidy what the removal left behind: brackets now holding only punctuation — "(,)", "[ - ]" —
+        # then stray space before punctuation, doubled punctuation, and doubled spaces.
+        line = re.sub(r"\s*[\(\[]\s*[,;:.\-–—\s]*[\)\]]", "", line)
+        line = re.sub(r"\s+([,.;:])", r"\1", line)
+        line = re.sub(r"([,;:])\s*([.;:])", r"\2", line)
+        line = re.sub(r"[ \t]{2,}", " ", line).rstrip()
+        if re.match(r"\s*[-*•]\s", line):
+            bullets += 1
+            if bullets > SUMMARY_MAX_BULLETS:
+                continue
+        if line.strip() or out_lines:      # keep internal blank lines, drop leading ones
+            out_lines.append(line)
+    return "\n".join(out_lines).strip()
+
+
 def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
                class_type: str = "live_class", has_video: bool = False) -> dict:
     allowed = flags_for(class_type)
-    return _call_json(client, SYNTH_SYS,
-                      build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2),
-                                       class_type, has_video),
-                      CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
+    obj = _call_json(client, SYNTH_SYS,
+                     build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2),
+                                      class_type, has_video),
+                     CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
+    obj["instructor_summary"] = tidy_instructor_summary(obj.get("instructor_summary", ""))
+    return obj
 
 MATERIALS_SYS = (
     "You compress class materials into a compact teaching outline that an auditor will check a class "
@@ -921,7 +971,11 @@ REVISE_SUMMARY_SYS = (
     "You revise the SHORT note a PM will SEND to a class instructor, following the PM's instruction "
     "exactly. Rules you never break: KEEP THE FORMAT — one opening line (with the class rating if it is "
     "present), then bullets starting with '- ', each naming a SPECIFIC error and then 'Fix:' with the "
-    "concrete action; keep it crisp and scannable, one or two sentences per bullet; never pad, never "
+    "concrete action; AT MOST 5 bullets (4 is the norm) — if asked to add points, replace weaker ones "
+    "rather than growing the list; NEVER include timestamps, [HH:MM:SS] markers or quoted transcript "
+    "lines in this note (they belong only in the detailed internal feedback) — if the current note "
+    "contains any, REMOVE them and describe the moment in plain words; keep it crisp and scannable, one "
+    "or two sentences per bullet; never pad, never "
     "summarise the whole class, never turn it back into flowing paragraphs; never use harsh words; never "
     "invent claims that are not in the current note or the provided flags; never mention any re-class "
     'decision. Output JSON only — no prose, no code fences: {"feedback":"..."}'
@@ -958,13 +1012,19 @@ def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: s
             "llm_calls": usage.calls, "cost_usd": round(usage.cost_usd(), 4),
             "seconds": round(time.time() - t0, 1)}
     log.info("revise done  cost=$%.4f  %.1fs", meta["cost_usd"], meta["seconds"])
-    return obj["feedback"].strip(), meta
+    text = obj["feedback"].strip()
+    if kind == "summary":  # the note the instructor receives: no timestamps, <= 5 bullets
+        text = tidy_instructor_summary(text)
+    return text, meta
 
 RECONCILE_SYS = (
     "You adjust two feedback texts after a second-pass review changed the findings behind them. "
     "Remove or soften ONLY what the review changed: strip any point that rests on a DROPPED finding; "
     "soften the emphasis of DOWNGRADED ones. Change nothing else — keep the tone, structure, length "
     "style, timestamps and every other point exactly as they are. Never add new claims. "
+    "The 'instructor_summary' keeps its bullet shape, stays at 5 bullets or fewer, and NEVER contains "
+    "timestamps or [HH:MM:SS] markers (those belong only in 'feedback'); if dropping a point leaves it "
+    "with too few bullets, that is fine — do not invent a replacement. "
     'Output JSON only — no prose, no code fences: {"feedback":"...","instructor_summary":"..."}'
 )
 
@@ -993,7 +1053,7 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
     try:
         obj = _call_json(client, RECONCILE_SYS, user, CFG.max_tokens_synth, _validate, usage)
         result["feedback"] = obj["feedback"].strip()
-        result["instructor_summary"] = obj["instructor_summary"].strip()
+        result["instructor_summary"] = tidy_instructor_summary(obj["instructor_summary"])
     except Exception:  # reconciliation is best-effort — never lose the analysis over prose polish
         log.exception("prose reconciliation failed; keeping the original texts")
     return result

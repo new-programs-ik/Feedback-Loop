@@ -58,9 +58,20 @@ class TestPrompts(unittest.TestCase):
         s = E.build_synth_user("ctx", "[]", "live_class")
         self.assertIn("instructor_summary", s)
         self.assertIn("BULLETS", s)                       # bullet format, not prose
-        self.assertIn("AT LEAST 3-4 bullets", s)          # minimum, more when warranted
+        self.assertIn("4 bullets, 5 at the very", s)      # capped — the note stays scannable
+        self.assertIn("KEEP ONLY THE MOST IMPORTANT", s)  # trim, never cram them all in
         self.assertIn("Fix:", s)                          # every bullet carries the remedy
-        self.assertIn("state the class", s)          # the rating still appears
+        self.assertIn("state the class", s)               # the rating still appears
+
+    def test_timestamps_stay_out_of_the_instructor_note(self):
+        """Timestamps belong to the internal feedback only — the instructor note reads like prose."""
+        s = E.build_synth_user("ctx", "[]", "live_class")
+        self.assertIn("NEVER put timestamps", s)
+        self.assertIn("belong ONLY in the detailed internal feedback", s)
+        # the DETAILED feedback still demands them
+        self.assertIn("Every improvement point MUST cite at least one timestamp", s)
+        self.assertIn("FOR THE INTERNAL TEAM", s)
+        self.assertIn("NEVER include timestamps", E.REVISE_SUMMARY_SYS)
 
     def test_summary_is_crisp_not_a_walkthrough(self):
         s = E.build_synth_user("ctx", "[]", "live_class")

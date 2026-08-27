@@ -384,7 +384,8 @@ DO THIS, IN ORDER:
      text-segmentation artefact, not a real problem;
    - read in full context, the moment is not actually a problem.
 2. MERGE duplicates across segments; give each surviving flag an overall severity and confidence.
-3. WRITE feedback FOR THE INSTRUCTOR (this is what the instructor receives). STYLE — strict:
+3. WRITE the DETAILED COACHING FEEDBACK FOR THE INTERNAL TEAM (field 'feedback'). The instructor
+   does NOT receive this one — it is the full, timestamped record the team keeps. STYLE — strict:
    - Formal, respectful and kind; direct but NEVER harsh; no filler praise, no lecturing.
    - CONCISE and to the point: 150-250 words total.
    - Shape: one sentence on what genuinely worked; then 2-4 numbered improvement points, each
@@ -398,21 +399,26 @@ DO THIS, IN ORDER:
    FORMAT — strict:
    - ONE opening line only: name the single thing that genuinely worked, and state the class
      rating (from CLASS CONTEXT, e.g. 'This session averaged X/5'; omit if the rating is unknown).
-   - Then BULLETS, one per real problem, each starting with '- '. Write AT LEAST 3-4 bullets; if
-     the verified flags support more, write more (one per distinct issue). Never pad to hit a number.
-   - EVERY bullet has exactly two parts: (a) the SPECIFIC error — what happened, concretely, with
-     its [HH:MM:SS] timestamp when that helps them find the moment; then (b) 'Fix:' followed by the
-     precise action to take next time. One or two sentences per bullet, no more.
+   - Then BULLETS, one per real problem, each starting with '- '. Write 4 bullets, 5 at the very
+     most, and never fewer than 3 unless there genuinely are fewer problems. If more issues were
+     flagged than that, KEEP ONLY THE MOST IMPORTANT ONES — do not list them all, and never merge
+     several issues into one overloaded bullet. Never pad to hit a number.
+   - EVERY bullet has exactly two parts: (a) the SPECIFIC error — what happened, concretely; then
+     (b) 'Fix:' followed by the precise action to take next time. ONE sentence each, two at the
+     absolute most. Keep every bullet short enough to read at a glance.
+   - NEVER put timestamps, [HH:MM:SS] markers or quoted transcript lines in this note. Timestamps
+     belong ONLY in the detailed internal feedback. Describe the moment in plain words instead
+     (e.g. 'when reviewing problem 3'), so the note reads like a human wrote it.
    - Order the bullets MOST IMPORTANT FIRST (severity, then learning impact).
    - DO NOT walk through the whole class, do NOT summarise the agenda, do NOT repeat the same point
      in different words. Only real, evidenced problems. No filler praise, no closing pep-talk.
    - EVERY bullet is a PROBLEM to fix, never a compliment with a suggestion attached.
      Praise belongs only in the opening line.
    - Respectful and factual, never harsh. Do NOT mention re-classing.
-   - Shape:
+   - Shape (4-5 bullets maximum, no timestamps anywhere):
        <opening line, including the rating>
-       - <specific error, with timestamp>. Fix: <concrete action>.
-       - <specific error, with timestamp>. Fix: <concrete action>.
+       - <specific error, in plain words>. Fix: <concrete action>.
+       - <specific error, in plain words>. Fix: <concrete action>.
        - ...
 5. RE-CLASS CALL, FOR THE PM ONLY (must NOT appear in either instructor text): decide whether this
    class likely needs to be re-taught to the learners. Judge whether the LEARNING was delivered:
@@ -427,13 +433,26 @@ Return JSON ONLY:
 "flags":[{"flag":"...","severity":"minor|moderate|major","confidence":"low|medium|high",
 "evidence":[{"timestamp":"HH:MM:SS","quote":"..."}]}],
 "feedback":"the DETAILED coaching message (internal), referencing timestamps",
-"instructor_summary":"the crisp bulleted note to SEND to the instructor, stating the rating",
+"instructor_summary":"the note to SEND to the instructor: one opening line with the rating, then
+4-5 bullets max, each a specific problem + Fix, with NO timestamps",
 "reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}
 ```
 
-> **The two instructor outputs:** `feedback` is the **internal**, timestamped coaching detail; `instructor_summary`
-> is the **short note the instructor receives** (and the only one that states the rating). The review page shows
-> the summary as "**Send this**" and keeps the detailed version labelled "internal team".
+> **The two instructor outputs:** `feedback` is the **internal**, timestamped coaching detail;
+> `instructor_summary` is the **short note the instructor receives** (and the only one that states the
+> rating). The review page shows the summary as "**Send this**" and keeps the detailed version labelled
+> "internal team".
+>
+> **Timestamps live in exactly one of them.** The detailed internal feedback *must* cite them; the
+> instructor's note must *never* contain them — it describes the moment in plain words instead
+> ("when reviewing problem 3"), so it reads like a person wrote it.
+
+> 🔒 **Enforced in code, not just asked for.** Prompts can drift, so `engine.tidy_instructor_summary()`
+> runs on **every** path that can produce the note (synthesis, "Revise with AI", and the post-self-check
+> prose reconciliation). It strips any timestamp that slipped through — along with the punctuation left
+> behind — and trims the note to `SUMMARY_MAX_BULLETS` (5). Bullets are written most-important-first, so
+> trimming keeps the ones that matter. Six unit tests in `test_engine.TestInstructorSummaryTidy` lock
+> this behaviour in.
 
 For an **ARS**, two lines change: the feedback is framed around the *problems reviewed* (not agenda
 items), and the "yes" re-class rule becomes *"assigned problems were skipped or badly rushed, OR a
@@ -441,8 +460,9 @@ presented solution was technically wrong or so unclear that learners likely did 
 treat reviewed solutions as canonical)."*
 
 > **What this is / why:** this is the quality gate. It throws out weak/misattributed/already-resolved
-> findings, then writes the **kind, specific, timestamped** feedback the instructor sees — and the
-> **separate PM-only** re-teach call that never appears in the instructor's message.
+> findings, then writes both feedback texts — the **timestamped internal** record, and the **crisp,
+> timestamp-free note the instructor actually receives** — plus the **separate PM-only** re-teach call
+> that never appears in either.
 > **To change:** the **feedback style** (tone, length, structure) and the **re-class thresholds** are
 > the two things people most often want to tune — both are right here in plain words.
 

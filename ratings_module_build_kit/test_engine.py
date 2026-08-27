@@ -401,3 +401,46 @@ class TestVerificationIsNonFatal(unittest.TestCase):
                                               "anchor_rule": "a", "reason": "b"}], "live_class")
         self.assertEqual(out["flags"][0]["severity"], "moderate")
         self.assertEqual(review[0]["verdict"], "uphold")
+
+
+class TestInstructorSummaryTidy(unittest.TestCase):
+    """The note the instructor RECEIVES: no timestamps, at most 5 bullets."""
+
+    NOTE = (
+        "Good energy throughout at [00:05:00] - this session averaged 4.1/5.\n"
+        "- Problems 3 and 5 were skipped ([00:20:00], [00:25:30]). Fix: budget time per problem.\n"
+        "- Problem 1 was rushed ([00:02:00]-[00:04:00]). Fix: explain the key lines.\n"
+        "- Reasoning was deferred to the notebook at 00:06:00. Fix: state the principle first.\n"
+        "- No recap (00:25:30). Fix: close with the takeaway.\n"
+        "- Pacing drifted around [01:02:03]. Fix: watch the clock.\n"
+        "- A sixth, least important point. Fix: drop me.\n"
+    )
+
+    def test_strips_every_timestamp_form(self):
+        out = E.tidy_instructor_summary(self.NOTE)
+        self.assertNotRegex(out, r"\d{1,2}:\d{2}")
+
+    def test_keeps_the_rating(self):
+        self.assertIn("4.1/5", E.tidy_instructor_summary(self.NOTE))
+
+    def test_caps_bullets_and_keeps_the_most_important(self):
+        out = E.tidy_instructor_summary(self.NOTE)
+        bullets = [l for l in out.splitlines() if l.startswith("- ")]
+        self.assertEqual(len(bullets), E.SUMMARY_MAX_BULLETS)
+        self.assertIn("Problems 3 and 5", bullets[0])       # first (most important) survives
+        self.assertNotIn("sixth", out)                       # the overflow bullet is dropped
+
+    def test_no_orphan_punctuation_left_behind(self):
+        out = E.tidy_instructor_summary(self.NOTE)
+        self.assertNotIn("(,", out)
+        self.assertNotIn("( )", out)
+        self.assertNotIn(" .", out)
+        self.assertNotIn("()", out)
+
+    def test_short_note_passes_through_unchanged(self):
+        note = "Solid session - averaged 4.4/5.\n- Pace was fast. Fix: slow down."
+        self.assertEqual(E.tidy_instructor_summary(note), note)
+
+    def test_empty_input_is_safe(self):
+        self.assertEqual(E.tidy_instructor_summary(""), "")
+        self.assertEqual(E.tidy_instructor_summary(None), None)

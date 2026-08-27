@@ -104,8 +104,9 @@ Transcript-only takes ~3–4 minutes, with video ~6–8 minutes.
    🎬 chip came from the video.
 3. **Self-check** — what the second AI reviewer confirmed, softened or removed, with reasons. Nothing
    disappears silently.
-4. **Summary to send the instructor** — one opening line with the rating, then bullets: each names one
-   specific error and its **Fix**. **This is the only part the instructor receives.**
+4. **Summary to send the instructor** — one opening line with the rating, then **4–5 bullets at most**:
+   each names one specific error and its **Fix**, in plain words with no timestamps. **This is the only
+   part the instructor receives.**
 5. **Re-class recommendation** — PM-only: should this class be re-taught? The instructor never sees it.
 
 ## 8. Edit, approve, send

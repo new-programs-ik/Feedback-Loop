@@ -105,7 +105,7 @@ _**d.** It splits the long transcript into **30-minute chunks**, and for each ch
 _**e.** It **combines** all the findings, **double-checks** each one (drops anything the quote doesn't support), and writes four things:_
    - _an **overall summary** of what likely caused the low rating,_
    - _a **list of issues** (each with severity + a timestamped quote),_
-   - _a **short, crisp note for the instructor** — one opening line with the rating, then bullets, each naming one specific error (with its timestamp) and the concrete **Fix**,_
+   - _a **short, crisp note for the instructor** — one opening line with the rating, then at most 4–5 bullets, each naming one specific error (in plain words, no timestamps) and the concrete **Fix**,_
    - _a **private "should this class be re-taught?" call** — for the PM only, never shown to the instructor._
 
 **Step 5 — You review.** You see everything on one screen — including the badges that tell you
@@ -185,9 +185,12 @@ cost per class).
 ### 📨 Two feedbacks: one to send, one for the team
 Every analysis now writes **two** versions:
 - A **short note to send the instructor** — one opening line (what genuinely worked, plus the
-  **class rating**), then **bullet points**: each names one specific problem, with its timestamp, and a
-  **"Fix:"** — the exact thing to do differently next time. Usually 3–5 bullets; more if there is more
-  to flag. No walk-through of the whole class, no padding. This is the message you actually send.
+  **class rating**), then **bullet points**: each names one specific problem and a **"Fix:"** — the
+  exact thing to do differently next time. **Four bullets, five at the very most** — if the analysis
+  found more issues than that, the note keeps only the most important ones (the rest stay in the
+  internal version). **No timestamps and no transcript quotes** — those belong to the detailed internal
+  feedback; the instructor's note reads like a person wrote it. No walk-through of the whole class, no
+  padding. This is the message you actually send.
 - The **detailed, timestamped analysis for the internal team** — every flag with its exact quote and
   time. This stays in-house for coaching and records; the instructor doesn't receive it.
 

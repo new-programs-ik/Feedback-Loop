@@ -63,8 +63,9 @@ The system is built to behave like an intelligent reviewer, not a keyword matche
 Every analysis produces two deliverables from one run:
 
 - **A short, crisp note to send the instructor** — one opening line with the class rating, then
-  **bullets: each bullet is one specific error (with its timestamp) and the concrete fix.** No
-  walk-through, no padding — the instructor sees exactly what to change. Editable, one click to copy.
+  **at most 4–5 bullets: each bullet is one specific error and the concrete fix.** No timestamps, no
+  walk-through, no padding — the instructor sees exactly what to change, at a glance. Editable, one
+  click to copy.
 - **A detailed, timestamped analysis for the internal team** — every issue with its exact evidence, kept
   in-house for coaching and records. A **PM-only "should this class be re-taught?"** recommendation is
   included and never shown to the instructor.
