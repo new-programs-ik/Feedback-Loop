@@ -149,7 +149,8 @@ export function ReviewActions({
           <CopyButton text={summary} />
         </div>
         <p className="text-muted-foreground text-xs">
-          A short, ready-to-send note — states the class rating. Edit it, or ask the AI to rewrite it, then approve.
+          A short, ready-to-send note: the class rating, then up to 4–5 bullets — each one problem and its fix,
+          in plain words (timestamps stay in the internal version below). Edit it, or ask the AI to rewrite it, then approve.
         </p>
         <EditBlock
           classId={classId} kind="summary" fieldName="summary_edited" text={summary} setText={setSummary}
