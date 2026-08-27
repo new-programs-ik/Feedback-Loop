@@ -269,7 +269,8 @@ def _validate_observations(obj, expect_n: int) -> list[str]:
 def _call_vision(client, system: str, blocks: list[dict], max_tokens: int, usage: "E.Usage") -> str:
     """Multimodal twin of engine._call: same model/temperature/usage accounting, image blocks."""
     t = time.time()
-    msg = client.messages.create(
+    msg = E._create_message(          # shared SDK-drift guard (see engine._create_message)
+        client,
         model=E.CFG.model, max_tokens=max_tokens, temperature=E.CFG.temperature,
         system=system, messages=[{"role": "user", "content": blocks}],
     )

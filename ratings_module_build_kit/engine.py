@@ -844,9 +844,33 @@ def _client():
 def _strip_fences(s: str) -> str:
     return re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
 
+# An SDK upgrade that removes a keyword we pass must not take the whole tool down: losing
+# temperature=0 costs us some determinism, dying costs the team every analysis. (anthropic 1.x
+# dropped `temperature` from Messages.create() and did exactly that on 2026-08-27.)
+_UNSUPPORTED_KWARGS: set[str] = set()
+
+
+def _create_message(client, **kwargs):
+    for k in _UNSUPPORTED_KWARGS:
+        kwargs.pop(k, None)
+    try:
+        return client.messages.create(**kwargs)
+    except TypeError as e:
+        m = re.search(r"unexpected keyword argument '([A-Za-z_]+)'", str(e))
+        if not m or m.group(1) not in kwargs:
+            raise
+        bad = m.group(1)
+        _UNSUPPORTED_KWARGS.add(bad)      # remember, so we only pay for this once per process
+        log.warning("this anthropic SDK rejects '%s' — retrying without it (results may vary "
+                    "run to run); pin the SDK or update the call", bad)
+        kwargs.pop(bad)
+        return client.messages.create(**kwargs)
+
+
 def _call(client, system: str, user: str, max_tokens: int, usage: Usage) -> str:
     t = time.time()
-    msg = client.messages.create(
+    msg = _create_message(
+        client,
         model=CFG.model, max_tokens=max_tokens, temperature=CFG.temperature,
         system=system, messages=[{"role": "user", "content": user}],
     )

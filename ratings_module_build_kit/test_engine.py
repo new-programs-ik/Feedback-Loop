@@ -444,3 +444,74 @@ class TestInstructorSummaryTidy(unittest.TestCase):
     def test_empty_input_is_safe(self):
         self.assertEqual(E.tidy_instructor_summary(""), "")
         self.assertEqual(E.tidy_instructor_summary(None), None)
+
+
+class TestSdkDriftGuard(unittest.TestCase):
+    """anthropic 1.x dropped `temperature` from Messages.create() and killed every analysis in
+    production. A keyword the installed SDK doesn't know must degrade, not take the tool down."""
+
+    class _Msg:
+        class usage:
+            input_tokens = 10
+            output_tokens = 5
+        content = [type("B", (), {"type": "text", "text": "hi"})()]
+
+    def setUp(self):
+        E._UNSUPPORTED_KWARGS.clear()
+
+    def tearDown(self):
+        E._UNSUPPORTED_KWARGS.clear()
+
+    def _client(self, reject: str | None):
+        outer = self
+
+        class Messages:
+            def __init__(self):
+                self.calls = []
+
+            def create(self, **kw):
+                self.calls.append(kw)
+                if reject and reject in kw:
+                    raise TypeError(
+                        f"Messages.create() got an unexpected keyword argument '{reject}'")
+                return outer._Msg()
+
+        class Client:
+            def __init__(self):
+                self.messages = Messages()
+
+        return Client()
+
+    def test_retries_without_the_rejected_keyword(self):
+        c = self._client("temperature")
+        out = E._call(c, "sys", "user", 100, E.Usage())
+        self.assertEqual(out, "hi")                       # the analysis still completes
+        self.assertIn("temperature", c.messages.calls[0])  # tried it once
+        self.assertNotIn("temperature", c.messages.calls[1])  # then dropped it
+
+    def test_remembers_so_it_only_fails_once(self):
+        c = self._client("temperature")
+        E._call(c, "sys", "user", 100, E.Usage())
+        E._call(c, "sys", "user", 100, E.Usage())
+        self.assertEqual(len(c.messages.calls), 3)        # 2 for the first call, 1 for the second
+        self.assertNotIn("temperature", c.messages.calls[2])
+
+    def test_usage_is_still_accounted(self):
+        c, u = self._client("temperature"), E.Usage()
+        E._call(c, "sys", "user", 100, u)
+        self.assertEqual((u.input_tokens, u.output_tokens, u.calls), (10, 5, 1))
+
+    def test_a_working_sdk_is_untouched(self):
+        c = self._client(None)
+        E._call(c, "sys", "user", 100, E.Usage())
+        self.assertEqual(len(c.messages.calls), 1)
+        self.assertIn("temperature", c.messages.calls[0])
+
+    def test_unrelated_type_errors_still_raise(self):
+        class Client:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    raise TypeError("something else entirely")
+        with self.assertRaises(TypeError):
+            E._call(Client(), "sys", "user", 100, E.Usage())

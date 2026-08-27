@@ -1,10 +1,14 @@
-anthropic>=0.40.0
-fastapi>=0.110.0
-uvicorn>=0.29.0
-httpx>=0.27.0
-SQLAlchemy>=2.0
-psycopg2-binary>=2.9      # Postgres driver for db.py (prod); tests use stdlib sqlite3
-pypdf>=4.0                # class-materials extraction: slides/docs the analysis checks against
-python-pptx>=0.6.23
-python-docx>=1.1
-imageio-ffmpeg>=0.5       # static ffmpeg binary (with https) for the video-frames stage
+# Upper bounds matter here: this worker rebuilds from scratch on every deploy, so an unpinned
+# dependency means a new major release can take production down without a single line of our code
+# changing. That happened on 2026-08-27 — anthropic 1.x dropped `temperature` from Messages.create(),
+# every analysis died with a TypeError. Bump these deliberately, with the tests green, not by accident.
+anthropic>=0.115,<1.0     # 1.x is a breaking rewrite; 0.115.1 is the version the tests run against
+fastapi>=0.110.0,<1.0
+uvicorn>=0.29.0,<1.0
+httpx>=0.27.0,<1.0
+SQLAlchemy>=2.0,<3.0
+psycopg2-binary>=2.9,<3.0   # Postgres driver for db.py (prod); tests use stdlib sqlite3
+pypdf>=4.0,<7.0             # class-materials extraction: slides/docs the analysis checks against
+python-pptx>=0.6.23,<2.0
+python-docx>=1.1,<2.0
+imageio-ffmpeg>=0.5,<1.0    # static ffmpeg binary (with https) for the video-frames stage
