@@ -1,9 +1,10 @@
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** KPI stat tile: label · big value · optional delta vs a named period · optional sparkline.
- *  The big number stays proportional (not tabular) — it's display type, not a table column. */
+/** KPI tile: quiet label row · a confident number · a tinted delta pill vs a named period ·
+ *  an integrated sparkline. Numbers use tabular figures + tight tracking; the tile never shouts —
+ *  tone colors the delta, not the whole value, unless the metric itself is a problem count. */
 function StatTile({
   label,
   value,
@@ -17,8 +18,8 @@ function StatTile({
   label: string;
   value: React.ReactNode;
   note?: string;
-  /** e.g. { text: "+0.12 vs July", good: true } — direction × goodness decided by the caller. */
-  delta?: { text: string; good?: boolean };
+  /** e.g. { text: "0.04", suffix: "vs prior 90d", good: false, direction: "down" } */
+  delta?: { text: string; suffix?: string; good?: boolean; direction?: "up" | "down" };
   icon?: LucideIcon;
   tone?: "default" | "primary" | "success" | "warning" | "destructive";
   sparkline?: React.ReactNode;
@@ -31,40 +32,41 @@ function StatTile({
     warning: "text-warning",
     destructive: "text-destructive",
   }[tone];
+  const DeltaArrow = delta?.direction === "down" ? ArrowDownRight : ArrowUpRight;
   return (
-    <div
-      data-slot="stat-tile"
-      className={cn("bg-card shadow-soft rounded-xl border p-4", className)}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-muted-foreground text-[13px] font-medium">{label}</p>
-        {Icon && (
-          <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
-            <Icon className="size-4" aria-hidden />
+    <div data-slot="stat-tile" className={cn("bg-card shadow-soft rounded-xl border p-4", className)}>
+      <div className="flex items-center gap-1.5">
+        {Icon && <Icon className="text-muted-foreground/70 size-3.5" aria-hidden />}
+        <p className="text-muted-foreground text-xs font-medium">{label}</p>
+      </div>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <p
+          data-numeric
+          className={cn("text-[27px] leading-none font-semibold tracking-[-0.02em]", toneClass)}
+        >
+          {value}
+        </p>
+        {sparkline && <div className="shrink-0 pb-0.5 opacity-80">{sparkline}</div>}
+      </div>
+      <div className="mt-2.5 flex min-h-5 items-center gap-1.5">
+        {delta && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[11px] font-semibold",
+              delta.good == null
+                ? "bg-muted text-muted-foreground"
+                : delta.good
+                  ? "bg-success/10 text-success"
+                  : "bg-destructive/10 text-destructive",
+            )}
+          >
+            <DeltaArrow className="size-3" aria-hidden />
+            {delta.text}
           </span>
         )}
-      </div>
-      <div className="mt-1.5 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className={cn("text-[26px] leading-8 font-semibold tracking-tight", toneClass)}>{value}</p>
-          {delta ? (
-            <p
-              className={cn(
-                "mt-0.5 text-xs font-medium",
-                delta.good == null
-                  ? "text-muted-foreground"
-                  : delta.good
-                    ? "text-success"
-                    : "text-destructive",
-              )}
-            >
-              {delta.text}
-            </p>
-          ) : note ? (
-            <p className="text-muted-foreground mt-0.5 text-xs">{note}</p>
-          ) : null}
-        </div>
-        {sparkline && <div className="mb-1 shrink-0">{sparkline}</div>}
+        {(delta?.suffix || note) && (
+          <span className="text-muted-foreground truncate text-[11px]">{delta?.suffix ?? note}</span>
+        )}
       </div>
     </div>
   );

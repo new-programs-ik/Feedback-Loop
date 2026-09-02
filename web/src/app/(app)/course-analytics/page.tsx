@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { BookOpen, ChevronRight, Star, TrendingDown, Users } from "lucide-react";
+import { BookOpen, ChevronRight, Download, Star, TrendingDown, Users } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { FilterBar, rangeToDates, type RangePreset } from "@/components/filter-bar";
 import { StatTile } from "@/components/ui/stat-tile";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import {
+  BandDot, Meter, Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow,
+} from "@/components/ui/table";
 import { ChartCard } from "@/components/charts/chart-card";
 import { StackedBars } from "@/components/charts/stacked-bars";
 import { Sparkline } from "@/components/charts/sparkline";
@@ -44,6 +47,10 @@ export default async function CourseAnalyticsPage({
   const prev = summarize(prevRows);
   const months = byMonth(rows);
   const monthLabels = months.map((m) => fmtMonth(m.month));
+  const ratingSpark = months.map((m) => m.avgRating).filter((v): v is number => v != null);
+  const badShareSpark = months
+    .map((m) => (m.badShare != null ? m.badShare * 100 : null))
+    .filter((v): v is number => v != null);
 
   const courses = byCourse(rows);
   const sort = sp.sort ?? "bad";
@@ -54,7 +61,6 @@ export default async function CourseAnalyticsPage({
     : sort === "participation" ? (a.avgParticipation ?? 0) - (b.avgParticipation ?? 0)
     : b.bad - a.bad,
   );
-  // per-course monthly avg-rating sparkline over the SAME month buckets
   const sparkFor = (courseKey: string) => {
     const c = courses.find((x) => x.key === courseKey);
     if (!c) return [];
@@ -62,16 +68,24 @@ export default async function CourseAnalyticsPage({
     return months.map((x) => m.get(x.month)).filter((v): v is number => v != null);
   };
 
-  const delta =
-    total.avgRating != null && prev.avgRating != null
-      ? total.avgRating - prev.avgRating
+  const ratingDelta =
+    total.avgRating != null && prev.avgRating != null ? total.avgRating - prev.avgRating : null;
+  const badDelta =
+    total.badShare != null && prev.badShare != null ? (total.badShare - prev.badShare) * 100 : null;
+  const partDelta =
+    total.avgParticipation != null && prev.avgParticipation != null
+      ? total.avgParticipation - prev.avgParticipation
       : null;
 
-  const sortHref = (key: string) => {
+  const qs = () => {
     const p = new URLSearchParams();
     p.set("range", range);
     if (range === "custom") { p.set("from", from); p.set("to", to); }
     if (sp.course) p.set("course", sp.course);
+    return p;
+  };
+  const sortHref = (key: string) => {
+    const p = qs();
     p.set("sort", key);
     return `/course-analytics?${p}`;
   };
@@ -80,7 +94,14 @@ export default async function CourseAnalyticsPage({
     <div className="animate-in-up">
       <PageHeader
         title="Course Analytics"
-        description="Every course's ratings from the live sheet — synced automatically, judged by the team rule."
+        description={`Every course's ratings, judged by the team rule · ${from} → ${to}`}
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <a href={`/course-analytics/export?${qs()}`}>
+              <Download className="size-3.5" aria-hidden /> Export CSV
+            </a>
+          </Button>
+        }
       />
       <FilterBar
         basePath="/course-analytics"
@@ -102,33 +123,73 @@ export default async function CourseAnalyticsPage({
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-stagger>
-            <StatTile label="Classes rated" value={total.n} icon={BookOpen} note={`${from} → ${to}`} />
+            <StatTile
+              label="Classes rated"
+              value={total.n.toLocaleString()}
+              icon={BookOpen}
+              note={`${Math.round(total.n / (spanDays / 7))} per week`}
+            />
             <StatTile
               label="Average rating"
               value={fmtAvg(total.avgRating)}
               icon={Star}
+              sparkline={<Sparkline values={ratingSpark} />}
               delta={
-                delta == null
+                ratingDelta == null
                   ? undefined
-                  : { text: `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} vs previous ${spanDays}d`, good: delta >= 0 }
+                  : {
+                      text: Math.abs(ratingDelta).toFixed(2),
+                      suffix: `vs prior ${spanDays}d`,
+                      good: ratingDelta >= 0,
+                      direction: ratingDelta >= 0 ? "up" : "down",
+                    }
               }
             />
             <StatTile
               label={`Below ${GOOD}`}
-              value={total.bad}
+              value={
+                <>
+                  {total.bad}
+                  <span className="text-muted-foreground text-[15px] font-medium">
+                    {" "}· {Math.round((total.badShare ?? 0) * 100)}%
+                  </span>
+                </>
+              }
               icon={TrendingDown}
-              tone={total.bad > 0 ? "destructive" : "success"}
-              note={total.badShare != null ? `${Math.round(total.badShare * 100)}% of classes` : undefined}
+              sparkline={<Sparkline values={badShareSpark} accent="var(--viz-bad)" />}
+              delta={
+                badDelta == null
+                  ? undefined
+                  : {
+                      text: `${Math.abs(badDelta).toFixed(1)} pts`,
+                      suffix: `share vs prior ${spanDays}d`,
+                      good: badDelta <= 0,
+                      direction: badDelta >= 0 ? "up" : "down",
+                    }
+              }
             />
             <StatTile
               label="Avg participation"
               value={fmtPct(total.avgParticipation)}
               icon={Users}
-              note="share of attendees who rated"
+              delta={
+                partDelta == null
+                  ? undefined
+                  : {
+                      text: `${Math.abs(partDelta).toFixed(0)} pts`,
+                      suffix: "share of attendees who rated",
+                      good: partDelta >= 0,
+                      direction: partDelta >= 0 ? "up" : "down",
+                    }
+              }
             />
           </div>
 
           <div className="bg-card shadow-soft mt-4 overflow-hidden rounded-xl border">
+            <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5">
+              <h3 className="text-[13px] font-semibold tracking-[-0.01em]">By course</h3>
+              <span className="text-muted-foreground text-[11px]">click a column to sort · chevron filters the view</span>
+            </div>
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
@@ -136,44 +197,50 @@ export default async function CourseAnalyticsPage({
                   <TableHead className="text-right"><Link href={sortHref("classes")} className="hover:text-foreground">Classes</Link></TableHead>
                   <TableHead className="text-right"><Link href={sortHref("rating")} className="hover:text-foreground">Avg rating</Link></TableHead>
                   <TableHead className="text-right"><Link href={sortHref("bad")} className="hover:text-foreground">Below {GOOD}</Link></TableHead>
-                  <TableHead className="text-right"><Link href={sortHref("participation")} className="hover:text-foreground">Participation</Link></TableHead>
-                  <TableHead>Trend</TableHead>
+                  <TableHead><Link href={sortHref("participation")} className="hover:text-foreground">Participation</Link></TableHead>
+                  <TableHead>90-day trend</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {courses.map((c) => (
-                  <TableRow key={c.key}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
-                    <TableNum>{c.n}</TableNum>
-                    <TableNum className={c.avgRating != null && c.avgRating < GOOD ? "text-destructive font-semibold" : ""}>
-                      {fmtAvg(c.avgRating)}
-                    </TableNum>
-                    <TableNum>
-                      {c.bad > 0 ? (
-                        <span className="text-destructive font-semibold">
-                          {c.bad}
-                          <span className="text-muted-foreground font-normal"> ({Math.round((c.badShare ?? 0) * 100)}%)</span>
-                        </span>
-                      ) : (
-                        "0"
-                      )}
-                    </TableNum>
-                    <TableNum>{fmtPct(c.avgParticipation)}</TableNum>
-                    <TableCell><Sparkline values={sparkFor(c.key)} /></TableCell>
-                    <TableCell className="w-8">
-                      {c.courseId && (
-                        <Link
-                          href={`/course-analytics?range=${range}&course=${c.courseId}`}
-                          aria-label={`Filter to ${c.name}`}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <ChevronRight className="size-4" />
-                        </Link>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {courses.map((c) => {
+                  const share = Math.round((c.badShare ?? 0) * 100);
+                  return (
+                    <TableRow key={c.key}>
+                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableNum className="text-muted-foreground">{c.n}</TableNum>
+                      <TableNum>
+                        <BandDot tone={c.avgRating != null && c.avgRating < GOOD ? "bad" : c.avgRating != null && c.avgRating < 4.7 ? "warn" : "good"} />
+                        {fmtAvg(c.avgRating)}
+                      </TableNum>
+                      <TableNum>
+                        {c.bad > 0 ? (
+                          <span className="bg-destructive/8 text-destructive inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold">
+                            {c.bad}
+                            <span className="font-medium opacity-70">· {share}%</span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">0</span>
+                        )}
+                      </TableNum>
+                      <TableCell>
+                        {c.avgParticipation != null ? <Meter value={c.avgParticipation} /> : "—"}
+                      </TableCell>
+                      <TableCell><Sparkline values={sparkFor(c.key)} width={84} /></TableCell>
+                      <TableCell className="w-8">
+                        {c.courseId && (
+                          <Link
+                            href={`/course-analytics?range=${range}&course=${c.courseId}`}
+                            aria-label={`Filter to ${c.name}`}
+                            className="text-muted-foreground/60 hover:text-foreground"
+                          >
+                            <ChevronRight className="size-4" />
+                          </Link>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -181,10 +248,10 @@ export default async function CourseAnalyticsPage({
           <ChartCard
             className="mt-4"
             title={`Fine vs below ${GOOD}, per month`}
-            subtitle="Counts of rated classes; the label is the share below the line"
+            subtitle="Counts of rated classes · the label is the share below the line"
             legend={[
-              { label: `Rated ${GOOD}+`, color: "var(--success)" },
-              { label: `Below ${GOOD}`, color: "var(--destructive)" },
+              { label: `Rated ${GOOD}+`, color: "var(--viz-good)" },
+              { label: `Below ${GOOD}`, color: "var(--viz-bad)" },
             ]}
             table={{
               headers: ["Month", `Rated ${GOOD}+`, `Below ${GOOD}`, "Share below"],
@@ -198,9 +265,10 @@ export default async function CourseAnalyticsPage({
           >
             <StackedBars
               labels={monthLabels}
+              height={190}
               segments={[
-                { name: `Rated ${GOOD}+`, color: "var(--success)" },
-                { name: `Below ${GOOD}`, color: "var(--destructive)" },
+                { name: `Rated ${GOOD}+`, color: "var(--viz-good)" },
+                { name: `Below ${GOOD}`, color: "var(--viz-bad)" },
               ]}
               values={months.map((m) => [m.n - m.bad, m.bad])}
               topLabels={months.map((m) =>

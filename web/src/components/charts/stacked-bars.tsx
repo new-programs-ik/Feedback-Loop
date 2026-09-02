@@ -25,28 +25,30 @@ export function StackedBars({
   topLabels?: (string | null)[];
 }) {
   const W = 720;
-  const ml = 36;
-  const mr = 12;
-  const mt = 20;
-  const mb = 26;
+  const ml = 30;
+  const mr = 8;
+  const mt = 22;
+  const mb = 24;
   const pw = W - ml - mr;
   const ph = height - mt - mb;
   const [hover, setHover] = React.useState<number | null>(null);
 
   const totals = values.map((row) => row.reduce((a, b) => a + b, 0));
   const max = Math.max(...totals, 1);
-  const ticks = niceTicks(0, max, 3).filter((t) => t <= max * 1.08);
+  const ticks = niceTicks(0, max, 3).filter((t) => t > 0 && t <= max * 1.08);
   const y = scaleLinear([0, Math.max(max, ticks[ticks.length - 1] ?? max)], [mt + ph, mt]);
   const slot = pw / labels.length;
-  const bw = Math.min(24, slot * 0.55);
+  // Few categories get substantial columns; many stay thin (dataviz thin-mark cap).
+  const bw = Math.min(labels.length <= 6 ? 44 : 24, slot * 0.6);
 
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${height}`} className="block w-full" role="img" onMouseLeave={() => setHover(null)}>
+        <line x1={ml} x2={W - mr} y1={mt + ph} y2={mt + ph} stroke="var(--chart-grid)" strokeWidth={1} />
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={ml} x2={W - mr} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" strokeWidth={1} />
-            <text x={ml - 6} y={y(t) + 3.5} textAnchor="end" className="fill-muted-foreground text-[10px]">
+            <line x1={ml} x2={W - mr} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" strokeWidth={1} strokeDasharray="1 3" />
+            <text x={ml - 6} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground/80 text-[9.5px]">
               {t}
             </text>
           </g>
@@ -81,11 +83,11 @@ export function StackedBars({
                 ) : null,
               )}
               {topLabels?.[bi] && (
-                <text x={cx} y={y(totals[bi]) - 6} textAnchor="middle" className="fill-muted-foreground text-[10px] font-semibold">
+                <text x={cx} y={y(totals[bi]) - 7} textAnchor="middle" className="fill-muted-foreground text-[9.5px] font-semibold">
                   {topLabels[bi]}
                 </text>
               )}
-              <text x={cx} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+              <text x={cx} y={height - 7} textAnchor="middle" className="fill-muted-foreground text-[10px] font-medium">
                 {label}
               </text>
             </g>
