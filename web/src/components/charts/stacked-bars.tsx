@@ -14,14 +14,15 @@ export function StackedBars({
   segments,
   values, // values[barIndex][segmentIndex]
   height = 220,
-  topLabel,
+  topLabels,
 }: {
   labels: string[];
   segments: StackSegment[];
   values: number[][];
   height?: number;
-  /** Optional label above each bar, e.g. the bad-share percent. */
-  topLabel?: (barIndex: number) => string | null;
+  /** Optional label above each bar, PRE-COMPUTED by the caller (props must be serializable
+   *  across the server->client boundary — never pass functions here). */
+  topLabels?: (string | null)[];
 }) {
   const W = 720;
   const ml = 36;
@@ -79,9 +80,9 @@ export function StackedBars({
                   />
                 ) : null,
               )}
-              {topLabel && topLabel(bi) && (
+              {topLabels?.[bi] && (
                 <text x={cx} y={y(totals[bi]) - 6} textAnchor="middle" className="fill-muted-foreground text-[10px] font-semibold">
-                  {topLabel(bi)}
+                  {topLabels[bi]}
                 </text>
               )}
               <text x={cx} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[10px]">

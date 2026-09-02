@@ -35,23 +35,40 @@ function Section({
   );
 }
 
+export type Prefill = {
+  classRatingId: string;
+  courseId: string;
+  topic: string;
+  instructor: string;
+  classDate: string;
+  classType: "live_class" | "ars";
+  rating: string;
+  numRatings: string;
+  attended: string;
+  escalated: boolean;
+  video: boolean;
+};
+
 export function NewAnalysisForm({
   courses,
   instructorNames,
+  prefill,
 }: {
   courses: { id: string; name: string }[];
   instructorNames: string[];
+  prefill?: Prefill;
 }) {
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
-  const [courseId, setCourseId] = useState("");
-  const [classType, setClassType] = useState<"live_class" | "ars">("live_class");
+  const [courseId, setCourseId] = useState(prefill?.courseId ?? "");
+  const [classType, setClassType] = useState<"live_class" | "ars">(prefill?.classType ?? "live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
-  const [analyzeVideo, setAnalyzeVideo] = useState(false);
-  // "Which analysis?" helper (the team's decision rules, built in)
-  const [hRating, setHRating] = useState("");
-  const [hAttended, setHAttended] = useState("");
-  const [hRated, setHRated] = useState("");
-  const [hEscalation, setHEscalation] = useState(false);
+  const [analyzeVideo, setAnalyzeVideo] = useState(prefill?.video ?? false);
+  // "Which analysis?" helper (the team's decision rules, built in) — a queue prefill
+  // lights it up so the recommendation is visible immediately.
+  const [hRating, setHRating] = useState(prefill?.rating ?? "");
+  const [hAttended, setHAttended] = useState(prefill?.attended ?? "");
+  const [hRated, setHRated] = useState(prefill?.numRatings ?? "");
+  const [hEscalation, setHEscalation] = useState(prefill?.escalated ?? false);
   const r = parseFloat(hRating);
   const att = parseInt(hAttended, 10);
   const rat = parseInt(hRated, 10);
@@ -87,6 +104,7 @@ export function NewAnalysisForm({
       </CardHeader>
       <CardContent>
         <form action={formAction} className="space-y-7">
+          {prefill && <input type="hidden" name="class_rating_id" value={prefill.classRatingId} />}
           <div className="bg-accent/40 space-y-3 rounded-xl border p-4">
             <div className="text-sm font-semibold">🧭 Not sure which analysis? Answer three things:</div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -149,19 +167,21 @@ export function NewAnalysisForm({
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="topic" className={label}>Class topic</label>
-                <input id="topic" name="topic" required className={field} placeholder="e.g. Decision Trees & Ensembles" />
+                <input id="topic" name="topic" required className={field} placeholder="e.g. Decision Trees & Ensembles"
+                       defaultValue={prefill?.topic} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="instructor" className={label}>Instructor</label>
                 <input id="instructor" name="instructor" list="instructor-options" className={field}
-                       placeholder="Type or pick a name" />
+                       placeholder="Type or pick a name" defaultValue={prefill?.instructor} />
                 <datalist id="instructor-options">
                   {instructorNames.map((n) => <option key={n} value={n} />)}
                 </datalist>
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="class_date" className={label}>Class date</label>
-                <input id="class_date" name="class_date" type="date" required className={field} />
+                <input id="class_date" name="class_date" type="date" required className={field}
+                       defaultValue={prefill?.classDate} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="class_type" className={label}>Class type</label>
@@ -175,11 +195,13 @@ export function NewAnalysisForm({
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label htmlFor="rating" className={label}>Avg rating</label>
-                  <Input id="rating" name="rating" type="number" step="0.01" min="0" max="5" placeholder="4.2" />
+                  <Input id="rating" name="rating" type="number" step="0.01" min="0" max="5" placeholder="4.2"
+                         defaultValue={prefill?.rating} />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="num_ratings" className={label}># ratings</label>
-                  <Input id="num_ratings" name="num_ratings" type="number" min="0" placeholder="18" />
+                  <Input id="num_ratings" name="num_ratings" type="number" min="0" placeholder="18"
+                         defaultValue={prefill?.numRatings} />
                 </div>
               </div>
             </div>

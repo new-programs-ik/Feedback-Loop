@@ -111,6 +111,17 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     class_id: classId, actor_id: user.id, action: "created", detail: { source: vimeo_url ? "vimeo" : "upload" },
   });
 
+  // Started from the Needs-analysis queue? Link the synced rating row to this class so the
+  // queue shows it as in-analysis and the hourly sync stops re-flagging it.
+  const classRatingId = String(formData.get("class_rating_id") ?? "").trim();
+  if (classRatingId) {
+    await supabase
+      .from("class_ratings")
+      .update({ review_status: "analysis_started", class_id: classId, updated_at: new Date().toISOString() })
+      .eq("id", classRatingId);
+    revalidatePath("/ratings");
+  }
+
   // Start the analysis in the BACKGROUND — the worker fetches the transcript, digests the
   // materials, runs the engine, and writes the result to the DB itself when done. We return
   // immediately so the web request never times out (even for a 4-hour class).
