@@ -63,8 +63,9 @@ get in; anyone else is bounced out automatically.
 there's a small helper: type the **class rating**, how many **attended**, how many **rated**, and tick
 **escalation** if there was one. It works out the *rating participation %* and tells you what to do —
 skip it, run a **transcript** analysis, or run a **video** analysis — and can switch video on for you
-with one click. (The team rule: above 4.5 → usually skip · below 4.5 with ≥ 80% participation → video ·
-below 80% → transcript · any escalation → always video.)
+with one click. (The team rule, validated against 8 months of ratings data: 4.55 or above → usually
+skip · fewer than 5 ratings → watch only · below 4.55 with ≥ 40% of attendees rating → video ·
+under 40% → transcript · any escalation → always video.)
 
 **Step 2b — You fetch the recording link.** The class's **Vimeo link** lives in IK's **UpLevel**:
 *Resources → Videos →* open the class *→ Basic Details →* copy the **VIMEO URL** box. (This step will
@@ -100,7 +101,7 @@ sequenceDiagram
 
 _**a.** The website hands the job to the **AI Brain**._
 _**b.** The Brain goes to **Vimeo** and downloads the class **captions** (the transcript — everything the instructor said)._
-_**c.** It reads your **materials** and boils them into a short outline of *what was supposed to be taught*._
+_**c.** The **materials agent** converts your slides/notebook into a clean **Markdown** version of *what was supposed to be taught*._
 _**d.** It splits the long transcript into **30-minute chunks**, and for each chunk asks **Claude**: "what went well or wrong here?" — collecting **specific moments, each with a timestamp and the exact words**._
 _**e.** It **combines** all the findings, **double-checks** each one (drops anything the quote doesn't support), and writes four things:_
    - _an **overall summary** of what likely caused the low rating,_
@@ -167,12 +168,14 @@ IK's class recordings live on Vimeo, and Vimeo auto-generates **captions** (the 
 said). The Brain uses an IK Vimeo key to download those captions as the transcript. If a video has
 no captions, you simply **upload the transcript file** instead — the tool works either way.
 
-### 📎 Reading the materials
-When you attach slides / a notebook / a doc, the Brain **reads the text out of them** and makes a
-short outline of *what was planned*. The analysis then checks the class **against that outline** — so
-instead of guessing, it can say *"Slide 14's topic was never taught"* or *"the instructor explained
-this differently from the notebook."* **Your materials are used only for that one analysis and are
-never stored** (more on that in §7).
+### 📎 Reading the materials — the "materials agent"
+When you attach slides / a notebook / a doc, a dedicated step — the **materials agent** — first
+converts it into a clean, structured **Markdown** version (slide order and headings kept, code in
+code blocks, boilerplate dropped), and *that* Markdown is what the analysis reads as "the planned
+class." The analysis then checks the session **against it** — so instead of guessing, it can say
+*"Slide 14's topic was never taught"* or *"the instructor explained this differently from the
+notebook."* Files are read one at a time with hard size caps, so even a huge deck can't overload the
+worker. **Your materials are used only for that one analysis and are never stored** (more in §7).
 
 You can give materials **three ways**: **upload** the file, **paste** the text, or — best for big
 decks — **paste a link** (a Google Drive / Docs / Slides link, or an internal materials-app link). With
@@ -223,7 +226,7 @@ they exist, and by reasoning about the content when they don't. This matters eno
   problem. The tool follows that thread across the whole session before deciding.
 
 ### 🤖 Claude (the AI model)
-The actual intelligence — **Claude Sonnet 4.6**. It reads the transcript, works out the flow, and
+The actual intelligence — **Claude Sonnet 5** (upgraded from Sonnet 4.6 in September 2026). It reads the transcript, works out the flow, and
 writes the findings and feedback. It's told **strict rules**: quote the transcript exactly (never
 make things up), judge the **instructor only**, stay formal and kind (never harsh), be concise, and
 anchor every point to a timestamp. It runs at **temperature 0** (the most consistent, least "creative"
@@ -283,7 +286,7 @@ This is why the feedback is **specific and trustworthy** — every point traces 
 attributed to the right person, and checked against the flow of the whole class rather than a vague
 impression or an out-of-context snippet.
 
-> **The parameters, in one place (for the curious):** model **Claude Sonnet 4.6**; **temperature 0**;
+> **The parameters, in one place (for the curious):** model **Claude Sonnet 5** (no temperature setting — the model reasons before answering by default, and consistency comes from the strict contracts below);
 > ~**30-minute** analysis windows with a 2-minute overlap; **strict JSON** output that's schema-checked
 > and auto-repaired once if malformed; **precision over recall** (when unsure, it stays silent — a
 > false criticism is treated as worse than a missed one); every finding needs a **verbatim quote +

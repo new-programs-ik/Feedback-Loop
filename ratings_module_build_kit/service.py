@@ -10,7 +10,7 @@ Deploy (free): Render / Cloud Run. Set ANTHROPIC_API_KEY (+ VIMEO_ACCESS_TOKEN) 
 
 Endpoints:
   GET  /health           -> liveness + which capabilities are configured
-  POST /dry-run          -> {cues, windows, est_tokens}         (transcript text; no API key)
+  POST /dry-run          -> {cues, windows, est_tokens}         (transcript text; no Claude call)
   POST /transcript       -> {text, video_id, language, chars}   (fetch captions from a Vimeo URL)
   POST /analyze          -> {result, meta, transcript_source}   (needs ANTHROPIC_API_KEY)
 
@@ -37,6 +37,8 @@ import materials_fetch as MF  # noqa: E402
 import store as ST  # noqa: E402
 import video as VD  # noqa: E402
 import vimeo as V  # noqa: E402
+
+log = logging.getLogger("service")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 app = FastAPI(title="Ratings Analysis Worker", version="2.0")
@@ -99,6 +101,23 @@ class TranscriptRequest(BaseModel):
 
 
 # ─────────────────────────── class-materials text extraction ───────────────────────────
+# Hard caps so a huge deck can never blow the worker's memory (Render free tier = 512MB).
+# Files are processed ONE AT A TIME and the raw bytes are released before the next file;
+# the extracted text is capped per file; the combined text is capped again before the
+# materials agent converts it to Markdown (engine.MATERIALS_MAX_CHARS).
+MATERIALS_MAX_FILES = 8
+MATERIALS_MAX_FILE_BYTES = 25 * 1024 * 1024      # 25 MB per file
+MATERIALS_MAX_FILE_CHARS = 40_000                # extracted text per file
+
+
+def _cap_text(text: str, filename: str) -> str:
+    if len(text) > MATERIALS_MAX_FILE_CHARS:
+        log.info("materials '%s': extracted %d chars, capped to %d",
+                 filename, len(text), MATERIALS_MAX_FILE_CHARS)
+        return text[:MATERIALS_MAX_FILE_CHARS] + "\n[... truncated for length ...]"
+    return text
+
+
 def extract_text(filename: str, data: bytes) -> str:
     """Pull plain text out of an uploaded materials file (slides / notebook / doc)."""
     name = (filename or "").lower()
@@ -140,27 +159,46 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 def gather_materials(req: AnalyzeRequest) -> str:
-    """Combine pasted text + uploaded files + fetched link(s) into one materials string.
-    Held in memory for this request only — never persisted anywhere."""
+    """Combine pasted text + uploaded files + fetched link(s) into one raw materials string.
+    The engine's MATERIALS AGENT then converts that to clean Markdown, and the Markdown - not
+    the raw dump - is what the analysis reads. Everything here is held in memory for this
+    request only and released as soon as each file's text is out — never persisted anywhere."""
     parts = []
     if req.materials_text and req.materials_text.strip():
-        parts.append(req.materials_text.strip())
+        parts.append(_cap_text(req.materials_text.strip(), "pasted text"))
+    if len(req.materials_files) > MATERIALS_MAX_FILES:
+        raise HTTPException(status_code=422,
+                            detail=f"too many materials files ({len(req.materials_files)}) — "
+                                   f"attach at most {MATERIALS_MAX_FILES}")
     for mf in req.materials_files:
         try:
             data = base64.b64decode(mf.b64)
         except Exception:
             raise HTTPException(status_code=422, detail=f"materials file '{mf.filename}' is not valid base64")
+        if len(data) > MATERIALS_MAX_FILE_BYTES:
+            raise HTTPException(status_code=422,
+                                detail=f"materials file '{mf.filename}' is "
+                                       f"{len(data) // (1024 * 1024)}MB — the limit is "
+                                       f"{MATERIALS_MAX_FILE_BYTES // (1024 * 1024)}MB per file "
+                                       "(share a link instead of uploading)")
         text = extract_text(mf.filename or "materials.txt", data)
+        del data                                    # release the raw bytes before the next file
         if text.strip():
-            parts.append(f"=== {mf.filename} ===\n{text}")
-    # Materials-by-link: the "materials agent" fetches the deck/notebook from a Drive/Docs/web-manager
-    # link so big files never hit the upload limit. Fetched in memory, extracted, then discarded.
+            parts.append(f"=== {mf.filename} ===\n{_cap_text(text, mf.filename)}")
+    # Materials-by-link: fetched from a Drive/Docs/web-manager link so big files never hit the
+    # upload limit. Fetched in memory, extracted, then discarded.
     if req.materials_url and req.materials_url.strip():
         try:
             for filename, data in MF.fetch_all(req.materials_url):
+                if len(data) > MATERIALS_MAX_FILE_BYTES:
+                    raise HTTPException(status_code=422,
+                                        detail=f"linked file '{filename}' is "
+                                               f"{len(data) // (1024 * 1024)}MB — the limit is "
+                                               f"{MATERIALS_MAX_FILE_BYTES // (1024 * 1024)}MB")
                 text = extract_text(filename, data)
+                del data
                 if text.strip():
-                    parts.append(f"=== {filename} (from link) ===\n{text}")
+                    parts.append(f"=== {filename} (from link) ===\n{_cap_text(text, filename)}")
         except MF.MaterialsFetchError as e:
             raise HTTPException(status_code=422, detail=f"couldn't read the materials link: {e}")
     return "\n\n".join(parts)
@@ -197,7 +235,7 @@ def health() -> dict:
     }
 
 
-@app.post("/dry-run")
+@app.post("/dry-run", dependencies=[Depends(require_worker_auth)])
 def dry_run(req: AnalyzeRequest) -> dict:
     if not (req.transcript and req.transcript.strip()):
         raise HTTPException(status_code=422, detail="dry-run needs 'transcript' text")

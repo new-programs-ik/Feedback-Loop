@@ -39,13 +39,15 @@ Don't analyse everything. The team rule:
 
 | Situation | What to do |
 |---|---|
-| Rating **above 4.5** | **No analysis needed** in most cases. Only if a PM asks or there's a specific reason — then Transcript is enough. |
-| Rating **below 4.5** and **≥ 80%** of attendees rated it | **Video Analysis** — the signal is strong, get the full picture. |
-| Rating **below 4.5** and **< 80%** rated it | **Transcript Analysis** — enough for a first read. |
+| Rating **4.55 or above** | **No analysis needed** in most cases. Only if a PM asks or there's a specific reason — then Transcript is enough. |
+| Below 4.55 but **fewer than 5 people rated it** | **Watch only** — one or two opinions isn't a class problem yet. Note it; analyse only if a PM asks. |
+| Rating **below 4.55** and **≥ 40%** of attendees rated it | **Video Analysis** — a representative share of the room spoke and it was still low. |
+| Rating **below 4.55** and **< 40%** rated it | **Transcript Analysis** — too thin a sample to trust yet; a first read is enough. |
 | Any **escalation** or specific issue reported | **Video Analysis**, always. |
 
 **Rating participation %** = (learners who rated ÷ learners who attended) × 100.
-Example: 10 attended, 8 rated → 80%.
+Example: 10 attended, 8 rated → 80%. (These thresholds were set from 8 months of real ratings
+data — a normal class is rated by about half its room.)
 
 > 💡 **You don't have to remember this.** The New Analysis page has a **built-in helper**: type the
 > rating, attended and rated numbers, and it tells you which analysis to run — and switches video on

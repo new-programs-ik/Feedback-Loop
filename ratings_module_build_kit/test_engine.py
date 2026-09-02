@@ -483,29 +483,34 @@ class TestSdkDriftGuard(unittest.TestCase):
         return Client()
 
     def test_retries_without_the_rejected_keyword(self):
-        c = self._client("temperature")
-        out = E._call(c, "sys", "user", 100, E.Usage())
-        self.assertEqual(out, "hi")                       # the analysis still completes
-        self.assertIn("temperature", c.messages.calls[0])  # tried it once
-        self.assertNotIn("temperature", c.messages.calls[1])  # then dropped it
+        # exercised via _create_message directly: _call no longer sends any optional kwargs,
+        # but the guard must still protect whatever we pass in the future
+        c = self._client("fancy_knob")
+        msg = E._create_message(c, model="m", max_tokens=10, messages=[], fancy_knob=1)
+        self.assertEqual(msg.content[0].text, "hi")        # the call still completes
+        self.assertIn("fancy_knob", c.messages.calls[0])   # tried it once
+        self.assertNotIn("fancy_knob", c.messages.calls[1])  # then dropped it
 
     def test_remembers_so_it_only_fails_once(self):
-        c = self._client("temperature")
-        E._call(c, "sys", "user", 100, E.Usage())
-        E._call(c, "sys", "user", 100, E.Usage())
+        c = self._client("fancy_knob")
+        E._create_message(c, model="m", max_tokens=10, messages=[], fancy_knob=1)
+        E._create_message(c, model="m", max_tokens=10, messages=[], fancy_knob=1)
         self.assertEqual(len(c.messages.calls), 3)        # 2 for the first call, 1 for the second
-        self.assertNotIn("temperature", c.messages.calls[2])
+        self.assertNotIn("fancy_knob", c.messages.calls[2])
 
     def test_usage_is_still_accounted(self):
-        c, u = self._client("temperature"), E.Usage()
+        c, u = self._client(None), E.Usage()
         E._call(c, "sys", "user", 100, u)
         self.assertEqual((u.input_tokens, u.output_tokens, u.calls), (10, 5, 1))
 
-    def test_a_working_sdk_is_untouched(self):
+    def test_call_sends_no_sampling_or_thinking_params(self):
+        """Sonnet 5 rejects non-default temperature/top_p/top_k with an HTTP 400 - the guard
+        can't catch that (it's a server error, not a TypeError), so we must never send them."""
         c = self._client(None)
         E._call(c, "sys", "user", 100, E.Usage())
         self.assertEqual(len(c.messages.calls), 1)
-        self.assertIn("temperature", c.messages.calls[0])
+        for banned in ("temperature", "top_p", "top_k", "thinking"):
+            self.assertNotIn(banned, c.messages.calls[0])
 
     def test_unrelated_type_errors_still_raise(self):
         class Client:
@@ -515,3 +520,64 @@ class TestSdkDriftGuard(unittest.TestCase):
                     raise TypeError("something else entirely")
         with self.assertRaises(TypeError):
             E._call(Client(), "sys", "user", 100, E.Usage())
+
+
+class TestMaterialsAgent(unittest.TestCase):
+    """The materials agent: attached decks/notebooks become clean Markdown context, and a
+    conversion failure can never kill an analysis."""
+
+    class _Msg:
+        class usage:
+            input_tokens = 100
+            output_tokens = 50
+        content = [type("B", (), {"type": "text", "text": "## deck.pptx\n- Topic A\n- Topic B"})()]
+
+    def _client(self, fail=False):
+        outer = self
+
+        class Messages:
+            def __init__(self):
+                self.calls = []
+
+            def create(self, **kw):
+                self.calls.append(kw)
+                if fail:
+                    raise RuntimeError("api down")
+                return outer._Msg()
+
+        class Client:
+            def __init__(self):
+                self.messages = Messages()
+
+        return Client()
+
+    def test_small_materials_skip_the_model(self):
+        c = self._client()
+        out = E._materials_markdown(c, "short outline", E.Usage())
+        self.assertEqual(out, "short outline")
+        self.assertEqual(len(c.messages.calls), 0)        # no call, no cost
+
+    def test_large_materials_are_converted_to_markdown(self):
+        c = self._client()
+        out = E._materials_markdown(c, "x" * 5000, E.Usage())
+        self.assertIn("## deck.pptx", out)
+        self.assertEqual(len(c.messages.calls), 1)
+        self.assertEqual(c.messages.calls[0]["max_tokens"], E.CFG.max_tokens_materials)
+
+    def test_conversion_failure_never_raises(self):
+        c = self._client(fail=True)
+        out = E._materials_markdown(c, "y" * 5000, E.Usage())
+        self.assertTrue(out.startswith("y"))              # truncated raw text, not an exception
+        self.assertLessEqual(len(out), E.MATERIALS_MD_SKIP)
+
+    def test_input_is_capped(self):
+        c = self._client()
+        E._materials_markdown(c, "z" * 200_000, E.Usage())
+        sent = c.messages.calls[0]["messages"][0]["content"]
+        self.assertLess(len(sent), E.MATERIALS_MAX_CHARS + 200)
+
+    def test_prompt_demands_fidelity(self):
+        s = E.MATERIALS_MD_SYS
+        self.assertIn("Markdown", s)
+        self.assertIn("never invent", s)
+        self.assertIn("never silently drop a whole section", s)

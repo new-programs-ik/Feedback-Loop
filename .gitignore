@@ -53,3 +53,7 @@ Feedback-Loop-User-Guide.pdf
 web/verify-prod.mjs
 web/shots.mjs
 web/live-check.mjs
+Rating-Threshold-Study.pdf
+analysis/window_rows.json
+Week-*-Ratings.pdf
+analysis/*.html

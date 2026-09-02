@@ -12,7 +12,7 @@ Pipeline:  parse (+ keep speakers)
            -> extract INSTRUCTOR findings per window, judged in full-session context (LLM)
            -> synthesise: verify against the whole session, drop learner-attributed / resolved-later
               artefacts, de-duplicate, write feedback + PM re-class call (LLM)
-Model:     Claude Sonnet 4.6 (pinned in Config). Set ANTHROPIC_API_KEY in the environment.
+Model:     Claude Sonnet 5 (pinned in Config). Set ANTHROPIC_API_KEY in the environment.
 
 Run:
   # plumbing check, no API key needed:
@@ -36,19 +36,26 @@ log = logging.getLogger("ratings_engine")
 # ───────────────────────────────────────────────────────────────────── config
 @dataclass(frozen=True)
 class Config:
-    model: str = "claude-sonnet-4-6"     # pinned for reproducibility
-    temperature: float = 0.0
+    # Claude Sonnet 5 (migrated from Sonnet 4.6, Sep 2026). Two API differences that matter here:
+    #  - sampling params (temperature/top_p/top_k) are REJECTED with a 400 - we no longer send any.
+    #    temperature=0 never guaranteed identical outputs anyway; the skeptic pass is the real
+    #    consistency guard.
+    #  - adaptive thinking is ON by default and its tokens count against max_tokens, and the new
+    #    tokenizer runs ~30% more tokens for the same text - so the caps below are sized with
+    #    generous headroom (a truncated response breaks the JSON contract and burns a repair call).
+    model: str = "claude-sonnet-5"       # pinned for reproducibility
     window_min: int = 30                 # extraction window length
     overlap_min: int = 2                 # carry context across windows
     max_retries: int = 4                 # network/5xx retries (SDK level)
-    timeout_s: float = 120.0
-    max_tokens_extract: int = 4000
-    max_tokens_synth: int = 3000
-    max_tokens_skeptic: int = 1500       # the adversarial second-pass verdict call
+    timeout_s: float = 240.0             # adaptive thinking makes long calls longer
+    max_tokens_extract: int = 10000
+    max_tokens_synth: int = 8000
+    max_tokens_skeptic: int = 4000       # the adversarial second-pass verdict call
+    max_tokens_materials: int = 2500     # the materials->Markdown conversion call
     repair_attempts: int = 1             # re-ask once if the JSON is malformed/invalid
     review_enabled: bool = True          # kill-switch: False restores the un-verified pipeline exactly
-    price_in_per_mtok: float = 3.0       # USD, for cost reporting only
-    price_out_per_mtok: float = 15.0
+    price_in_per_mtok: float = 2.0       # USD, for cost reporting only (Sonnet 5: $2 in / $10 out)
+    price_out_per_mtok: float = 10.0
 
 CFG = Config()
 
@@ -869,9 +876,12 @@ def _create_message(client, **kwargs):
 
 def _call(client, system: str, user: str, max_tokens: int, usage: Usage) -> str:
     t = time.time()
+    # No sampling params: Sonnet 5 rejects non-default temperature/top_p/top_k with a 400.
+    # No thinking param either - the model runs adaptive thinking by default; our text extractor
+    # below only reads "text" blocks, so thinking blocks pass through harmlessly.
     msg = _create_message(
         client,
-        model=CFG.model, max_tokens=max_tokens, temperature=CFG.temperature,
+        model=CFG.model, max_tokens=max_tokens,
         system=system, messages=[{"role": "user", "content": user}],
     )
     usage.input_tokens += msg.usage.input_tokens
@@ -959,25 +969,48 @@ def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
     obj["instructor_summary"] = tidy_instructor_summary(obj.get("instructor_summary", ""))
     return obj
 
-MATERIALS_SYS = (
-    "You compress class materials into a compact teaching outline that an auditor will check a class "
-    "transcript against. Output plain text, <= 400 words: the topics in order, key concepts/definitions, "
-    "planned examples/exercises/problems, and anything marked as important. No commentary, no preamble."
+# ── the materials agent ────────────────────────────────────────────────────────
+# A dedicated conversion step: whatever the PM attaches (a slide deck, a notebook, a doc) is first
+# turned into clean, faithful MARKDOWN by its own model call, and THAT Markdown is what the analysis
+# reads as "the planned class". Structure survives (slide order, headings, code blocks), boilerplate
+# doesn't, and the analysis context stays small and predictable however big the deck was.
+MATERIALS_MD_SYS = (
+    "You are the MATERIALS AGENT. You convert raw text extracted from class materials (slide decks, "
+    "notebooks, documents) into clean, faithful GitHub-flavoured Markdown that a class auditor will "
+    "check the session against.\n"
+    "STRUCTURE: one '## <file name>' section per source file (the raw text marks them with "
+    "'=== name ==='); keep the original order; use '### [Slide N] <title>' headings where slide "
+    "markers appear; bullet lists for content; code in fenced blocks; tables as Markdown tables.\n"
+    "FIDELITY: preserve topic names, definitions, formulas, problem statements and planned "
+    "exercises exactly as written - never invent, reorder or editorialise. Drop only true "
+    "boilerplate (logos, footers, page numbers, repeated headers).\n"
+    "LENGTH: at most ~900 words. When the source is longer, keep EVERY topic/section heading and "
+    "compress the prose under each - never silently drop a whole section.\n"
+    "Output ONLY the Markdown - no preamble, no commentary."
 )
 
-# Materials shorter than this go into the context verbatim; longer ones are LLM-compressed first.
-MATERIALS_DIGEST_THRESHOLD = 4000
-MATERIALS_MAX_CHARS = 60000
+# This small, the text goes into the context verbatim - a model call would add nothing.
+MATERIALS_MD_SKIP = 2000
+MATERIALS_MAX_CHARS = 60000   # hard input cap for the conversion call
 
 
-def _digest_materials(client, text: str, usage: Usage) -> str:
-    """Boil raw class materials down to an outline the extraction prompts can carry."""
+def _materials_markdown(client, text: str, usage: Usage) -> str:
+    """The materials agent: raw extracted materials text -> Markdown context.
+
+    Never raises - materials improve an analysis but must never kill one. On any conversion
+    failure the analysis continues on (truncated) raw text, and the failure is logged.
+    """
     text = text.strip()
-    if len(text) <= MATERIALS_DIGEST_THRESHOLD:
+    if len(text) <= MATERIALS_MD_SKIP:
         return text
-    return _call(client, MATERIALS_SYS,
-                 f"MATERIALS:\n{text[:MATERIALS_MAX_CHARS]}\n\nCompress to the outline now.",
-                 1500, usage).strip()
+    try:
+        md = _call(client, MATERIALS_MD_SYS,
+                   f"RAW MATERIALS:\n{text[:MATERIALS_MAX_CHARS]}\n\nConvert to Markdown now.",
+                   CFG.max_tokens_materials, usage).strip()
+        return md or text[:MATERIALS_MD_SKIP]
+    except Exception:
+        log.exception("materials->markdown conversion failed; continuing on truncated raw text")
+        return text[:MATERIALS_MD_SKIP]
 
 
 # Two revise modes — the DETAILED internal feedback keeps timestamps and hides the rating; the
@@ -1103,9 +1136,10 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     usage = Usage()
     t0 = time.time()
     if materials and materials.strip():
-        log.info("digesting %d chars of class materials", len(materials))
-        outline = _digest_materials(client, materials, usage)
-        ctx = ctx + "\n\nPLANNED CLASS MATERIALS (outline of what was supposed to be taught):\n" + outline
+        log.info("materials agent: converting %d chars to Markdown", len(materials))
+        outline = _materials_markdown(client, materials, usage)
+        ctx = (ctx + "\n\nPLANNED CLASS MATERIALS (Markdown outline of what was supposed to be "
+                     "taught, prepared by the materials agent):\n" + outline)
     # Pass 0 — read the whole conversation first, so every later segment is judged in full context
     # (who speaks, the real flow, and which doubts get resolved). This is the anti-"text-segmentation" step.
     log.info("mapping the whole conversation (%d cues) before judging any segment", len(cues))
@@ -1241,7 +1275,7 @@ def read_agenda(value: str) -> str:
 
 def build_context(course: str, topic: str, instructor: str, rating: str, agenda: str) -> str:
     return (f"Course: {course}\nPlanned topic: {topic}\nInstructor: {instructor}\n"
-            f"Learner rating: {rating}/5 (below the 4.5 line -> this class was flagged).\n"
+            f"Learner rating: {rating}/5 (below the 4.55 line -> this class was flagged).\n"
             f"Class agenda (planned items, with expected time if known):\n{agenda}")
 
 def main(argv=None):

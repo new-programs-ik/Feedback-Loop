@@ -55,16 +55,23 @@ export function NewAnalysisForm({
   const att = parseInt(hAttended, 10);
   const rat = parseInt(hRated, 10);
   const participation = att > 0 && rat >= 0 ? Math.round((rat / att) * 100) : null;
+  // The team rule (validated against 8 months of ratings data, Sep 2026 — see the
+  // Rating-Threshold study): rating line 4.55, participation bar 40%, and a 5-voice floor
+  // so a percentage can never promote a score only 2-3 people gave.
   let advice: { title: string; detail: string; video: boolean | null } | null = null;
   if (hEscalation) {
     advice = { title: "Video Analysis", detail: "There is an escalation — always use video for escalated classes.", video: true };
   } else if (!Number.isNaN(r)) {
-    if (r > 4.5) {
-      advice = { title: "No analysis needed", detail: "Rating is above 4.5. Only analyse if a PM asked or you have a specific reason — then Transcript is enough.", video: false };
+    if (r >= 4.55) {
+      advice = { title: "No analysis needed", detail: "Rating is 4.55 or above. Only analyse if a PM asked or you have a specific reason — then Transcript is enough.", video: false };
     } else if (participation != null) {
-      advice = participation >= 80
-        ? { title: "Video Analysis", detail: `Rating is below 4.5 and ${participation}% of attendees rated it (≥ 80%) — the signal is strong, get the full picture.`, video: true }
-        : { title: "Transcript Analysis", detail: `Rating is below 4.5 but only ${participation}% of attendees rated it (< 80%) — transcript is enough.`, video: false };
+      if (rat < 5) {
+        advice = { title: "Watch only", detail: `Only ${rat} learner${rat === 1 ? "" : "s"} rated it — that's one or two opinions, not a class problem yet. Note it and watch the next session (analyse only if a PM asks).`, video: null };
+      } else if (participation >= 40) {
+        advice = { title: "Video Analysis", detail: `Rating is below 4.55 and ${participation}% of attendees rated it (≥ 40%, on ${rat} ratings) — a representative share of the room spoke and it was still low. Get the full picture.`, video: true };
+      } else {
+        advice = { title: "Transcript Analysis", detail: `Rating is below 4.55 but only ${participation}% of attendees rated it (< 40%) — too thin a sample to trust yet; a transcript read is enough to check if it's real.`, video: false };
+      }
     } else {
       advice = { title: "Almost there", detail: "Fill in attended + rated counts to get the recommendation.", video: null };
     }
@@ -118,8 +125,9 @@ export function NewAnalysisForm({
               </div>
             )}
             <p className="text-muted-foreground text-xs">
-              Team rule: rating &gt; 4.5 → usually no analysis · below 4.5 with ≥ 80% of attendees rating →
-              video · below 80% → transcript · any escalation → video.
+              Team rule: rating ≥ 4.55 → usually no analysis · fewer than 5 ratings → watch only ·
+              below 4.55 with ≥ 40% of attendees rating → video · under 40% → transcript · any
+              escalation → video.
             </p>
           </div>
 

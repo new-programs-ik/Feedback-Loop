@@ -75,11 +75,13 @@ Every analysis produces two deliverables from one run:
 - **Class materials, any way you have them** — upload a file, paste text, or paste a **link** (Google
   Drive / Docs / Slides, or an internal materials app). The AI checks the class against what was planned.
   Materials are used only for that one analysis and are **never stored**.
-- **Built-in "which analysis?" helper** — the team's selection rule is encoded in the app. Enter the
-  class rating, how many attended and how many rated, and it tells you whether to skip the class, run a
-  transcript analysis, or run a video analysis — and switches video on with one click. (Rule: rating
-  above 4.5 → usually no analysis; below 4.5 → rating participation ≥ 80% → video, otherwise
-  transcript; any escalation → always video.) Works for every program: ML, Agentic, FDE, LevelUp, B2B, PwC.
+- **Built-in "which analysis?" helper** — the team's selection rule, validated against 8 months of
+  real ratings data, is encoded in the app. Enter the class rating, how many attended and how many
+  rated, and it tells you whether to skip the class, watch it, run a transcript analysis, or run a
+  video analysis — and switches video on with one click. (Rule: 4.55+ → usually no analysis; fewer
+  than 5 ratings → watch only; below 4.55 with ≥ 40% of attendees rating → video, under 40% →
+  transcript; any escalation → always video.) Works for every program: ML, Agentic, FDE, LevelUp,
+  B2B, PwC.
 - **Verify anything yourself** — every report links straight to the class recording, and each finding
   carries its timestamp, so a claim takes seconds to check.
 - **Safe to operate** — the engine's status is shown on the dashboard, a stalled or failed analysis is
@@ -97,10 +99,10 @@ Every analysis produces two deliverables from one run:
 | Web app | Next.js on **Vercel** | The interface, login, and all reads/writes |
 | Database | **Supabase** (Postgres + Auth + Row-Level Security) | Single source of truth; enforces who sees what |
 | Analysis worker | Python (FastAPI) on **Render** | Fetches transcripts, runs the AI, returns results |
-| AI model | **Claude Sonnet 4.6** | The reasoning engine behind the analysis |
+| AI model | **Claude Sonnet 5** | The reasoning engine behind the analysis (upgraded from Sonnet 4.6, Sep 2026 — newer and ~33% cheaper per token) |
 
 Long analyses run in the **background**, so the app stays fast and never times out. The codebase is
-covered by **181 automated tests**.
+covered by **199 automated tests**.
 
 ## 7. Security & confidentiality
 
@@ -112,7 +114,8 @@ covered by **181 automated tests**.
 
 ## 8. What it costs
 
-Measured on real classes:
+Measured on real classes (on Claude Sonnet 4.6; the September 2026 upgrade to Sonnet 5 runs the same
+work ~15% cheaper in our first measurements):
 
 | Analysis type | AI cost per class | Time to result |
 |---|---|---|
