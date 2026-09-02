@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
-import { fetchRatings, lastSyncRun, type ClassRating } from "@/lib/ratings";
-import { GOOD } from "@/lib/decision";
+import { byCourse, fetchRatings, lastSyncRun, type ClassRating } from "@/lib/ratings";
+import { GOOD, MIN_VOICES } from "@/lib/decision";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { confirmRating, dismissRating, escalateRating, mapCourseLabel, syncNow } from "./actions";
@@ -48,10 +48,41 @@ function StatusBadge({ s }: { s: ClassRating["review_status"] }) {
   return m ? <Badge variant={m.variant}>{m.label}</Badge> : null;
 }
 
+/** Pill link for the course summary row — the active one wears the primary fill. */
+function CourseChip({
+  href,
+  active,
+  name,
+  count,
+}: {
+  href: string;
+  active: boolean;
+  name: string;
+  count: number;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "true" : undefined}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+        active
+          ? "border-transparent bg-primary text-primary-foreground"
+          : "bg-card text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <span className="max-w-44 truncate">{name}</span>
+      <span data-numeric className={active ? "text-primary-foreground/70" : "text-muted-foreground/70"}>
+        {count}
+      </span>
+    </Link>
+  );
+}
+
 export default async function RatingsQueuePage({
   searchParams,
 }: {
-  searchParams: Promise<{ focus?: string }>;
+  searchParams: Promise<{ focus?: string; course?: string }>;
 }) {
   const user = await requireUser();
   const sp = await searchParams;
@@ -66,10 +97,36 @@ export default async function RatingsQueuePage({
     supabase.from("courses").select("id, name").order("name"),
   ]);
 
-  const actionable = rows.filter(
+  const actionableAll = rows.filter(
     (r) => ["video", "transcript"].includes(r.decision) && ["new", "notified", "confirmed"].includes(r.review_status),
   );
-  const watch = rows.filter((r) => r.decision === "watch" && r.review_status !== "dismissed");
+  const watchAll = rows.filter((r) => r.decision === "watch" && r.review_status !== "dismissed");
+
+  // Course scoping (?course=<uuid>). Chips are computed over the FULL actionable set so the
+  // counts stay put while you click between courses; unmapped rows have no uuid to link to,
+  // so they appear only under "All" (map them in the hygiene section below).
+  const courseChips = byCourse(actionableAll)
+    .filter((c) => c.courseId != null)
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  const courseId = sp.course || undefined;
+  const actionable = courseId ? actionableAll.filter((r) => r.course_id === courseId) : actionableAll;
+  const watch = courseId ? watchAll.filter((r) => r.course_id === courseId) : watchAll;
+  const selectedCourseName = courseId
+    ? (coursesRes.data ?? []).find((c) => c.id === courseId)?.name
+    : undefined;
+
+  // Keep ?focus= alive when switching course scope.
+  const courseHref = (id?: string | null) => {
+    const params = new URLSearchParams();
+    if (id) params.set("course", id);
+    if (sp.focus) params.set("focus", sp.focus);
+    const qs = params.toString();
+    return qs ? `/ratings?${qs}` : "/ratings";
+  };
+
+  const MAX_ROWS = 40;
+  const shown = actionable.slice(0, MAX_ROWS);
+  const overflow = actionable.length - shown.length;
   const unmappedLabels = [...new Set(rows.filter((r) => !r.course_id).map((r) => r.course_label))];
   const started = rows.filter((r) => r.review_status === "analysis_started").length;
 
@@ -126,13 +183,42 @@ export default async function RatingsQueuePage({
         )}
       </div>
 
+      {/* course summary chips */}
+      {courseChips.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5" data-print-hide>
+          <CourseChip href={courseHref()} active={!courseId} name="All" count={actionableAll.length} />
+          {courseChips.map((c) => (
+            <CourseChip
+              key={c.key}
+              href={courseHref(c.courseId)}
+              active={courseId === c.courseId}
+              name={c.name}
+              count={c.n}
+            />
+          ))}
+        </div>
+      )}
+
       {actionable.length === 0 ? (
         <div className="bg-card shadow-soft rounded-xl border">
-          <EmptyState
-            icon={ListChecks}
-            title="Nothing needs analysis"
-            description={`Every recent class with a trustworthy score is at ${GOOD} or above. That's the good kind of empty.`}
-          />
+          {actionableAll.length === 0 ? (
+            <EmptyState
+              icon={ListChecks}
+              title="Nothing needs analysis"
+              description={`Every recent class with a trustworthy score is at ${GOOD} or above. That's the good kind of empty.`}
+            />
+          ) : (
+            <EmptyState
+              icon={ListChecks}
+              title="Nothing for this course"
+              description={`${selectedCourseName ?? "This course"} has no classes needing analysis in the last 45 days.`}
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link href={courseHref()}>Show all courses</Link>
+                </Button>
+              }
+            />
+          )}
         </div>
       ) : (
         <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
@@ -150,7 +236,7 @@ export default async function RatingsQueuePage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {actionable.map((r) => (
+              {shown.map((r) => (
                 <TableRow
                   key={r.id}
                   className={cn(sp.focus === r.id && "bg-accent/60 hover:bg-accent/60")}
@@ -195,6 +281,11 @@ export default async function RatingsQueuePage({
               ))}
             </TableBody>
           </Table>
+          {overflow > 0 && (
+            <div className="text-muted-foreground border-t px-4 py-2.5 text-xs">
+              …and <span data-numeric>{overflow}</span> more — narrow by course above to see them.
+            </div>
+          )}
         </div>
       )}
 
@@ -202,7 +293,7 @@ export default async function RatingsQueuePage({
       {watch.length > 0 && (
         <details className="bg-card shadow-soft mt-4 rounded-xl border">
           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold select-none sm:px-5">
-            Watch list <span className="text-muted-foreground font-normal">— {watch.length} low-rated {watch.length === 1 ? "class" : "classes"} with fewer than 5 voices (not worth an analysis yet; escalate if you know something's wrong)</span>
+            Watch list <span className="text-muted-foreground font-normal">— {watch.length} low-rated {watch.length === 1 ? "class" : "classes"} with fewer than {MIN_VOICES} voices (not worth an analysis yet; escalate if you know something&apos;s wrong)</span>
           </summary>
           <Table>
             <TableBody>

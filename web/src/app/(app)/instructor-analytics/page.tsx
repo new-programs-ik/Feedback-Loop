@@ -17,6 +17,7 @@ import {
 import { GOOD } from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
 import { requireUser } from "@/lib/session";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Instructor Analytics" };
 
@@ -28,13 +29,31 @@ const pretty = (isoDate: string) =>
 export default async function InstructorAnalyticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; from?: string; to?: string; sme?: string; sort?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; sme?: string; sort?: string; course?: string }>;
 }) {
   await requireUser();
   const sp = await searchParams;
   const range = (["7d", "30d", "90d", "month", "custom"].includes(sp.range ?? "") ? sp.range : "90d") as RangePreset;
   const { from, to } = rangeToDates(range, sp.from, sp.to);
-  const rows = await fetchRatings({ from, to });
+
+  const supabase = await createClient();
+  const [rows, coursesRes] = await Promise.all([
+    fetchRatings({ from, to, courseId: sp.course || undefined }),
+    supabase.from("courses").select("id, name").order("name"),
+  ]);
+  const courseList = coursesRes.data ?? [];
+  const courseName = sp.course
+    ? (courseList.find((c) => c.id === sp.course)?.name ?? "the selected course")
+    : null;
+
+  // Every href on this page carries the current scope (range, custom dates, course).
+  const qs = () => {
+    const p = new URLSearchParams();
+    p.set("range", range);
+    if (range === "custom") { p.set("from", from); p.set("to", to); }
+    if (sp.course) p.set("course", sp.course);
+    return p;
+  };
 
   // ── drill-in: one SME ───────────────────────────────────────────────────────
   if (sp.sme) {
@@ -53,19 +72,25 @@ export default async function InstructorAnalyticsPage({
           title={
             <span className="flex items-center gap-2">
               <Button asChild variant="ghost" size="icon" className="-ml-2">
-                <Link href={`/instructor-analytics?range=${range}`} aria-label="All instructors">
+                <Link href={`/instructor-analytics?${qs()}`} aria-label="All instructors">
                   <ArrowLeft className="size-4" />
                 </Link>
               </Button>
               {sp.sme}
             </span>
           }
-          description={`${t.n} rated classes · ${from} → ${to}`}
+          description={
+            courseName
+              ? `${t.n} rated classes in ${courseName} · ${from} → ${to}`
+              : `${t.n} rated classes · ${from} → ${to}`
+          }
         />
         {own.length === 0 ? (
           <div className="bg-card shadow-soft rounded-xl border">
             <EmptyState icon={GraduationCap} title="No rated classes for this instructor in the range"
-                        description="Widen the date range to see their history." />
+                        description={courseName
+                          ? `Nothing in ${courseName} here — widen the date range or clear the course filter to see their history.`
+                          : "Widen the date range to see their history."} />
           </div>
         ) : (
           <>
@@ -188,8 +213,16 @@ export default async function InstructorAnalyticsPage({
     const m = new Map(byMonth(own).map((x) => [x.month, x.avgRating]));
     return months.map((x) => m.get(x.month)).filter((v): v is number => v != null);
   };
-  const sortHref = (key: string) => `/instructor-analytics?range=${range}&sort=${key}`;
-  const smeHref = (name: string) => `/instructor-analytics?range=${range}&sme=${encodeURIComponent(name)}`;
+  const sortHref = (key: string) => {
+    const p = qs();
+    p.set("sort", key);
+    return `/instructor-analytics?${p}`;
+  };
+  const smeHref = (name: string) => {
+    const p = qs();
+    p.set("sme", name);
+    return `/instructor-analytics?${p}`;
+  };
 
   return (
     <div className="animate-in-up">
@@ -197,11 +230,21 @@ export default async function InstructorAnalyticsPage({
         title="Instructor Analytics"
         description={`Every SME with 3+ rated classes · click a row for their per-topic strengths and improvement areas · ${from} → ${to}`}
       />
-      <FilterBar basePath="/instructor-analytics" range={range} from={from} to={to} />
+      <FilterBar
+        basePath="/instructor-analytics"
+        range={range}
+        from={from}
+        to={to}
+        courseId={sp.course}
+        courses={courseList}
+        extra={sp.sort ? { sort: sp.sort } : undefined}
+      />
       {smes.length === 0 ? (
         <div className="bg-card shadow-soft rounded-xl border">
           <EmptyState icon={GraduationCap} title="No instructor data in this range"
-                      description="Widen the date range — SMEs need at least 3 rated classes to appear." />
+                      description={courseName
+                        ? `Nothing in ${courseName} here — widen the date range or clear the course filter. SMEs need at least 3 rated classes to appear.`
+                        : "Widen the date range — SMEs need at least 3 rated classes to appear."} />
         </div>
       ) : (
         <div className="bg-card shadow-soft overflow-hidden rounded-xl border">

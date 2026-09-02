@@ -4,8 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BandDot } from "@/components/ui/table";
+import { rangeToDates } from "@/components/filter-bar";
+import { fetchRatings, byCourse as ratingsByCourse, summarize } from "@/lib/ratings";
+import { GOOD } from "@/lib/decision";
 import {
-  ArrowRight, BadgeCheck, CircleDollarSign, Hourglass, MessageSquareText, Plus, RefreshCcw,
+  Activity, ArrowRight, BadgeCheck, ChevronRight, CircleDollarSign, Hourglass, MessageSquareText,
+  Plus, RefreshCcw,
 } from "lucide-react";
 
 export default async function DashboardPage() {
@@ -22,12 +27,15 @@ export default async function DashboardPage() {
     .then(async (r) => (r.ok ? { ok: true, video: Boolean((await r.json()).ffmpeg) } : { ok: false }))
     .catch(() => ({ ok: false }));
 
-  const [{ data: rows }, health] = await Promise.all([
+  // Ratings pulse window: the last 30 days of the hourly-synced ratings feed.
+  const pulseRange = rangeToDates("30d");
+  const [{ data: rows }, health, pulseRows] = await Promise.all([
     supabase
       .from("classes")
       .select("id, topic, class_date, created_at, status, session_type, courses(name), instructors(name), analyses(reclass, tokens_in, tokens_out, cost_usd, created_at)")
       .order("created_at", { ascending: false }),
     healthPromise,
+    fetchRatings({ from: pulseRange.from, to: pulseRange.to }),
   ]);
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
@@ -65,6 +73,12 @@ export default async function DashboardPage() {
   const nowMonth = new Date().toISOString().slice(0, 7);
   const thisMonth = spendByMonth.get(nowMonth) ?? { count: 0, cost: 0 };
   const avgCost = analyzed.length ? totalCost / analyzed.length : 0;
+
+  // Ratings pulse: which courses are hurting, judged by the team rule (below GOOD = flagged).
+  const pulseCourses = ratingsByCourse(pulseRows)
+    .sort((a, b) => b.bad - a.bad || (a.avgRating ?? 9) - (b.avgRating ?? 9))
+    .slice(0, 5);
+  const pulseFlagged = summarize(pulseRows).bad;
 
   const stats = [
     { label: "Classes analyzed", value: analyzed.length, note: "all courses", icon: MessageSquareText, tone: "text-primary" },
@@ -170,8 +184,9 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
+        <div className="space-y-6 lg:col-span-2">
         {/* Spending */}
-        <Card className="shadow-soft lg:col-span-2">
+        <Card className="shadow-soft">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <CircleDollarSign className="text-primary size-4" /> AI spending
@@ -222,6 +237,56 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Ratings pulse — only when the ratings feed has rows in the window */}
+        {pulseRows.length > 0 && (
+          <Card className="shadow-soft">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Activity className="text-primary size-4" /> Ratings pulse — by course
+              </CardTitle>
+              <CardDescription>Classes rated below {GOOD} in the last 30 days.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="divide-y">
+                {pulseCourses.map((c) => (
+                  <div key={c.key} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+                    <div className="min-w-0 flex-1 truncate text-[13px] font-medium">{c.name}</div>
+                    {c.bad > 0 ? (
+                      <span className="bg-destructive/8 text-destructive inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold" data-numeric>
+                        {c.bad} below
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground shrink-0 text-xs" data-numeric>0 below</span>
+                    )}
+                    <span className="w-14 shrink-0 text-right text-[13px]" data-numeric>
+                      <BandDot tone={c.avgRating != null && c.avgRating < GOOD ? "bad" : c.avgRating != null && c.avgRating < 4.7 ? "warn" : "good"} />
+                      {c.avgRating != null ? c.avgRating.toFixed(2) : "—"}
+                    </span>
+                    <Link
+                      href={c.courseId ? `/ratings?course=${c.courseId}` : "/ratings"}
+                      aria-label={`Ratings for ${c.name}`}
+                      className="text-muted-foreground/60 hover:text-foreground shrink-0"
+                    >
+                      <ChevronRight className="size-4" aria-hidden />
+                    </Link>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t pt-3">
+                <Link
+                  href="/ratings"
+                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
+                >
+                  <span className="text-foreground font-semibold" data-numeric>{pulseFlagged}</span>
+                  {pulseFlagged === 1 ? "class" : "classes"} flagged below {GOOD} in 30 days — open the queue
+                  <ArrowRight className="size-3.5" aria-hidden />
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        </div>
       </div>
     </div>
   );

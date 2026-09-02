@@ -9,8 +9,9 @@ import { ChartCard } from "@/components/charts/chart-card";
 import { StackedBars } from "@/components/charts/stacked-bars";
 import { Histogram } from "@/components/charts/histogram";
 import { ScatterChart } from "@/components/charts/scatter-chart";
+import { Sparkline } from "@/components/charts/sparkline";
 import {
-  fetchRatings, byMonth, bands, byTopic, bestSmePerTopic, summarize, isBad,
+  fetchRatings, byCourse, byMonth, bands, byTopic, bestSmePerTopic, summarize, isBad,
 } from "@/lib/ratings";
 import { GOOD, MIN_VOICES, PARTICIPATION_BAR } from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
@@ -71,6 +72,38 @@ export default async function InsightsPage() {
   const scatterPoints = rows
     .filter((r) => r.participation_pct != null)
     .map((r) => [Number(r.participation_pct), r.rating, isBad(r) ? 1 : 0] as [number, number, number]);
+
+  // ── the course dimension ────────────────────────────────────────────────────
+  const courseAgg = byCourse(rows);
+  // The course carrying the largest share of this year's below-GOOD classes (for section 2).
+  const topBadCourse = courseAgg.filter((c) => c.bad > 0).sort((a, b) => b.bad - a.bad)[0];
+  // Small multiples: every course with a readable sample, worst bad-share first. Each card
+  // carries ONE sentence chosen by its own monthly data.
+  const courseCards = courseAgg
+    .filter((c) => c.n >= 10)
+    .sort((a, b) => (b.badShare ?? 0) - (a.badShare ?? 0))
+    .map((c) => {
+      const monthly = byMonth(c.rows);
+      const spark = monthly.map((m) => Math.round((m.badShare ?? 0) * 100));
+      // Worst month; ties break toward the latest month so a repeat-of-the-peak reads as worsening.
+      const worst = [...monthly].sort(
+        (a, b) => (b.badShare ?? 0) - (a.badShare ?? 0) || b.month.localeCompare(a.month),
+      )[0];
+      const latest = monthly[monthly.length - 1];
+      const worstPct = worst ? Math.round((worst.badShare ?? 0) * 100) : 0;
+      const latestPct = latest ? Math.round((latest.badShare ?? 0) * 100) : 0;
+      const worsening =
+        monthly.length >= 2 && !!worst && !!latest && worstPct > 10 && worst.month === latest.month;
+      const sentence =
+        !worst || monthly.length < 2
+          ? "Too few months on record to read a trend yet."
+          : worstPct <= 10
+            ? `Healthy all year — no month above 10% below ${GOOD}.`
+            : worsening
+              ? `Worsening — the latest month, ${fmtMonth(worst.month)}, is its worst yet at ${worstPct}%.`
+              : `Peaked at ${worstPct}% in ${fmtMonth(worst.month)}; ${latestPct}% in the latest month.`;
+      return { ...c, spark, worsening, sentence };
+    });
 
   return (
     <div className="animate-in-up mx-auto max-w-4xl">
@@ -141,6 +174,13 @@ export default async function InsightsPage() {
             : ` (peak: ${Math.round((worstMonth.badShare ?? 0) * 100)}% in ${fmtMonth(worstMonth.month)}).`}
           {" "}Participation stayed flat all year, so this is a real quality trend — not a change in
           who fills in ratings.
+          {topBadCourse && bad.length > 0 && (
+            <>
+              {" "}And it is concentrated: <b>{topBadCourse.name}</b> carries the largest share of the
+              problem — <b>{topBadCourse.bad} of the {bad.length}</b> classes rated below {GOOD} this
+              year ({Math.round((topBadCourse.bad / bad.length) * 100)}%).
+            </>
+          )}
         </Callout>
       )}
       <ChartCard
@@ -182,7 +222,65 @@ export default async function InsightsPage() {
         <Histogram bands={bands(rows)} height={200} />
       </ChartCard>
 
-      <SectionHeader n={4} title="Content problems vs instructor problems — the data can tell them apart" />
+      <SectionHeader n={4} title="How each course is doing" />
+      <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
+        The trend in section 2 is not spread evenly. Every course with at least{" "}
+        <b className="text-foreground">10 rated classes</b>, worst first — the pill is its share of
+        classes below {GOOD}, the line is that share month by month.
+      </p>
+      {courseCards.length === 0 ? (
+        <p className="text-muted-foreground text-[13px]">
+          No course has reached 10 rated classes yet — this view fills in as the sheet grows.
+        </p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2" data-stagger>
+          {courseCards.map((c) => (
+            <div key={c.key} className="bg-card shadow-soft rounded-xl border p-4">
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="min-w-0 truncate text-[13px] font-semibold" title={c.name}>
+                  {c.courseId ? (
+                    <Link href={`/course-analytics?course=${c.courseId}`} className="hover:text-primary">
+                      {c.name}
+                    </Link>
+                  ) : (
+                    c.name
+                  )}
+                </h3>
+                <span
+                  className={`inline-flex shrink-0 items-center rounded-full px-2 py-px text-[11px] font-semibold ${
+                    (c.badShare ?? 0) > (total.badShare ?? 0)
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-success/10 text-success"
+                  }`}
+                  data-numeric
+                >
+                  {Math.round((c.badShare ?? 0) * 100)}% below {GOOD}
+                </span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                <b className="text-foreground font-semibold" data-numeric>{c.n}</b> classes · avg{" "}
+                <b className="text-foreground font-semibold" data-numeric>{fmtAvg(c.avgRating)}</b>
+              </p>
+              {c.spark.length >= 2 && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <Sparkline
+                    values={c.spark}
+                    width={110}
+                    height={26}
+                    accent={c.worsening ? "var(--viz-bad)" : "var(--chart-1)"}
+                  />
+                  <span className="text-muted-foreground text-[10.5px]">
+                    % below {GOOD}, by month
+                  </span>
+                </div>
+              )}
+              <p className="text-muted-foreground mt-2 text-xs leading-relaxed">{c.sentence}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <SectionHeader n={5} title="Content problems vs instructor problems — the data can tell them apart" />
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
           <div className="flex items-start gap-2.5 px-4 pt-4 sm:px-5">
@@ -263,7 +361,7 @@ export default async function InsightsPage() {
         </div>
       </div>
 
-      <SectionHeader n={5} title="Where this goes — the SME & Learner Intelligence System" />
+      <SectionHeader n={6} title="Where this goes — the SME & Learner Intelligence System" />
       <div className="bg-card shadow-soft rounded-xl border p-5 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="bg-primary/12 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
