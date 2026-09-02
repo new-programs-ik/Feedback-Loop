@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, MessageSquareText, GraduationCap, Users, BookOpen, ListChecks,
+  LayoutDashboard, MessageSquareText, GraduationCap, Users, BookOpen, ListChecks, Lightbulb,
   FileBarChart2, HeartPulse, Settings, ScrollText, User, Library, UserCog, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "./session";
@@ -30,6 +30,7 @@ export const NAV: NavSection[] = [
       { label: "Course Analytics", href: "/course-analytics", icon: BookOpen, roles: ["admin", "pm"], live: true },
       { label: "Instructor Analytics", href: "/instructor-analytics", icon: GraduationCap, roles: ["admin", "pm"], live: true },
       { label: "Reports", href: "/reports", icon: FileBarChart2, roles: ["admin", "pm"], live: true },
+      { label: "Insights", href: "/insights", icon: Lightbulb, roles: ["admin", "pm"], live: true },
       { label: "Learner Analytics", href: "/learner-analytics", icon: Users, roles: ["admin", "pm"], live: false },
       { label: "Learner Health", href: "/learner-health", icon: HeartPulse, roles: ["admin", "pm"], live: false },
     ],

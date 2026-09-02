@@ -658,6 +658,31 @@ pipeline finds the *why* per class; the month-on-month climb is a programme-leve
 </ol>
 </div>
 
+<h2>8. Where this goes &mdash; the vision</h2>
+<p class="lede">The threshold and the queue are step one. The destination is a complete
+<b>SME &amp; Learner Intelligence System</b>:</p>
+<div class="rule"><ol>
+<li><b>SME strengths &amp; improvement areas by topic</b> &mdash; who performs well where, who needs
+targeted coaching on which module, instead of generic feedback. <i>(Live in the dashboard.)</i></li>
+<li><b>Modules that rate low across every instructor</b> &mdash; when a module underperforms no
+matter who teaches it, the issue is content/structure/difficulty, not the SME. A module watchlist
+detects exactly this. <i>(Live.)</i></li>
+<li><b>Rating &amp; engagement patterns across the course journey</b> &mdash; where in a course
+ratings and attendance start declining, and why (difficulty, fatigue, design). <i>(Needs
+module-sequence data &mdash; next integration.)</i></li>
+<li><b>Best SME&ndash;module alignment</b> &mdash; the highest-rated SME per module, growing into an
+optimized SME-to-module allocation system. <i>(First version live.)</i></li>
+<li><b>Learner-level rating analytics</b> &mdash; consistently dissatisfied learners, what drives
+their dissatisfaction, and who needs intervention. <i>(Arrives with the Metabase integration.)</i></li>
+<li><b>SME performance patterns for hiring, demo evaluation &amp; training</b> &mdash; train the AI
+on what our best SMEs do (clarity, examples, pacing, engagement), score hiring demos against those
+benchmarks, and give existing SMEs the same targeted analysis automatically. <i>(The analysis
+engine that reads classes today is the foundation.)</i></li>
+</ol></div>
+<p>End state: data that drives <b>SME allocation, content improvement, learner intervention,
+instructor training and hiring decisions</b> &mdash; higher ratings, stronger engagement, better
+attendance.</p>
+
 <footer>
 Source: <i>the rating sheet .xlsx</i> &mdash; sheets MLSU_Live_Class_Poll and
 Agentic_AI_Live_Class_Poll, all sessions dated 1 Jan &ndash; 31 Aug 2026. %(n)s classes after

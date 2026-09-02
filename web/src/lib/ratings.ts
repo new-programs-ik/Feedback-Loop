@@ -38,17 +38,28 @@ export async function fetchRatings(opts: {
   courseId?: string;
 }): Promise<ClassRating[]> {
   const supabase = await createClient();
-  let q = supabase
-    .from("class_ratings")
-    .select(
-      "id, course_label, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, participation_pct, escalated, decision, decision_override, review_status, class_id, synced_at, courses(name)",
-    )
-    .gte("class_date", opts.from)
-    .lte("class_date", opts.to)
-    .order("class_date", { ascending: false });
-  if (opts.courseId) q = q.eq("course_id", opts.courseId);
-  const { data } = await q;
-  return ((data ?? []) as unknown as Row[]).map((r) => ({
+  // PostgREST caps every response at 1,000 rows — a full-year view is ~4,000+, so page through
+  // explicitly or the data silently truncates (bug caught when "since January" showed 1,000).
+  const PAGE = 1000;
+  const all: Row[] = [];
+  for (let page = 0; page < 20; page++) {
+    let q = supabase
+      .from("class_ratings")
+      .select(
+        "id, course_label, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, participation_pct, escalated, decision, decision_override, review_status, class_id, synced_at, courses(name)",
+      )
+      .gte("class_date", opts.from)
+      .lte("class_date", opts.to)
+      .order("class_date", { ascending: false })
+      .order("id", { ascending: false })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (opts.courseId) q = q.eq("course_id", opts.courseId);
+    const { data } = await q;
+    const batch = (data ?? []) as unknown as Row[];
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+  }
+  return all.map((r) => ({
     ...r,
     rating: Number(r.rating),
     course_name: r.courses?.name ?? null,
@@ -139,4 +150,68 @@ export function liveVsReview(rows: ClassRating[]) {
 
 export function worstClasses(rows: ClassRating[], limit = 10) {
   return [...rows].filter(isBad).sort((a, b) => a.rating - b.rating).slice(0, limit);
+}
+
+// ── SME / module intelligence (the vision layer) ──────────────────────────────
+/** Rows whose topic is a real module name (some sheet rows only carry the generic session label). */
+const GENERIC_TOPICS = new Set(["", "live class", "test review session", "workshop", "session"]);
+export function withRealTopics(rows: ClassRating[]) {
+  return rows.filter((r) => !GENERIC_TOPICS.has(r.topic.trim().toLowerCase()));
+}
+
+/** Module-level view across ALL instructors — the "content issue vs instructor issue" detector:
+ *  a module rated low by several different SMEs points at the material, not the person. */
+export function byTopic(rows: ClassRating[], minClasses = 3) {
+  const map = new Map<string, ClassRating[]>();
+  for (const r of withRealTopics(rows)) {
+    const key = r.topic.trim();
+    map.set(key, [...(map.get(key) ?? []), r]);
+  }
+  return [...map.entries()]
+    .map(([topic, list]) => ({
+      topic,
+      instructors: new Set(list.map((r) => r.instructor).filter(Boolean)).size,
+      ...summarize(list),
+    }))
+    .filter((t) => t.n >= minClasses);
+}
+
+/** One SME's per-topic record — strengths and improvement areas (vision point 1). */
+export function smeTopics(rows: ClassRating[], instructor: string, minClasses = 2) {
+  const own = withRealTopics(rows).filter((r) => r.instructor === instructor);
+  const map = new Map<string, ClassRating[]>();
+  for (const r of own) map.set(r.topic.trim(), [...(map.get(r.topic.trim()) ?? []), r]);
+  return [...map.entries()]
+    .map(([topic, list]) => ({ topic, ...summarize(list) }))
+    .filter((t) => t.n >= minClasses)
+    .sort((a, b) => (b.avgRating ?? 0) - (a.avgRating ?? 0));
+}
+
+/** Best-known SME per module (vision point 4): among instructors with >= minClasses on the
+ *  topic, the one with the highest average — the seed of the SME-to-module allocation map. */
+export function bestSmePerTopic(rows: ClassRating[], minClasses = 3) {
+  const byPair = new Map<string, Map<string, ClassRating[]>>();
+  for (const r of withRealTopics(rows)) {
+    if (!r.instructor) continue;
+    const t = r.topic.trim();
+    if (!byPair.has(t)) byPair.set(t, new Map());
+    const inner = byPair.get(t)!;
+    inner.set(r.instructor, [...(inner.get(r.instructor) ?? []), r]);
+  }
+  const out: { topic: string; instructor: string; n: number; avgRating: number; contenders: number }[] = [];
+  for (const [topic, inner] of byPair) {
+    const qualified = [...inner.entries()]
+      .map(([instructor, list]) => ({ instructor, ...summarize(list) }))
+      .filter((x) => x.n >= minClasses && x.avgRating != null);
+    if (qualified.length < 2) continue; // a "best" needs competition to mean anything
+    qualified.sort((a, b) => (b.avgRating ?? 0) - (a.avgRating ?? 0));
+    out.push({
+      topic,
+      instructor: qualified[0].instructor,
+      n: qualified[0].n,
+      avgRating: qualified[0].avgRating!,
+      contenders: qualified.length,
+    });
+  }
+  return out.sort((a, b) => b.avgRating - a.avgRating);
 }
