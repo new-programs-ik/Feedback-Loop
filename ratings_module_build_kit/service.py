@@ -232,6 +232,11 @@ def health() -> dict:
         "video_enabled": not os.environ.get("VIDEO_DISABLED"),
         "video_max_frames": VD.VCFG.max_frames,
         "review_enabled": E.CFG.review_enabled,
+        "ratings_source": os.environ.get("RATINGS_SOURCE") or "sheet",
+        "sheet_configured": bool(os.environ.get("RATINGS_SHEET_ID")
+                                 and (os.environ.get("GOOGLE_SA_JSON_FILE")
+                                      or os.environ.get("GOOGLE_SA_JSON"))),
+        "slack_configured": bool(os.environ.get("SLACK_BOT_TOKEN")),
     }
 
 
@@ -314,6 +319,20 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured for async persistence")
     background.add_task(_run_analysis_job, req)
     return {"status": "accepted", "class_id": req.class_id}
+
+
+@app.post("/sync-ratings", dependencies=[Depends(require_worker_auth)])
+def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> dict:
+    """Pull the ratings source (sheet/Metabase) into class_ratings and notify handlers.
+    Called hourly by pg_cron (via pg_net) and by the web app's "Sync now" button. Runs in the
+    background so the caller returns immediately; progress lands in sync_runs, which the web
+    reads under RLS. ratings_sync itself guards against concurrent runs."""
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
+    trigger = str((body or {}).get("trigger") or "manual")
+    import ratings_sync as RSY
+    background.add_task(RSY.run_sync, trigger)
+    return {"status": "accepted", "trigger": trigger}
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

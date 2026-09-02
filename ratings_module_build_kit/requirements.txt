@@ -12,3 +12,5 @@ pypdf>=4.0,<7.0             # class-materials extraction: slides/docs the analys
 python-pptx>=0.6.23,<2.0
 python-docx>=1.1,<2.0
 imageio-ffmpeg>=0.5,<1.0    # static ffmpeg binary (with https) for the video-frames stage
+google-auth>=2.29,<3.0      # service-account token for the ratings-sheet sync (token only; the
+                            # Sheets call itself goes through httpx so tests can MockTransport it)

@@ -1,6 +1,6 @@
 import {
-  LayoutDashboard, MessageSquareText, GraduationCap, Users, BookOpen,
-  HeartPulse, Settings, ScrollText, User, Library, UserCog, type LucideIcon,
+  LayoutDashboard, MessageSquareText, GraduationCap, Users, BookOpen, ListChecks,
+  FileBarChart2, HeartPulse, Settings, ScrollText, User, Library, UserCog, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "./session";
 
@@ -20,15 +20,17 @@ export const NAV: NavSection[] = [
     items: [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["admin", "pm", "learner"], live: true },
       { label: "Feedback", href: "/feedback", icon: MessageSquareText, roles: ["admin", "pm"], live: true },
+      { label: "Needs analysis", href: "/ratings", icon: ListChecks, roles: ["admin", "pm"], live: true },
       { label: "Courses", href: "/courses", icon: Library, roles: ["admin", "pm"], live: true },
     ],
   },
   {
     title: "Analytics",
     items: [
-      { label: "Instructor Analytics", href: "/instructor-analytics", icon: GraduationCap, roles: ["admin", "pm"], live: false },
+      { label: "Course Analytics", href: "/course-analytics", icon: BookOpen, roles: ["admin", "pm"], live: true },
+      { label: "Instructor Analytics", href: "/instructor-analytics", icon: GraduationCap, roles: ["admin", "pm"], live: true },
+      { label: "Reports", href: "/reports", icon: FileBarChart2, roles: ["admin", "pm"], live: true },
       { label: "Learner Analytics", href: "/learner-analytics", icon: Users, roles: ["admin", "pm"], live: false },
-      { label: "Course Analytics", href: "/course-analytics", icon: BookOpen, roles: ["admin", "pm"], live: false },
       { label: "Learner Health", href: "/learner-health", icon: HeartPulse, roles: ["admin", "pm"], live: false },
     ],
   },

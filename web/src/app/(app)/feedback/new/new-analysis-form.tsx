@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clapperboard, FileText, Loader2, Paperclip } from "lucide-react";
+import { GOOD, decide, explain } from "@/lib/decision";
 
 const label = "text-sm font-medium";
 const field =
@@ -55,23 +56,22 @@ export function NewAnalysisForm({
   const att = parseInt(hAttended, 10);
   const rat = parseInt(hRated, 10);
   const participation = att > 0 && rat >= 0 ? Math.round((rat / att) * 100) : null;
-  // The team rule (validated against 8 months of ratings data, Sep 2026 — see the
-  // Rating-Threshold study): rating line 4.55, participation bar 40%, and a 5-voice floor
-  // so a percentage can never promote a score only 2-3 people gave.
+  // The team rule lives in ONE place — src/lib/decision.ts (mirrored by the sync worker's
+  // decision.py). This helper only translates the verdict into form advice.
   let advice: { title: string; detail: string; video: boolean | null } | null = null;
   if (hEscalation) {
     advice = { title: "Video Analysis", detail: "There is an escalation — always use video for escalated classes.", video: true };
   } else if (!Number.isNaN(r)) {
-    if (r >= 4.55) {
-      advice = { title: "No analysis needed", detail: "Rating is 4.55 or above. Only analyse if a PM asked or you have a specific reason — then Transcript is enough.", video: false };
+    if (r >= GOOD) {
+      advice = { title: "No analysis needed", detail: explain("none", participation, rat), video: false };
     } else if (participation != null) {
-      if (rat < 5) {
-        advice = { title: "Watch only", detail: `Only ${rat} learner${rat === 1 ? "" : "s"} rated it — that's one or two opinions, not a class problem yet. Note it and watch the next session (analyse only if a PM asks).`, video: null };
-      } else if (participation >= 40) {
-        advice = { title: "Video Analysis", detail: `Rating is below 4.55 and ${participation}% of attendees rated it (≥ 40%, on ${rat} ratings) — a representative share of the room spoke and it was still low. Get the full picture.`, video: true };
-      } else {
-        advice = { title: "Transcript Analysis", detail: `Rating is below 4.55 but only ${participation}% of attendees rated it (< 40%) — too thin a sample to trust yet; a transcript read is enough to check if it's real.`, video: false };
-      }
+      const d = decide(r, rat, att);
+      advice =
+        d === "watch"
+          ? { title: "Watch only", detail: explain(d, participation, rat), video: null }
+          : d === "video"
+            ? { title: "Video Analysis", detail: explain(d, participation, rat), video: true }
+            : { title: "Transcript Analysis", detail: explain(d, participation, rat), video: false };
     } else {
       advice = { title: "Almost there", detail: "Fill in attended + rated counts to get the recommendation.", video: null };
     }

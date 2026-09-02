@@ -12,9 +12,21 @@ export const metadata: Metadata = {
   icons: { icon: "/icon.svg" },
 };
 
+// Runs synchronously in <head>, before first paint, so a dark-mode user never sees a light flash.
+// (The inline-script pattern from Next's preventing-flash guide, adapted to our `.dark` class.)
+// theme: "light" | "dark" | unset (= follow the OS). The toggle in the topbar writes the same key.
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("theme");var d=t==="dark"||(!t&&matchMedia("(prefers-color-scheme: dark)").matches);var c=document.documentElement.classList;d?c.add("dark"):c.remove("dark");document.documentElement.style.colorScheme=d?"dark":"light"}catch(e){}})()`;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full font-sans">{children}</body>
     </html>
   );

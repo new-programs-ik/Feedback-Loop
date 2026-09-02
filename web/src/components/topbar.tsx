@@ -1,5 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import { LogoutButton } from "@/components/logout-button";
+import { MobileNav } from "@/components/mobile-nav";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { SessionUser } from "@/lib/session";
 
 function initials(name: string): string {
@@ -9,10 +12,17 @@ function initials(name: string): string {
 
 export function Topbar({ user }: { user: SessionUser }) {
   return (
-    <header className="bg-background/80 sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b px-4 backdrop-blur-sm md:px-8">
-      <div className="font-semibold tracking-tight md:hidden">Feedback Loop</div>
-      <div className="flex-1" />
+    <header
+      data-print-hide
+      className="bg-background/80 sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b px-4 backdrop-blur-sm md:px-8"
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <MobileNav role={user.role} />
+        <div className="font-semibold tracking-tight md:hidden">Feedback Loop</div>
+        <Breadcrumbs />
+      </div>
       <div className="flex items-center gap-3">
+        <ThemeToggle />
         <Badge variant="secondary" className="hidden capitalize sm:inline-flex">
           {user.role === "pm" ? "Program Manager" : user.role}
         </Badge>

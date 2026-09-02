@@ -33,6 +33,25 @@
   --sidebar-accent: oklch(0.925 0.015 272);
   --sidebar-accent-foreground: oklch(0.32 0.1 272);
   --sidebar-border: oklch(0.9 0.008 262);
+
+  /* Chart series — categorical, FIXED order (dataviz reference palette; validated for CVD
+     separation + contrast against the light card surface — never re-order, never cycle). */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
+  /* Ordinal/sequential ramp (rating bands, heat) — one blue hue, light→dark. */
+  --chart-seq-1: #86b6ef;
+  --chart-seq-2: #5598e7;
+  --chart-seq-3: #2a78d6;
+  --chart-seq-4: #1c5cab;
+  --chart-seq-5: #104281;
+  /* Chart chrome */
+  --chart-grid: oklch(0.93 0.006 262);
 }
 
 .dark {
@@ -56,13 +75,31 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.72 0.14 272);
+  /* Dark sidebar carries the same indigo identity as light — the stock gray tokens it shipped
+     with read as a different product after the theme flips. */
   --sidebar: oklch(0.19 0.018 262);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.922 0 0);
-  --sidebar-primary-foreground: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.93 0.008 262);
+  --sidebar-primary: oklch(0.72 0.14 272);
+  --sidebar-primary-foreground: oklch(0.16 0.015 262);
+  --sidebar-accent: oklch(0.28 0.045 272);
+  --sidebar-accent-foreground: oklch(0.92 0.03 272);
   --sidebar-border: oklch(1 0 0 / 10%);
+
+  /* Chart series — the SAME eight hues re-stepped for the dark card surface (validated set). */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-seq-1: #9ec5f4;
+  --chart-seq-2: #6da7ec;
+  --chart-seq-3: #3987e5;
+  --chart-seq-4: #256abf;
+  --chart-seq-5: #184f95;
+  --chart-grid: oklch(0.27 0.015 262);
 }
 
 @theme inline {
@@ -93,6 +130,20 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+  --color-chart-seq-1: var(--chart-seq-1);
+  --color-chart-seq-2: var(--chart-seq-2);
+  --color-chart-seq-3: var(--chart-seq-3);
+  --color-chart-seq-4: var(--chart-seq-4);
+  --color-chart-seq-5: var(--chart-seq-5);
+  --color-chart-grid: var(--chart-grid);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-sm: calc(var(--radius) - 4px);
@@ -124,14 +175,37 @@
   .shadow-soft {
     box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 20px -8px rgb(16 24 40 / 0.1);
   }
+  /* Shadows disappear on a dark ground — a hairline ring keeps the same sense of lift. */
+  .dark .shadow-soft {
+    box-shadow: inset 0 0 0 1px oklch(1 0 0 / 6%), 0 6px 20px -8px rgb(0 0 0 / 0.5);
+  }
   .animate-in-up {
     animation: in-up 0.25s ease-out both;
   }
+  /* Children of a [data-stagger] container enter one after another (40ms steps, first 8). */
+  [data-stagger] > * { animation: in-up 0.3s ease-out both; }
+  [data-stagger] > :nth-child(2) { animation-delay: 40ms; }
+  [data-stagger] > :nth-child(3) { animation-delay: 80ms; }
+  [data-stagger] > :nth-child(4) { animation-delay: 120ms; }
+  [data-stagger] > :nth-child(5) { animation-delay: 160ms; }
+  [data-stagger] > :nth-child(6) { animation-delay: 200ms; }
+  [data-stagger] > :nth-child(7) { animation-delay: 240ms; }
+  [data-stagger] > :nth-child(n + 8) { animation-delay: 280ms; }
   @keyframes in-up {
     from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     .animate-in-up { animation: none; }
+    [data-stagger] > * { animation: none; }
   }
+}
+
+/* The Reports page is the print surface: chrome disappears, data keeps its ink. */
+@media print {
+  [data-print-hide] { display: none !important; }
+  body { background: #fff; }
+  main { padding: 0 !important; }
+  .shadow-soft { box-shadow: none; border: 1px solid #ddd; }
+  svg, .print-exact { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
