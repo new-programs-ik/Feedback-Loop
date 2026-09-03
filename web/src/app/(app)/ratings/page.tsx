@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clapperboard, Eye, FileText, ListChecks, RefreshCw, TriangleAlert } from "lucide-react";
+import { Clapperboard, Eye, FileText, ListChecks, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -7,11 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { BandDot, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BAND_ICON, PriorityChip, ReasonChips, approvalTone } from "@/components/priority-chip";
+import { CountUp } from "@/components/motion/count-up";
+import { CourseChips, type CourseChipItem } from "@/components/queue/course-chips";
+import { QueueRow, WatchRow, type ReviewStatus } from "@/components/queue/queue-row";
+import { SyncNowButton } from "@/components/queue/sync-now-button";
 import { byCourse, fetchRatings, lastSyncRun, type ClassRating } from "@/lib/ratings";
 import { APPROVAL_BAR, BAND_LABEL, GOOD, MIN_VOICES, voteLabel, type HealthBand } from "@/lib/decision";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
-import { confirmRating, dismissRating, escalateRating, mapCourseLabel, syncNow } from "./actions";
+import { mapCourseLabel } from "./actions";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Needs analysis" };
@@ -26,6 +30,9 @@ const byPriority = (a: ClassRating, b: ClassRating) =>
   bandRank(a) - bandRank(b) ||
   (a.health_score ?? Infinity) - (b.health_score ?? Infinity) ||
   a.rating - b.rating;
+
+const OPEN: ReviewStatus[] = ["new", "notified", "confirmed"];
+const isOpen = (s: ClassRating["review_status"]): s is ReviewStatus => (OPEN as string[]).includes(s);
 
 function DecisionChip({ d }: { d: ClassRating["decision"] }) {
   if (d === "video")
@@ -45,16 +52,6 @@ function DecisionChip({ d }: { d: ClassRating["decision"] }) {
       <Eye className="size-3" aria-hidden /> Watch
     </Badge>
   );
-}
-
-function StatusBadge({ s }: { s: ClassRating["review_status"] }) {
-  const map: Record<string, { label: string; variant: "secondary" | "outline" | "success" }> = {
-    new: { label: "new", variant: "secondary" },
-    notified: { label: "handler pinged", variant: "outline" },
-    confirmed: { label: "confirmed", variant: "success" },
-  };
-  const m = map[s];
-  return m ? <Badge variant={m.variant}>{m.label}</Badge> : null;
 }
 
 /** "13 of 15 · 87%" — the room's answer to "would you have this instructor back?" — with the
@@ -81,38 +78,8 @@ function VoteCell({ r }: { r: ClassRating }) {
   );
 }
 
-/** Pill link for the course summary row — the active one wears the primary fill. */
-function CourseChip({
-  href,
-  active,
-  name,
-  count,
-}: {
-  href: string;
-  active: boolean;
-  name: string;
-  count: number;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-        active
-          ? "border-transparent bg-primary text-primary-foreground"
-          : "bg-card text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <span className="max-w-44 truncate">{name}</span>
-      <span data-numeric className={active ? "text-primary-foreground/70" : "text-muted-foreground/70"}>
-        {count}
-      </span>
-    </Link>
-  );
-}
-
-/** Per-band count for the scope on screen — icon + label + number, never colour alone. */
+/** Per-band count for the scope on screen — icon + label + number, never colour alone.
+ *  The number counts up the first time it is seen. */
 function BandChip({ band, count }: { band: HealthBand; count: number }) {
   const Icon = BAND_ICON[band];
   return (
@@ -130,7 +97,7 @@ function BandChip({ band, count }: { band: HealthBand; count: number }) {
         aria-hidden
       />
       {BAND_LABEL[band]}
-      <span data-numeric className="text-muted-foreground">{count}</span>
+      <CountUp value={count} duration={0.8} className="text-muted-foreground" />
     </span>
   );
 }
@@ -143,9 +110,12 @@ export default async function RatingsQueuePage({
   const user = await requireUser();
   const sp = await searchParams;
 
+  // "Now" is read ONCE per request; every relative time on the page keys off this value.
+  const now = new Date();
+  const nowMs = now.getTime();
   // The queue looks back 45 days — old flags age out of view but stay in the data.
-  const to = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
+  const to = now.toISOString().slice(0, 10);
+  const from = new Date(nowMs - 45 * 86400000).toISOString().slice(0, 10);
   const supabase = await createClient();
   const [rows, run, coursesRes] = await Promise.all([
     fetchRatings({ from, to }),
@@ -154,9 +124,7 @@ export default async function RatingsQueuePage({
   ]);
 
   const actionableAll = rows
-    .filter(
-      (r) => ["video", "transcript"].includes(r.decision) && ["new", "notified", "confirmed"].includes(r.review_status),
-    )
+    .filter((r) => ["video", "transcript"].includes(r.decision) && isOpen(r.review_status))
     .sort(byPriority);
   const watchAll = rows.filter((r) => r.decision === "watch" && r.review_status !== "dismissed");
 
@@ -185,6 +153,10 @@ export default async function RatingsQueuePage({
     const qs = params.toString();
     return qs ? `/ratings?${qs}` : "/ratings";
   };
+  const chipItems: CourseChipItem[] = [
+    { id: null, href: courseHref(), name: "All", count: actionableAll.length },
+    ...courseChips.map((c) => ({ id: c.courseId as string, href: courseHref(c.courseId), name: c.name, count: c.n })),
+  ];
 
   const MAX_ROWS = 40;
   const shown = actionable.slice(0, MAX_ROWS);
@@ -192,22 +164,14 @@ export default async function RatingsQueuePage({
   const unmappedLabels = [...new Set(rows.filter((r) => !r.course_id).map((r) => r.course_label))];
   const started = rows.filter((r) => r.review_status === "analysis_started").length;
 
-  const syncedAgo = run?.finished_at
-    ? Math.round((Date.now() - +new Date(run.finished_at)) / 60000)
-    : null;
+  const syncedAgo = run?.finished_at ? Math.round((nowMs - +new Date(run.finished_at)) / 60000) : null;
 
   return (
     <div className="animate-in-up">
       <PageHeader
         title="Needs analysis"
         description={`Classes from the last 45 days that the team rule flags — rated below ${GOOD}, or fewer than ${APPROVAL_BAR}% of the room would have the instructor back — with enough voices behind the score. Urgent first.`}
-        actions={
-          <form action={syncNow}>
-            <Button variant="outline" type="submit">
-              <RefreshCw className="size-4" aria-hidden /> Sync now
-            </Button>
-          </form>
-        }
+        actions={<SyncNowButton />}
       />
 
       {/* sync banner */}
@@ -248,20 +212,7 @@ export default async function RatingsQueuePage({
       {/* course summary chips + per-band counts for the scope on screen */}
       {(courseChips.length > 0 || actionable.length > 0) && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5" data-print-hide>
-          {courseChips.length > 0 && (
-            <>
-              <CourseChip href={courseHref()} active={!courseId} name="All" count={actionableAll.length} />
-              {courseChips.map((c) => (
-                <CourseChip
-                  key={c.key}
-                  href={courseHref(c.courseId)}
-                  active={courseId === c.courseId}
-                  name={c.name}
-                  count={c.n}
-                />
-              ))}
-            </>
-          )}
+          {courseChips.length > 0 && <CourseChips items={chipItems} activeId={courseId ?? null} />}
           {actionable.length > 0 && (
             <span className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
               {bandCounts.map((b) => (
@@ -309,9 +260,13 @@ export default async function RatingsQueuePage({
             </TableHeader>
             <TableBody>
               {shown.map((r) => (
-                <TableRow
+                <QueueRow
                   key={r.id}
-                  className={cn(sp.focus === r.id && "bg-accent/60 hover:bg-accent/60")}
+                  id={r.id}
+                  status={isOpen(r.review_status) ? r.review_status : "new"}
+                  focus={sp.focus === r.id}
+                  analyzeHref={`/feedback/new?prefill=${r.id}`}
+                  decisionChip={<DecisionChip d={r.decision} />}
                 >
                   <TableCell className={cn("font-semibold", r.rating < GOOD && "text-destructive")} data-numeric>
                     {r.rating.toFixed(2)}
@@ -327,7 +282,11 @@ export default async function RatingsQueuePage({
                   </TableCell>
                   <TableCell className="max-w-36 truncate">{r.course_name ?? r.course_label}</TableCell>
                   <TableCell>
-                    <PriorityChip band={r.health_band} />
+                    {/* the halo is decoration on top of the icon + label the chip already carries */}
+                    <PriorityChip
+                      band={r.health_band}
+                      className={r.health_band === "urgent" ? "halo-urgent rounded-md" : undefined}
+                    />
                     <div className="mt-1 flex items-center gap-1.5">
                       {r.health_score != null && (
                         <span className="text-muted-foreground text-xs" data-numeric title="Class Health Score, 0–100">
@@ -337,28 +296,7 @@ export default async function RatingsQueuePage({
                       <ReasonChips reasons={r.flag_reasons} />
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <DecisionChip d={r.decision} />
-                    <div className="mt-1"><StatusBadge s={r.review_status} /></div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button asChild size="sm">
-                        <Link href={`/feedback/new?prefill=${r.id}`}>Analyze</Link>
-                      </Button>
-                      {r.review_status !== "confirmed" && (
-                        <form action={confirmRating}>
-                          <input type="hidden" name="id" value={r.id} />
-                          <Button variant="outline" size="sm" type="submit">Confirm</Button>
-                        </form>
-                      )}
-                      <form action={dismissRating}>
-                        <input type="hidden" name="id" value={r.id} />
-                        <Button variant="ghost" size="sm" type="submit">Dismiss</Button>
-                      </form>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                </QueueRow>
               ))}
             </TableBody>
           </Table>
@@ -379,7 +317,7 @@ export default async function RatingsQueuePage({
           <Table>
             <TableBody>
               {watch.slice(0, 20).map((r) => (
-                <TableRow key={r.id}>
+                <WatchRow key={r.id} id={r.id}>
                   <TableCell className={cn("font-semibold", r.rating < GOOD && "text-destructive")} data-numeric>
                     {r.rating.toFixed(2)}
                   </TableCell>
@@ -389,13 +327,7 @@ export default async function RatingsQueuePage({
                   </TableCell>
                   <TableCell className="max-w-40 truncate">{r.course_name ?? r.course_label}</TableCell>
                   <TableCell className="whitespace-nowrap">{pretty(r.class_date)}</TableCell>
-                  <TableCell className="text-right">
-                    <form action={escalateRating}>
-                      <input type="hidden" name="id" value={r.id} />
-                      <Button variant="outline" size="sm" type="submit">Escalate → video</Button>
-                    </form>
-                  </TableCell>
-                </TableRow>
+                </WatchRow>
               ))}
             </TableBody>
           </Table>

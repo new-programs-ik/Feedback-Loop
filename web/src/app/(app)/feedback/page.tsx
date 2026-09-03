@@ -1,11 +1,17 @@
 import Link from "next/link";
+import { Inbox, Plus } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { DeleteButton } from "./delete-button";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Inbox, Plus } from "lucide-react";
+import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { EmptyState } from "@/components/ui/empty-state";
+import {
+  Table, TableActions, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow,
+} from "@/components/ui/table";
 
 function statusVariant(s: string): "default" | "secondary" | "success" | "warning" | "outline" | "destructive" {
   return s === "approved" || s === "sent" ? "success"
@@ -64,127 +70,131 @@ export default async function FeedbackPage({
     }
   }
 
+  const filtered = !!(sp.course || sp.month);
+
   return (
-    <div className="animate-in-up space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Feedback</h1>
-          <p className="text-muted-foreground mt-1">
-            Every analyzed class — review the draft, tweak it, approve it.
-          </p>
-        </div>
-        {user.role !== "learner" && (
-          <Button asChild>
-            <Link href="/feedback/new"><Plus className="size-4" /> New analysis</Link>
-          </Button>
-        )}
-      </div>
+    <div className="animate-in-up">
+      <PageHeader
+        title="Feedback"
+        description="Every analyzed class — review the draft, tweak it, approve it."
+        actions={
+          user.role !== "learner" && (
+            <Button asChild variant="gradient">
+              <Link href="/feedback/new"><Plus aria-hidden /> New analysis</Link>
+            </Button>
+          )
+        }
+      />
 
       {/* Filters + in-view totals */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <form method="get" className="flex flex-wrap items-center gap-2">
-          <select id="course" name="course" defaultValue={sp.course ?? ""} aria-label="Course"
-                  className="border-input bg-card h-9 min-w-48 rounded-md border px-3 text-sm shadow-sm">
+          <Select id="course" name="course" defaultValue={sp.course ?? ""} aria-label="Course" className="w-52">
             <option value="">All courses</option>
             {((courses ?? []) as Array<{ id: string; name: string }>).map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
-          <input id="month" name="month" type="month" defaultValue={sp.month ?? ""} aria-label="Month"
-                 className="border-input bg-card h-9 rounded-md border px-3 text-sm shadow-sm" />
-          <Button type="submit" variant="outline" size="sm">Filter</Button>
-          {(sp.course || sp.month) && (
-            <Button asChild variant="ghost" size="sm"><Link href="/feedback">Clear</Link></Button>
+          </Select>
+          <Input id="month" name="month" type="month" defaultValue={sp.month ?? ""} aria-label="Month" className="w-44" />
+          <Button type="submit" variant="outline">Filter</Button>
+          {filtered && (
+            <Button asChild variant="ghost"><Link href="/feedback">Clear</Link></Button>
           )}
         </form>
         {classes.length > 0 && (
-          <p className="text-muted-foreground text-sm" data-numeric>
+          <p className="text-muted-foreground text-[13px]" data-numeric>
             {classes.length} {classes.length === 1 ? "class" : "classes"}
-            {(sp.course || sp.month) ? " (filtered)" : ""} · {(totalTokens / 1000).toFixed(1)}k tokens ·{" "}
+            {filtered ? " (filtered)" : ""} · {(totalTokens / 1000).toFixed(1)}k tokens ·{" "}
             <span className="text-foreground font-semibold">${totalCost.toFixed(2)}</span>
           </p>
         )}
       </div>
 
       {classes.length === 0 ? (
-        <Card className="shadow-soft">
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <div className="bg-muted flex size-12 items-center justify-center rounded-full">
-              <Inbox className="text-muted-foreground size-6" />
-            </div>
-            <div className="font-medium">No analyses yet</div>
-            <p className="text-muted-foreground max-w-sm text-sm">
-              Click <strong>New analysis</strong> to turn a class recording into a reviewed feedback draft.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="bg-card shadow-soft rounded-xl border">
+          <EmptyState
+            icon={Inbox}
+            title={filtered ? "Nothing matches these filters" : "No analyses yet"}
+            description={
+              filtered
+                ? "Widen the month or switch back to all courses."
+                : "Turn a class recording into a reviewed feedback draft — it takes a few minutes."
+            }
+            action={
+              filtered ? (
+                <Button asChild variant="outline" size="sm"><Link href="/feedback">Clear filters</Link></Button>
+              ) : user.role !== "learner" ? (
+                <Button asChild variant="gradient" size="sm">
+                  <Link href="/feedback/new"><Plus aria-hidden /> New analysis</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
       ) : (
-        <div className="shadow-soft overflow-hidden rounded-xl border">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/60 text-muted-foreground text-left">
-                <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:text-[12px] [&>th]:font-semibold [&>th]:tracking-wide [&>th]:uppercase">
-                  <th>Class</th>
-                  <th>Date</th>
-                  <th>Type</th>
-                  <th>Rating</th>
-                  <th>Cost</th>
-                  <th>Re-class</th>
-                  <th>Status</th>
-                  <th>By</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {classes.map((c) => {
-                  const course = (c.courses as { name?: string } | null)?.name ?? "—";
-                  const a = (c.analyses as Array<{ reclass?: string; cost_usd?: number; video_used?: string }> | null)?.[0];
-                  const reclass = a?.reclass;
-                  const cost = Number(a?.cost_usd ?? 0);
-                  const videoUsed = a?.video_used === "true";
-                  const rating = c.rating as number | null;
-                  const status = String(c.status);
-                  return (
-                    <tr key={String(c.id)} className="hover:bg-accent/30 border-t transition-colors">
-                      <td className="max-w-72 px-4 py-3">
-                        <Link href={`/feedback/${String(c.id)}`} className="hover:text-primary block truncate font-medium transition-colors">
-                          {String(c.topic)}
-                        </Link>
-                        <span className="text-muted-foreground text-xs">{course}</span>
-                      </td>
-                      <td className="text-muted-foreground px-4 py-3 whitespace-nowrap">{String(c.class_date ?? "—")}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1">
-                          <Badge variant="outline">{c.session_type === "ars" ? "ARS" : "Live"}</Badge>
-                          {videoUsed && <span title="Video verified — the recording was analyzed">🎬</span>}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3" data-numeric>
-                        <span className={rating != null && rating < 4.5 ? "text-destructive font-semibold" : "font-medium"}>
-                          {rating != null ? Number(rating).toFixed(2) : "—"}
-                        </span>
-                      </td>
-                      <td className="text-muted-foreground px-4 py-3" data-numeric>{cost > 0 ? `$${cost.toFixed(2)}` : "—"}</td>
-                      <td className="px-4 py-3">
-                        {reclass ? <Badge variant={reclassVariant(reclass)} className="uppercase">{reclass}</Badge>
-                                 : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="px-4 py-3"><Badge variant={statusVariant(status)}>{status.replace("_", " ")}</Badge></td>
-                      <td className="text-muted-foreground px-4 py-3 text-xs">{creatorName.get(String(c.created_by)) ?? "—"}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button asChild variant="outline" size="sm">
-                            <Link href={`/feedback/${String(c.id)}`}>Open</Link>
-                          </Button>
-                          <DeleteButton classId={String(c.id)} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Class</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Rating</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+                <TableHead>Re-class</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>By</TableHead>
+                <TableHead><span className="sr-only">Actions</span></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody data-stagger>
+              {classes.map((c) => {
+                const course = (c.courses as { name?: string } | null)?.name ?? "—";
+                const a = (c.analyses as Array<{ reclass?: string; cost_usd?: number; video_used?: string }> | null)?.[0];
+                const reclass = a?.reclass;
+                const cost = Number(a?.cost_usd ?? 0);
+                const videoUsed = a?.video_used === "true";
+                const rating = c.rating as number | null;
+                const status = String(c.status);
+                const id = String(c.id);
+                return (
+                  <TableRow key={id} className="hover:bg-accent/40">
+                    <TableCell className="max-w-72 py-2.5">
+                      <Link href={`/feedback/${id}`} className="hover:text-primary block truncate font-medium transition-colors">
+                        {String(c.topic)}
+                      </Link>
+                      <span className="text-muted-foreground text-xs">{course}</span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">{String(c.class_date ?? "—")}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Badge variant="outline">{c.session_type === "ars" ? "ARS" : "Live"}</Badge>
+                        {videoUsed && <span title="Video verified — the recording was analyzed">🎬</span>}
+                      </span>
+                    </TableCell>
+                    <TableNum>
+                      <span className={rating != null && rating < 4.5 ? "text-destructive font-semibold" : "font-medium"}>
+                        {rating != null ? Number(rating).toFixed(2) : "—"}
+                      </span>
+                    </TableNum>
+                    <TableNum className="text-muted-foreground">{cost > 0 ? `$${cost.toFixed(2)}` : "—"}</TableNum>
+                    <TableCell>
+                      {reclass ? <Badge variant={reclassVariant(reclass)} className="uppercase">{reclass}</Badge>
+                               : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell><Badge variant={statusVariant(status)}>{status.replace("_", " ")}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{creatorName.get(String(c.created_by)) ?? "—"}</TableCell>
+                    <TableActions>
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/feedback/${id}`}>Open</Link>
+                      </Button>
+                      <DeleteButton classId={id} />
+                    </TableActions>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>

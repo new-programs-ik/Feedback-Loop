@@ -1,30 +1,74 @@
 "use client";
 
-import { useState } from "react";
-import { useFormStatus } from "react-dom";
-import { Sparkles } from "lucide-react";
+import * as React from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Check, Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { approveFeedback, discardFeedback, reviseDraft } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/copy-button";
+import { cn } from "@/lib/utils";
 
-function Buttons() {
-  const { pending } = useFormStatus();
+/** approve/discard end in redirect("/feedback"); from a client transition that arrives as a
+ *  rejected promise with a NEXT_REDIRECT digest — the navigation is already under way. */
+function isRedirect(e: unknown) {
+  const digest = (e as { digest?: unknown } | null)?.digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+function friendlyError(e: unknown) {
+  const m = e instanceof Error ? e.message : String(e);
+  return /server components render|server action|digest|unexpected response|failed to fetch/i.test(m)
+    ? "The server could not complete that — refresh and try again."
+    : m;
+}
+
+function Buttons({ formRef }: { formRef: React.RefObject<HTMLFormElement | null> }) {
+  const [pending, startTransition] = React.useTransition();
+  const [which, setWhich] = React.useState<"approve" | "discard" | null>(null);
+
+  const submit = (kind: "approve" | "discard") => {
+    const form = formRef.current;
+    if (!form) return;
+    if (kind === "discard" && !confirm("Discard this feedback? The class will be marked no-action.")) return;
+    // Same field names the server actions already read — the contract is unchanged.
+    const fd = new FormData(form);
+    setWhich(kind);
+    startTransition(async () => {
+      const ok =
+        kind === "approve"
+          ? { title: "Approved & stored", description: "Both versions are saved — the summary is ready to send." }
+          : { title: "Draft discarded", description: "The class is marked no-action; nothing was sent." };
+      try {
+        if (kind === "approve") await approveFeedback(fd);
+        else await discardFeedback(fd);
+        toast.success(ok.title, { description: ok.description });
+      } catch (e) {
+        if (isRedirect(e)) {
+          toast.success(ok.title, { description: ok.description });
+          return;
+        }
+        toast.error(kind === "approve" ? "Couldn't approve" : "Couldn't discard", { description: friendlyError(e) });
+      } finally {
+        setWhich(null);
+      }
+    });
+  };
+
   return (
     <div className="flex gap-3">
-      <Button type="submit" formAction={approveFeedback} disabled={pending}>
-        {pending ? "Saving…" : "Approve & store"}
+      <Button type="button" onClick={() => submit("approve")} disabled={pending} aria-busy={which === "approve"} className="min-w-36">
+        {which === "approve" ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden /> Saving…
+          </>
+        ) : (
+          "Approve & store"
+        )}
       </Button>
-      <Button
-        type="submit"
-        formAction={discardFeedback}
-        variant="outline"
-        disabled={pending}
-        onClick={(e) => {
-          if (!confirm("Discard this feedback? The class will be marked no-action.")) e.preventDefault();
-        }}
-      >
+      <Button type="button" variant="outline" onClick={() => submit("discard")} disabled={pending} aria-busy={which === "discard"}>
+        {which === "discard" && <Loader2 className="size-4 animate-spin" aria-hidden />}
         Discard
       </Button>
     </div>
@@ -49,38 +93,75 @@ function EditBlock({
   rows: number;
   placeholder: string;
 }) {
-  const [instruction, setInstruction] = useState("");
-  const [revising, setRevising] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [revised, setRevised] = useState(false);
+  const reduce = useReducedMotion();
+  const [instruction, setInstruction] = React.useState("");
+  const [revising, setRevising] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [revised, setRevised] = React.useState(false);
 
   async function onRevise() {
     if (!instruction.trim() || revising) return;
     setRevising(true);
     setError(null);
     const r = await reviseDraft(classId, instruction, text, kind);
-    if (r.error) setError(r.error);
-    else if (r.text) {
+    if (r.error) {
+      setError(r.error);
+      toast.error("Revision didn't go through", { description: r.error });
+    } else if (r.text) {
       setText(r.text);
       setInstruction("");
       setRevised(true);
+      toast.success("Draft revised", { description: "Read it over, then approve." });
     }
     setRevising(false);
   }
 
   return (
     <div className="space-y-3">
-      <textarea
-        name={fieldName}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={rows}
-        className="border-input focus-visible:ring-ring w-full rounded-md border bg-transparent p-3 text-sm leading-relaxed shadow-sm outline-none focus-visible:ring-2"
-      />
-      {revised && <p className="text-xs text-emerald-600">Revised ✓ — review it, then approve.</p>}
+      <div className="relative">
+        <textarea
+          name={fieldName}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={rows}
+          aria-busy={revising}
+          readOnly={revising}
+          className={cn(
+            "border-input focus-visible:ring-ring w-full rounded-md border bg-transparent p-3 text-sm leading-relaxed shadow-sm outline-none transition-opacity focus-visible:ring-2",
+            revising && "opacity-60",
+          )}
+        />
+        <AnimatePresence>
+          {revising && (
+            <motion.div
+              aria-hidden
+              className="shimmer pointer-events-none absolute inset-0 rounded-md opacity-40"
+              initial={reduce ? false : { opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+      <div className="min-h-4">
+        <AnimatePresence>
+          {revised && (
+            <motion.p
+              className="text-success flex items-center gap-1 text-xs"
+              initial={reduce ? false : { opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Check className="size-3.5" aria-hidden /> Revised — review it, then approve.
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
       <div className="bg-muted/40 space-y-2 rounded-lg border p-3">
         <div className="flex items-center gap-2 text-sm font-medium">
-          <Sparkles className="size-4" /> Tell the AI what to change
+          <Sparkles className={cn("size-4", revising && "text-primary")} aria-hidden /> Tell the AI what to change
         </div>
         <div className="flex gap-2">
           <Input
@@ -90,11 +171,30 @@ function EditBlock({
               if (e.key === "Enter") { e.preventDefault(); onRevise(); }
             }}
             placeholder={placeholder}
+            disabled={revising}
           />
-          <Button type="button" variant="secondary" onClick={onRevise} disabled={revising || !instruction.trim()}>
-            {revising ? "Revising…" : "Revise"}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onRevise}
+            disabled={revising || !instruction.trim()}
+            aria-busy={revising}
+            className="min-w-24"
+          >
+            {revising ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden /> Revising…
+              </>
+            ) : (
+              "Revise"
+            )}
           </Button>
         </div>
+        {revising && (
+          <p className="text-muted-foreground text-xs" aria-live="polite">
+            Rewriting with your note — usually 10–20 seconds.
+          </p>
+        )}
         {error && <p className="text-destructive text-sm">{error}</p>}
       </div>
     </div>
@@ -112,8 +212,9 @@ export function ReviewActions({
   feedbackInitial: string;
   done: boolean;
 }) {
-  const [summary, setSummary] = useState(summaryInitial);
-  const [feedback, setFeedback] = useState(feedbackInitial);
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const [summary, setSummary] = React.useState(summaryInitial);
+  const [feedback, setFeedback] = React.useState(feedbackInitial);
 
   if (done) {
     return (
@@ -137,11 +238,11 @@ export function ReviewActions({
   }
 
   return (
-    <form className="space-y-7">
+    <form ref={formRef} className="space-y-7" onSubmit={(e) => e.preventDefault()}>
       <input type="hidden" name="class_id" value={classId} />
 
       {/* 1) The short note the instructor actually receives */}
-      <section className="space-y-2 rounded-lg border border-emerald-300/60 p-3">
+      <section className="border-success/40 space-y-2 rounded-lg border p-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-medium">
             Summary to send to the instructor <Badge variant="success">Send this</Badge>
@@ -175,7 +276,7 @@ export function ReviewActions({
       <p className="text-muted-foreground text-xs">
         Approving stores both versions (the originals are kept for comparison).
       </p>
-      <Buttons />
+      <Buttons formRef={formRef} />
     </form>
   );
 }

@@ -32,7 +32,7 @@ export function MobileNav({ role }: { role: Role }) {
           </div>
           <div className="text-[15px] font-semibold tracking-tight">Feedback Loop</div>
         </div>
-        <NavList role={role} onNavigate={() => setOpen(false)} />
+        <NavList id="mobile" role={role} onNavigate={() => setOpen(false)} />
       </Sheet>
     </div>
   );

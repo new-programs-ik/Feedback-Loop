@@ -1,14 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { SERIES, niceTicks, scaleLinear } from "./chart-kit";
+import { motion, useMotionValue, useSpring } from "motion/react";
+import { area as d3Area, curveMonotoneX, line as d3Line } from "d3-shape";
+import { cn } from "@/lib/utils";
+import { SERIES, clamp, estimateTextWidth, niceTicks, scaleLinear } from "./chart-kit";
+import { useSeriesHidden } from "./chart-legend";
+import { DRAW, POP, SNAP, leaveUnlessTouch, useChartPlay, useTapOutside } from "./chart-motion";
+import { ChartTooltip, type TooltipRow } from "./chart-tooltip";
 
 export type LineSeries = { name: string; values: (number | null)[] };
 
+const fmtVal = (v: number) => v.toFixed(2);
+
 /** Trend lines (1-4 series) over shared categorical x labels.
- *  Dataviz spec: 2px round-join lines, ring-stroked end markers, crosshair snapped to the
- *  nearest x with ONE tooltip listing every series, hairline solid grid, one axis, optional
- *  threshold line (e.g. the 4.55 rating line). */
+ *  Dataviz spec: 2px monotone-cubic lines that draw in on first view (the area fill follows),
+ *  ring-stroked end markers with direct labels, ONE crosshair snapped to the nearest x with ONE
+ *  tooltip listing every series (spring-follow; arrow keys step it, Escape clears), hairline
+ *  solid grid, one axis, optional threshold line (e.g. the 4.55 rating line). */
 export function LineChart({
   labels,
   series,
@@ -18,6 +27,7 @@ export function LineChart({
   thresholdLabel,
   unit = "",
   area = false,
+  endLabels = true,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -27,19 +37,63 @@ export function LineChart({
   thresholdLabel?: string;
   unit?: string;
   area?: boolean;
+  /** Direct labels at each line's end: the series name, or the last value for a single series. */
+  endLabels?: boolean;
 }) {
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const [hover, setHover] = React.useState<number | null>(null);
+  const { enter } = useChartPlay(wrapRef);
+  const isHidden = useSeriesHidden();
+  const crossX = useMotionValue(0);
+  const crossSpring = useSpring(crossX, SNAP);
+  const clear = React.useCallback(() => setHover(null), []);
+  useTapOutside(wrapRef, hover != null, clear);
+
+  // Geometry is pure, so it can sit above the hooks that depend on it.
   const W = 720;
   const ml = 40;
-  const mr = 16;
   const mt = 12;
   const mb = 28;
+  const n = labels.length;
+  const ends = series.map((s) => {
+    let idx = -1;
+    s.values.forEach((v, i) => {
+      if (v != null) idx = i;
+    });
+    return { idx, val: idx >= 0 ? s.values[idx] : null };
+  });
+  const endText = (si: number) => {
+    const val = ends[si].val;
+    return series.length > 1 ? series[si].name : val == null ? "" : fmtVal(val) + unit;
+  };
+  // Reserve the right margin for the direct labels so they never spill out of the SVG.
+  const labelRoom = endLabels
+    ? Math.min(120, Math.max(0, ...series.map((_, si) => estimateTextWidth(endText(si)))) + 10)
+    : 0;
+  const mr = 16 + labelRoom;
   const pw = W - ml - mr;
   const ph = height - mt - mb;
-  const [hover, setHover] = React.useState<number | null>(null);
-  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const xs = React.useMemo(
+    () => Array.from({ length: n }, (_, i) => (n === 1 ? ml + pw / 2 : ml + (i / (n - 1)) * pw)),
+    [n, ml, pw],
+  );
+
+  // Position the crosshair BEFORE the mark mounts (so its first frame is already right): land
+  // in place when it first appears, spring between points after.
+  const moveTo = (i: number | null) => {
+    if (i != null) {
+      if (hover == null) {
+        crossX.jump(xs[i]);
+        crossSpring.jump(xs[i]);
+      } else {
+        crossX.set(xs[i]);
+      }
+    }
+    setHover(i);
+  };
 
   const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
-  if (all.length === 0 || labels.length === 0) return null;
+  if (all.length === 0 || n === 0) return null;
   let lo = yDomain?.[0] ?? Math.min(...all, threshold ?? Infinity);
   let hi = yDomain?.[1] ?? Math.max(...all, threshold ?? -Infinity);
   const padY = (hi - lo || 1) * 0.12;
@@ -47,120 +101,228 @@ export function LineChart({
   hi = yDomain ? hi : hi + padY;
   const ticks = niceTicks(lo, hi, 4).filter((t) => t >= lo && t <= hi);
   const y = scaleLinear([lo, hi], [mt + ph, mt]);
-  const x = (i: number) =>
-    labels.length === 1 ? ml + pw / 2 : ml + (i / (labels.length - 1)) * pw;
+  const idx = xs.map((_, i) => i);
+  const linePath = (vals: (number | null)[]) =>
+    d3Line<number>()
+      .defined((i) => vals[i] != null)
+      .x((i) => xs[i])
+      .y((i) => y(vals[i] as number))
+      .curve(curveMonotoneX)(idx) ?? "";
+  const areaPath = (vals: (number | null)[]) =>
+    d3Area<number>()
+      .defined((i) => vals[i] != null)
+      .x((i) => xs[i])
+      .y0(y(lo))
+      .y1((i) => y(vals[i] as number))
+      .curve(curveMonotoneX)(idx) ?? "";
 
-  const path = (vals: (number | null)[]) => {
-    let d = "";
-    vals.forEach((v, i) => {
-      if (v == null) return;
-      d += `${d === "" ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+  // Direct labels: nudged apart when two lines end within 12px of each other.
+  const labelYs: (number | null)[] = ends.map(() => null);
+  ends
+    .map((e, si) => ({ si, y: e.val == null ? null : y(e.val) }))
+    .filter((e): e is { si: number; y: number } => e.y != null)
+    .sort((a, b) => a.y - b.y)
+    .forEach((e, k, arr) => {
+      if (k > 0 && e.y - arr[k - 1].y < 12) e.y = arr[k - 1].y + 12;
+      labelYs[e.si] = clamp(e.y, mt + 4, mt + ph - 4);
     });
-    return d;
+
+  const indexAt = (clientX: number) => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const px = ((clientX - rect.left) / rect.width) * W;
+    return clamp(Math.round(((px - ml) / pw) * (n - 1)), 0, n - 1);
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    let next: number | null | undefined;
+    if (e.key === "Escape") next = null;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = n - 1;
+    // The first arrow press reveals a point (the last for ←, the first for →); later ones step.
+    else if (e.key === "ArrowLeft") next = hover == null ? n - 1 : Math.max(0, hover - 1);
+    else if (e.key === "ArrowRight") next = hover == null ? 0 : Math.min(n - 1, hover + 1);
+    if (next === undefined) return;
+    e.preventDefault();
+    moveTo(next);
   };
 
-  const onMove = (e: React.MouseEvent) => {
-    const rect = wrapRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const px = ((e.clientX - rect.left) / rect.width) * W;
-    const i = Math.round(((px - ml) / pw) * (labels.length - 1));
-    setHover(Math.max(0, Math.min(labels.length - 1, i)));
-  };
+  const hoverRows =
+    hover == null
+      ? []
+      : series.flatMap((s, si) => {
+          const v = s.values[hover];
+          return v == null || isHidden(s.name, si) ? [] : [{ si, v }];
+        });
+  const tipY = hoverRows.length ? Math.min(...hoverRows.map((r) => y(r.v))) : mt;
+  const tipRows: TooltipRow[] = hoverRows.map(({ si, v }) => ({
+    value: fmtVal(v) + unit,
+    label: series.length > 1 ? series[si].name : undefined,
+    color: SERIES[si],
+    swatch: "line",
+  }));
 
   // Every ~nth x label so ticks never crowd (dataviz axis-readability).
-  const stepX = Math.max(1, Math.ceil(labels.length / 8));
+  const stepX = Math.max(1, Math.ceil(n / 8));
 
   return (
-    <div ref={wrapRef} className="relative" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-      <svg viewBox={`0 0 ${W} ${height}`} className="block w-full" role="img">
+    <div
+      ref={wrapRef}
+      className="relative rounded-md"
+      tabIndex={0}
+      role="group"
+      aria-roledescription="line chart"
+      aria-label={`${series.map((s) => s.name).join(", ")}, ${labels[0]} to ${labels[n - 1]}. Use the arrow keys to step through points.`}
+      onPointerMove={(e) => moveTo(indexAt(e.clientX))}
+      onPointerDown={(e) => {
+        if (e.pointerType === "touch") moveTo(indexAt(e.clientX));
+      }}
+      onPointerLeave={leaveUnlessTouch(clear)}
+      onKeyDown={onKeyDown}
+      onBlur={clear}
+    >
+      <svg viewBox={`0 0 ${W} ${height}`} className="block w-full" aria-hidden>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={ml} x2={W - mr} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" strokeWidth={1} />
-            <text x={ml - 8} y={y(t) + 3.5} textAnchor="end" className="fill-muted-foreground text-[10px]">
+            <text x={ml - 8} y={y(t) + 3.5} textAnchor="end" className="fill-muted-foreground font-mono text-[10px]">
               {t}{unit}
             </text>
           </g>
         ))}
         {labels.map((l, i) =>
           i % stepX === 0 ? (
-            <text key={i} x={x(i)} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+            <text key={i} x={xs[i]} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[10px]">
               {l}
             </text>
           ) : null,
         )}
         {threshold != null && (
           <g>
-            <line x1={ml} x2={W - mr} y1={y(threshold)} y2={y(threshold)} stroke="var(--muted-foreground)" strokeWidth={1.5} strokeDasharray="5 4" />
+            <motion.line
+              x1={ml}
+              y1={y(threshold)}
+              y2={y(threshold)}
+              initial={false}
+              animate={{ x2: enter ? [ml, W - mr] : W - mr }}
+              transition={{ ...DRAW, delay: 0.1 }}
+              stroke="var(--muted-foreground)"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+            />
             {thresholdLabel && (
-              <text x={W - mr} y={y(threshold) - 5} textAnchor="end" className="fill-muted-foreground text-[10px]">
+              <motion.text
+                x={W - mr}
+                y={y(threshold) - 5}
+                textAnchor="end"
+                className="fill-muted-foreground font-mono text-[10px]"
+                initial={false}
+                animate={{ opacity: enter ? [0, 1] : 1 }}
+                transition={{ duration: 0.4, delay: enter ? 0.7 : 0 }}
+              >
                 {thresholdLabel}
-              </text>
+              </motion.text>
             )}
           </g>
         )}
         {area && series.length === 1 && (
-          <path
-            d={`${path(series[0].values)}L${x(labels.length - 1)},${y(lo)}L${x(0)},${y(lo)}Z`}
+          <motion.path
+            d={areaPath(series[0].values)}
             fill={SERIES[0]}
             fillOpacity={0.08}
+            initial={false}
+            animate={{ opacity: isHidden(series[0].name, 0) ? 0 : enter ? [0, 1] : 1 }}
+            transition={enter ? { duration: 0.6, delay: 0.6 } : { duration: 0.2 }}
           />
         )}
         {hover != null && (
-          <line x1={x(hover)} x2={x(hover)} y1={mt} y2={mt + ph} stroke="var(--muted-foreground)" strokeOpacity={0.4} strokeWidth={1} />
+          <motion.line
+            x1={crossSpring}
+            x2={crossSpring}
+            y1={mt}
+            y2={mt + ph}
+            stroke="var(--muted-foreground)"
+            strokeOpacity={0.45}
+            strokeWidth={1}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.12 }}
+          />
         )}
-        {series.map((s, si) => (
-          <path key={s.name} d={path(s.values)} fill="none" stroke={SERIES[si]} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-        ))}
         {series.map((s, si) => {
-          let lastIdx = -1;
-          s.values.forEach((v, i) => {
-            if (v != null) lastIdx = i;
-          });
-          const lastVal = lastIdx >= 0 ? s.values[lastIdx] : null;
-          if (lastVal == null) return null;
+          const d = linePath(s.values);
+          if (!d) return null;
           return (
-            <circle
+            <motion.path
               key={s.name}
-              cx={x(lastIdx)}
-              cy={y(lastVal)}
+              d={d}
+              fill="none"
+              stroke={SERIES[si]}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              initial={false}
+              animate={{ pathLength: enter ? [0, 1] : 1, opacity: isHidden(s.name, si) ? 0 : 1 }}
+              transition={{ pathLength: { ...DRAW, delay: si * 0.12 }, opacity: { duration: 0.2 } }}
+            />
+          );
+        })}
+        {ends.map(({ idx: li, val }, si) => {
+          if (val == null) return null;
+          return (
+            <motion.g
+              key={series[si].name}
+              initial={false}
+              animate={{ opacity: isHidden(series[si].name, si) ? 0 : enter ? [0, 1] : 1 }}
+              transition={enter ? { duration: 0.35, delay: DRAW.duration - 0.2 + si * 0.12 } : { duration: 0.2 }}
+            >
+              <circle cx={xs[li]} cy={y(val)} r={4} fill={SERIES[si]} stroke="var(--card)" strokeWidth={2} />
+              {endLabels && (
+                <text
+                  x={xs[li] + 9}
+                  y={(labelYs[si] ?? y(val)) + 3.5}
+                  fill={SERIES[si]}
+                  className={cn("text-[10.5px] font-semibold", series.length === 1 && "font-mono")}
+                >
+                  {endText(si)}
+                </text>
+              )}
+            </motion.g>
+          );
+        })}
+        {hoverRows.map(({ si, v }) => (
+          <g key={series[si].name}>
+            <motion.circle
+              cx={crossSpring}
+              r={9}
+              fill={SERIES[si]}
+              fillOpacity={0.16}
+              initial={{ cy: y(v), scale: 0 }}
+              animate={{ cy: y(v), scale: 1 }}
+              transition={{ cy: SNAP, scale: POP }}
+            />
+            <motion.circle
+              cx={crossSpring}
               r={4}
               fill={SERIES[si]}
               stroke="var(--card)"
               strokeWidth={2}
+              initial={{ cy: y(v) }}
+              animate={{ cy: y(v) }}
+              transition={{ cy: SNAP }}
             />
-          );
-        })}
-        {hover != null &&
-          series.map((s, si) =>
-            s.values[hover] != null ? (
-              <circle key={s.name} cx={x(hover)} cy={y(s.values[hover]!)} r={4} fill={SERIES[si]} stroke="var(--card)" strokeWidth={2} />
-            ) : null,
-          )}
+          </g>
+        ))}
       </svg>
-      {hover != null && (
-        <div
-          className="bg-popover text-popover-foreground shadow-soft pointer-events-none absolute z-10 rounded-lg border px-3 py-2 text-xs"
-          style={{
-            left: `${(x(hover) / W) * 100}%`,
-            top: 0,
-            transform: x(hover) > W * 0.7 ? "translateX(calc(-100% - 10px))" : "translateX(10px)",
-          }}
-        >
-          <div className="text-muted-foreground mb-1 font-medium">{labels[hover]}</div>
-          {series.map(
-            (s, si) =>
-              s.values[hover] != null && (
-                <div key={s.name} className="flex items-center gap-2">
-                  <span className="h-0.5 w-3 rounded-full" style={{ background: SERIES[si] }} />
-                  <span className="font-semibold" data-numeric>
-                    {Number(s.values[hover]).toFixed(2)}
-                  </span>
-                  {series.length > 1 && <span className="text-muted-foreground">{s.name}</span>}
-                </div>
-              ),
-          )}
-        </div>
-      )}
+      <ChartTooltip
+        open={hover != null && hoverRows.length > 0}
+        x={hover == null ? 0 : xs[hover]}
+        y={tipY}
+        viewBox={[W, height]}
+        boundsRef={wrapRef}
+        title={hover == null ? undefined : labels[hover]}
+        rows={tipRows}
+        live
+      />
     </div>
   );
 }

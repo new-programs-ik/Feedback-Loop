@@ -1,16 +1,23 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import * as React from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { toast } from "sonner";
 import { createAnalysis, type AnalyzeState } from "../actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Clapperboard, FileText, Loader2, Paperclip } from "lucide-react";
+import { Reveal, EASE_OUT } from "@/components/motion/reveal";
+import {
+  Check, CircleDashed, Clapperboard, Eye, FileText, Loader2, Paperclip, Upload, type LucideIcon,
+} from "lucide-react";
 import {
   APPROVAL_BAR, BORDERLINE, GOOD, MIN_VOICES, PARTICIPATION_BAR, URGENT, decide, decideV2, explain, explainV2,
   voteLabel, type HealthBand,
 } from "@/lib/decision";
 import { PriorityChip } from "@/components/priority-chip";
+import { cn } from "@/lib/utils";
 
 const label = "text-sm font-medium";
 const field =
@@ -18,6 +25,17 @@ const field =
 
 const prettyDate = (isoDate: string) =>
   new Date(isoDate + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" });
+
+const fmtSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const VERDICT_ICON: Record<string, LucideIcon> = {
+  "Video Analysis": Clapperboard,
+  "Transcript Analysis": FileText,
+  "Watch only": Eye,
+  "No analysis needed": Check,
+  "Almost there": CircleDashed,
+};
 
 function Section({
   icon: Icon,
@@ -61,6 +79,103 @@ export type Prefill = {
   video: boolean;
 };
 
+/** Drop zone for class materials. Files dropped on it are handed to the real <input type=file>
+ *  (via DataTransfer) so the form posts exactly as before; the input stays focusable for
+ *  keyboard users. Drag-over is a visible state, not just a cursor. */
+function MaterialsDropZone() {
+  const reduce = useReducedMotion();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [files, setFiles] = useState<{ name: string; size: number }[]>([]);
+
+  const readFiles = (list: FileList | null) => setFiles(Array.from(list ?? []).map((f) => ({ name: f.name, size: f.size })));
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!dragging) setDragging(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragging(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const input = inputRef.current;
+    if (!input) return;
+    const dt = new DataTransfer();
+    for (const f of Array.from(e.dataTransfer.files)) dt.items.add(f);
+    input.files = dt.files;
+    readFiles(dt.files);
+  };
+  const clear = () => {
+    if (inputRef.current) inputRef.current.value = "";
+    setFiles([]);
+  };
+
+  return (
+    <div className="space-y-2">
+      <motion.label
+        htmlFor="materials"
+        onDragEnter={onDragOver}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        animate={{ scale: dragging && !reduce ? 1.01 : 1 }}
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        className={cn(
+          "focus-within:ring-ring flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-5 text-center transition-colors focus-within:ring-2",
+          dragging ? "border-primary bg-primary/5" : "hover:bg-muted/40",
+        )}
+      >
+        <span
+          className={cn(
+            "bg-muted text-muted-foreground flex size-9 items-center justify-center rounded-full transition-colors",
+            dragging && "bg-primary/10 text-primary",
+          )}
+        >
+          <Upload className="size-4" aria-hidden />
+        </span>
+        <span className="text-sm font-medium">{dragging ? "Drop to attach" : "Drop files here, or click to browse"}</span>
+        <span className="text-muted-foreground text-xs">PDF, PPTX, DOCX, TXT, MD, IPYNB · keep the total under ~4 MB</span>
+        <input
+          ref={inputRef}
+          id="materials"
+          name="materials"
+          type="file"
+          multiple
+          accept=".pdf,.pptx,.docx,.txt,.md,.ipynb"
+          className="sr-only"
+          onChange={(e) => readFiles(e.target.files)}
+        />
+      </motion.label>
+      <AnimatePresence initial={false}>
+        {files.length > 0 && (
+          <motion.ul
+            className="space-y-1 text-xs"
+            initial={reduce ? false : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: EASE_OUT }}
+          >
+            {files.map((f) => (
+              <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
+                <FileText className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{f.name}</span>
+                <span className="text-muted-foreground shrink-0" data-numeric>{fmtSize(f.size)}</span>
+              </li>
+            ))}
+            <li>
+              <button type="button" onClick={clear} className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
+                Clear files
+              </button>
+            </li>
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function NewAnalysisForm({
   courses,
   instructorNames,
@@ -70,6 +185,7 @@ export function NewAnalysisForm({
   instructorNames: string[];
   prefill?: Prefill;
 }) {
+  const reduce = useReducedMotion();
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
   const [courseId, setCourseId] = useState(prefill?.courseId ?? "");
   const [classType, setClassType] = useState<"live_class" | "ars">(prefill?.classType ?? "live_class");
@@ -83,6 +199,12 @@ export function NewAnalysisForm({
   const [hYes, setHYes] = useState(prefill?.yesVotes ?? "");
   const [hNo, setHNo] = useState(prefill?.noVotes ?? "");
   const [hEscalation, setHEscalation] = useState(prefill?.escalated ?? false);
+
+  // A failed start is loud (toast) AND persistent (inline, below the form).
+  useEffect(() => {
+    if (state.error) toast.error("Couldn't start the analysis", { description: state.error });
+  }, [state]);
+
   const r = parseFloat(hRating);
   const att = parseInt(hAttended, 10);
   const yes = parseInt(hYes, 10);
@@ -137,6 +259,10 @@ export function NewAnalysisForm({
     }
   }
   const prefillVote = prefill ? voteLabel(parseInt(prefill.yesVotes, 10), parseInt(prefill.noVotes, 10)) : null;
+  // The card re-animates only when the VERDICT changes — not on every keystroke that nudges
+  // the explanation, which would flicker while you type.
+  const verdictKey = advice ? `${advice.title}|${advice.band ?? ""}` : "none";
+  const VerdictIcon = advice ? (VERDICT_ICON[advice.title] ?? CircleDashed) : CircleDashed;
 
   return (
     <Card className="shadow-soft max-w-2xl">
@@ -150,26 +276,28 @@ export function NewAnalysisForm({
         <form action={formAction} className="space-y-7">
           {prefill && <input type="hidden" name="class_rating_id" value={prefill.classRatingId} />}
           {prefill && (
-            <div className="bg-card flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border px-4 py-3 text-sm">
-              <span className="font-semibold">From the queue:</span>
-              <span className="text-muted-foreground min-w-0 truncate">
-                {prefill.topic} · {prettyDate(prefill.classDate)}
-              </span>
-              <span data-numeric>
-                rated <b className="font-semibold">{prefill.rating}</b>
-              </span>
-              <span data-numeric>
-                {prefillVote ? (
-                  <>
-                    <b className="font-semibold">{prefillVote}</b>{" "}
-                    <span className="text-muted-foreground">would have the instructor back</span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">no vote recorded</span>
-                )}
-              </span>
-              <PriorityChip band={prefill.healthBand} score={prefill.healthScore} />
-            </div>
+            <Reveal>
+              <div className="bg-card flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border px-4 py-3 text-sm">
+                <span className="font-semibold">From the queue:</span>
+                <span className="text-muted-foreground min-w-0 truncate">
+                  {prefill.topic} · {prettyDate(prefill.classDate)}
+                </span>
+                <span data-numeric>
+                  rated <b className="font-semibold">{prefill.rating}</b>
+                </span>
+                <span data-numeric>
+                  {prefillVote ? (
+                    <>
+                      <b className="font-semibold">{prefillVote}</b>{" "}
+                      <span className="text-muted-foreground">would have the instructor back</span>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">no vote recorded</span>
+                  )}
+                </span>
+                <PriorityChip band={prefill.healthBand} score={prefill.healthScore} />
+              </div>
+            </Reveal>
           )}
           <div className="bg-accent/40 space-y-3 rounded-xl border p-4">
             <div className="text-sm font-semibold">🧭 Not sure which analysis? Answer a few things:</div>
@@ -204,21 +332,47 @@ export function NewAnalysisForm({
                 Escalation reported
               </label>
             </div>
-            {advice && (
-              <div className="bg-card flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-                <div className="text-sm">
-                  <span className="font-semibold">{advice.title}</span>
-                  {advice.band && <PriorityChip band={advice.band} score={advice.score} className="ml-2 align-middle" />}
-                  <span className="text-muted-foreground"> — {advice.detail}</span>
-                </div>
-                {advice.video != null && advice.title !== "No analysis needed" && (
-                  <Button type="button" size="sm" variant={advice.video === analyzeVideo ? "outline" : "default"}
-                          onClick={() => setAnalyzeVideo(advice.video === true)}>
-                    {advice.video === analyzeVideo ? "Applied ✓" : advice.video ? "Turn video ON" : "Keep transcript only"}
-                  </Button>
+            {/* height reserved so the card never jumps the rest of the form around */}
+            <div className={cn("relative", advice ? "min-h-14" : "min-h-0")}>
+              <AnimatePresence mode="wait" initial={false}>
+                {advice && (
+                  <motion.div
+                    key={verdictKey}
+                    initial={reduce ? false : { opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reduce ? undefined : { opacity: 0, y: -4 }}
+                    transition={{ duration: 0.22, ease: EASE_OUT }}
+                    className="bg-card flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+                    aria-live="polite"
+                  >
+                    <div className="flex min-w-0 items-start gap-2.5 text-sm">
+                      <span
+                        className={cn(
+                          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
+                          advice.video === true ? "bg-destructive/10 text-destructive"
+                          : advice.title === "No analysis needed" ? "bg-success/10 text-success"
+                          : advice.title === "Transcript Analysis" ? "bg-warning/15 text-warning"
+                          : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <VerdictIcon className="size-3.5" aria-hidden />
+                      </span>
+                      <div className="min-w-0">
+                        <span className="font-semibold">{advice.title}</span>
+                        {advice.band && <PriorityChip band={advice.band} score={advice.score} className="ml-2 align-middle" />}
+                        <span className="text-muted-foreground"> — {advice.detail}</span>
+                      </div>
+                    </div>
+                    {advice.video != null && advice.title !== "No analysis needed" && (
+                      <Button type="button" size="sm" variant={advice.video === analyzeVideo ? "outline" : "default"}
+                              onClick={() => setAnalyzeVideo(advice!.video === true)}>
+                        {advice.video === analyzeVideo ? "Applied ✓" : advice.video ? "Turn video ON" : "Keep transcript only"}
+                      </Button>
+                    )}
+                  </motion.div>
                 )}
-              </div>
-            )}
+              </AnimatePresence>
+            </div>
             <p className="text-muted-foreground text-xs">
               Team rule: below {GOOD}, or under {APPROVAL_BAR}% would have the instructor back → needs a look ·
               fewer than {MIN_VOICES} ratings → watch only · Health Score under {URGENT} → urgent, video ·{" "}
@@ -327,8 +481,7 @@ export function NewAnalysisForm({
           </Section>
 
           <Section icon={Paperclip} title="Class materials" hint="optional — improves accuracy, costs more tokens">
-            <Input id="materials" name="materials" type="file" multiple
-                   accept=".pdf,.pptx,.docx,.txt,.md,.ipynb" className="file:mr-3 file:text-sm" />
+            <MaterialsDropZone />
             <input name="materials_url" type="url" className={field}
                    placeholder="…or paste a materials LINK (Google Drive / Docs / Slides)" />
             <textarea name="materials_text" rows={2} className={field + " h-auto py-2"}
@@ -340,19 +493,43 @@ export function NewAnalysisForm({
             </p>
           </Section>
 
-          {state.error && (
-            <p className="text-destructive bg-destructive/5 rounded-lg border border-current/20 px-3 py-2 text-sm">
-              {state.error}
-            </p>
-          )}
+          <AnimatePresence initial={false}>
+            {state.error && (
+              <motion.p
+                key={state.error}
+                role="alert"
+                initial={reduce ? false : { opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE_OUT }}
+                className="text-destructive bg-destructive/5 rounded-lg border border-current/20 px-3 py-2 text-sm"
+              >
+                {state.error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-          <div className="flex items-center gap-3 border-t pt-5">
-            <Button type="submit" disabled={pending} className="min-w-32">
-              {pending ? (<><Loader2 className="size-4 animate-spin" /> Starting…</>) : "Analyze class"}
-            </Button>
-            <span className="text-muted-foreground text-xs">
-              Runs in the background — you&apos;ll land on the report page while it works.
-            </span>
+          <div className="border-t pt-5">
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={pending} aria-busy={pending} className="min-w-36">
+                {pending ? (<><Loader2 className="size-4 animate-spin" aria-hidden /> Starting…</>) : "Analyze class"}
+              </Button>
+              <span className="text-muted-foreground text-xs" aria-live="polite">
+                {pending
+                  ? "Handing the recording to the AI engine — a few seconds."
+                  : "Runs in the background — you'll land on the report page while it works."}
+              </span>
+            </div>
+            {/* indeterminate progress line: the track is always there (no shift), the bar only while pending */}
+            <div className={cn("mt-3 h-0.5 overflow-hidden rounded-full", pending ? "bg-muted" : "bg-transparent")} aria-hidden>
+              {pending && (
+                <motion.div
+                  className="bg-primary h-full w-1/3 rounded-full"
+                  animate={reduce ? { opacity: [0.4, 1, 0.4], x: "100%" } : { x: ["-100%", "300%"] }}
+                  transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                />
+              )}
+            </div>
           </div>
         </form>
       </CardContent>

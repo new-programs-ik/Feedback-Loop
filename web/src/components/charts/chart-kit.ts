@@ -63,3 +63,26 @@ export function fmtMonth(ym: string): string {
 export function fmtDate(iso: string): string {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** Rough advance width of `text` at `px` (Geist ≈ 0.56em per character) — enough to reserve
+ *  room for direct labels without measuring the DOM. */
+export function estimateTextWidth(text: string, px = 10.5): number {
+  return text.length * px * 0.56;
+}
+
+/** Split a formatted value ("$1,240", "78%", "4.55") into what CountUp needs, or null when the
+ *  string is not a single number. A 4+ digit integer written WITHOUT separators is rejected: the
+ *  counter would add commas and change the label's shape mid-count. */
+export function parseNumeric(
+  s: string,
+): { prefix: string; value: number; decimals: number; suffix: string } | null {
+  const m = /^([^\d-]*)(-?\d[\d,]*)(?:\.(\d+))?([^\d]*)$/.exec(s.trim());
+  if (!m) return null;
+  const [, prefix, int, frac = "", suffix] = m;
+  if (int.replace("-", "").length > 3 && !int.includes(",")) return null;
+  const value = Number(int.replace(/,/g, "") + (frac ? `.${frac}` : ""));
+  if (!Number.isFinite(value)) return null;
+  return { prefix, value, decimals: frac.length, suffix };
+}

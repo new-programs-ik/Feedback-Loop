@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/session";
@@ -31,12 +30,13 @@ export async function createCourse(_prev: CourseState, formData: FormData): Prom
   return { ok: `Added "${name}".` };
 }
 
-/** Delete a course — admin only, and only when it has no cohorts or analyses. */
-export async function deleteCourse(formData: FormData) {
+/** Delete a course — admin only, and only when it has no cohorts or analyses. Returns the outcome
+ *  (instead of throwing) so the button can toast a real message; the page revalidates in place. */
+export async function deleteCourse(formData: FormData): Promise<CourseState> {
   const user = await getCurrentUser();
-  if (!user || user.role !== "admin") throw new Error("Only admins can delete a course.");
+  if (!user || user.role !== "admin") return { error: "Only admins can delete a course." };
   const id = String(formData.get("course_id") ?? "");
-  if (!id) throw new Error("Missing course.");
+  if (!id) return { error: "Missing course." };
 
   const supabase = await createClient();
   const [{ count: nClasses }, { count: nCohorts }] = await Promise.all([
@@ -44,11 +44,12 @@ export async function deleteCourse(formData: FormData) {
     supabase.from("cohorts").select("id", { count: "exact", head: true }).eq("course_id", id),
   ]);
   if ((nClasses ?? 0) > 0 || (nCohorts ?? 0) > 0) {
-    throw new Error("This course still has cohorts or analyses — it can only be deleted when empty.");
+    return { error: "This course still has cohorts or analyses — it can only be deleted when empty." };
   }
   const del = await supabase.from("courses").delete().eq("id", id);
-  if (del.error) throw new Error("Could not delete: " + del.error.message);
+  if (del.error) return { error: "Could not delete: " + del.error.message };
 
   revalidatePath("/courses");
-  redirect("/courses");
+  revalidatePath("/feedback/new");
+  return { ok: "Course deleted." };
 }

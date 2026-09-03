@@ -1,6 +1,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { AutoSubmit } from "@/components/auto-submit";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +31,9 @@ export function rangeToDates(range: RangePreset, from?: string, to?: string) {
 }
 
 /** The one filter row used by every data page: GET form (URL = state, shareable, back-button
- *  safe), auto-submits on change, sits in a single line above what it scopes. */
+ *  safe), auto-submits on change. From `md` up it is a frosted strip that sticks just under the
+ *  topbar, so the scope of what you're reading is always one glance away; on phones it scrolls
+ *  with the page (a sticky row would eat too much of a 375px viewport). */
 export function FilterBar({
   basePath,
   range,
@@ -38,6 +42,7 @@ export function FilterBar({
   courseId,
   courses,
   extra,
+  sticky = true,
   className,
 }: {
   basePath: string;
@@ -48,6 +53,8 @@ export function FilterBar({
   courses?: { id: string; name: string }[];
   /** Extra hidden inputs to preserve other query params (e.g. sort). */
   extra?: Record<string, string>;
+  /** Pin under the topbar from `md` up (default). */
+  sticky?: boolean;
   className?: string;
 }) {
   const hasFilters = range !== "30d" || !!courseId;
@@ -56,7 +63,12 @@ export function FilterBar({
       method="get"
       action={basePath}
       data-print-hide
-      className={cn("mb-5 flex flex-wrap items-center gap-2", className)}
+      data-slot="filter-bar"
+      className={cn(
+        "mb-5 flex flex-wrap items-center gap-2",
+        sticky && "glass z-10 -mx-4 border-b px-4 py-2.5 md:sticky md:top-16 md:-mx-8 md:px-8",
+        className,
+      )}
     >
       {Object.entries(extra ?? {}).map(([k, v]) => (
         <input key={k} type="hidden" name={k} value={v} />
@@ -72,27 +84,10 @@ export function FilterBar({
       </AutoSubmit>
       {range === "custom" && (
         <>
-          <input
-            type="date"
-            name="from"
-            defaultValue={from}
-            aria-label="From date"
-            className="border-input bg-card focus-visible:ring-ring/50 h-9 rounded-md border px-2.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
-          />
+          <Input type="date" name="from" defaultValue={from} aria-label="From date" className="w-[9.75rem]" />
           <span className="text-muted-foreground text-sm">to</span>
-          <input
-            type="date"
-            name="to"
-            defaultValue={to}
-            aria-label="To date"
-            className="border-input bg-card focus-visible:ring-ring/50 h-9 rounded-md border px-2.5 text-sm focus-visible:ring-2 focus-visible:outline-none"
-          />
-          <button
-            type="submit"
-            className="bg-primary text-primary-foreground h-9 cursor-pointer rounded-md px-3 text-sm font-medium"
-          >
-            Apply
-          </button>
+          <Input type="date" name="to" defaultValue={to} aria-label="To date" className="w-[9.75rem]" />
+          <Button type="submit">Apply</Button>
         </>
       )}
       {courses && (
@@ -108,7 +103,10 @@ export function FilterBar({
         </AutoSubmit>
       )}
       {hasFilters && (
-        <Link href={basePath} className="text-muted-foreground hover:text-foreground px-1 text-sm">
+        <Link
+          href={basePath}
+          className="text-muted-foreground hover:text-foreground hover:bg-accent inline-flex h-9 items-center rounded-md px-2.5 text-sm transition-colors"
+        >
           Clear
         </Link>
       )}

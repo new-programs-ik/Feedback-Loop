@@ -85,9 +85,10 @@ export async function mapCourseLabel(formData: FormData) {
   revalidatePath("/course-analytics");
 }
 
-/** Ask the worker to pull the sheet right now. */
-export async function syncNow() {
-  await requirePm();
+const SYNC_ASLEEP = "Could not reach the sync service — it may be waking up; try again in a minute.";
+
+/** POST /sync-ratings on the worker. Resolves to null on success, or the friendly reason. */
+async function askWorkerToSync(): Promise<string | null> {
   const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
@@ -99,8 +100,31 @@ export async function syncNow() {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`worker said ${res.status}`);
+    return null;
   } catch {
-    throw new Error("Could not reach the sync service — it may be waking up; try again in a minute.");
+    return SYNC_ASLEEP;
   }
+}
+
+/** Ask the worker to pull the sheet right now. Throws the friendly reason on failure — the
+ *  command palette relies on this shape. */
+export async function syncNow() {
+  await requirePm();
+  const err = await askWorkerToSync();
+  if (err) throw new Error(err);
   revalidatePath("/ratings");
+}
+
+export type SyncResult = { ok: true } | { ok: false; error: string };
+
+/** Same request as syncNow, but the outcome comes back as a VALUE. Production strips the
+ *  message off errors thrown from a Server Action, so a client button that wants to show
+ *  "it may be waking up" has to receive it as data, not as an exception. */
+export async function requestSync(): Promise<SyncResult> {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "pm")) return { ok: false, error: "Not authorized." };
+  const err = await askWorkerToSync();
+  if (err) return { ok: false, error: err };
+  revalidatePath("/ratings");
+  return { ok: true };
 }

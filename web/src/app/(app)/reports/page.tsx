@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/page-header";
 import { AutoSubmit } from "@/components/auto-submit";
 import { SegmentedTabs } from "@/components/ui/tabs";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { StatTile } from "@/components/ui/stat-tile";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +13,14 @@ import { SectionHeader } from "@/components/ui/callout";
 import { BandDot, Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 import { ChartCard } from "@/components/charts/chart-card";
 import { Histogram } from "@/components/charts/histogram";
+import { Stagger, StaggerItem } from "@/components/motion/reveal";
+import { PRINT_SAFE } from "@/components/insights/print-safe";
 import { approvalTone } from "@/components/priority-chip";
 import { fetchRatings, byCourse, bands, liveVsReview, worstClasses, summarize } from "@/lib/ratings";
 import { APPROVAL_BAR, GOOD, voteLabel } from "@/lib/decision";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 import { PrintButton } from "./print-button";
 
 export const metadata = { title: "Reports" };
@@ -131,17 +136,13 @@ export default async function ReportsPage({
           </AutoSubmit>
         </form>
         {kind === "custom" && (
-          <form method="get" action="/reports" className="flex items-center gap-2">
+          <form method="get" action="/reports" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="range" value="custom" />
             {courseId && <input type="hidden" name="course" value={courseId} />}
-            <input type="date" name="from" defaultValue={from} aria-label="From date"
-                   className="border-input bg-card h-9 rounded-md border px-2.5 text-sm" />
+            <Input type="date" name="from" defaultValue={from} aria-label="From date" className="w-[9.75rem]" />
             <span className="text-muted-foreground text-sm">to</span>
-            <input type="date" name="to" defaultValue={to} aria-label="To date"
-                   className="border-input bg-card h-9 rounded-md border px-2.5 text-sm" />
-            <button type="submit" className="bg-primary text-primary-foreground h-9 cursor-pointer rounded-md px-3 text-sm font-medium">
-              Apply
-            </button>
+            <Input type="date" name="to" defaultValue={to} aria-label="To date" className="w-[9.75rem]" />
+            <Button type="submit">Apply</Button>
           </form>
         )}
       </div>
@@ -156,16 +157,26 @@ export default async function ReportsPage({
                 ? "Try Monthly, a custom range, or switch back to All courses."
                 : "The sheet may not have rows here yet — try Monthly or a custom range."
             }
+            action={
+              <Button asChild variant="outline" size="sm">
+                <Link href={courseId ? tab("monthly") : "/reports?range=monthly"}>Show this month</Link>
+              </Button>
+            }
           />
         </div>
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-stagger>
-            <StatTile label="Classes rated" value={total.n} />
-            <StatTile label="Average rating" value={fmtAvg(total.avgRating)} />
+            <StatTile label="Classes rated" count={{ value: total.n }} />
+            <StatTile
+              label="Average rating"
+              count={total.avgRating == null ? undefined : { value: total.avgRating, decimals: 2 }}
+              value={total.avgRating == null ? "—" : undefined}
+            />
             <StatTile
               label="Would have the instructor back"
-              value={fmtPct(total.approval)}
+              count={total.approval == null ? undefined : { value: Math.round(total.approval), suffix: "%" }}
+              value={total.approval == null ? "—" : undefined}
               tone={total.approval != null && total.approval < APPROVAL_BAR ? "destructive" : "default"}
               note={
                 total.votes > 0
@@ -175,11 +186,15 @@ export default async function ReportsPage({
             />
             <StatTile
               label={`Below ${GOOD}`}
-              value={total.bad}
+              count={{ value: total.bad }}
               tone={total.bad > 0 ? "destructive" : "success"}
               note={total.badShare != null ? `${Math.round(total.badShare * 100)}% of classes` : undefined}
             />
-            <StatTile label="Avg participation" value={fmtPct(total.avgParticipation)} />
+            <StatTile
+              label="Avg participation"
+              count={total.avgParticipation == null ? undefined : { value: Math.round(total.avgParticipation), suffix: "%" }}
+              value={total.avgParticipation == null ? "—" : undefined}
+            />
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -241,7 +256,15 @@ export default async function ReportsPage({
                 <TableBody>
                   {courseRows.map((c) => (
                     <TableRow key={c.key}>
-                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {c.courseId ? (
+                          <Link href={courseHref(c.courseId)} className="hover:text-primary transition-colors">
+                            {c.name}
+                          </Link>
+                        ) : (
+                          c.name
+                        )}
+                      </TableCell>
                       <TableNum>{c.n}</TableNum>
                       <TableNum>{fmtAvg(c.avgRating)}</TableNum>
                       <ApprovalNum value={c.approval} />
@@ -317,13 +340,14 @@ export default async function ReportsPage({
                 Every course separated out — the same numbers, per course. Open a full report to scope
                 the whole page to one course.
               </p>
-              <div className="grid gap-4 md:grid-cols-2">
+              <Stagger className={cn("grid gap-4 md:grid-cols-2", PRINT_SAFE)} step={0.06}>
                 {courseRows.map((c) => {
                   const [live, review] = liveVsReview(c.rows);
                   const worstOf = [...c.rows].sort((a, b) => a.rating - b.rating)[0];
                   const share = Math.round((c.badShare ?? 0) * 100);
                   return (
-                    <div key={c.key} className="bg-card shadow-soft break-inside-avoid rounded-xl border p-4 sm:p-5">
+                    <StaggerItem key={c.key} className={cn("break-inside-avoid", PRINT_SAFE)}>
+                     <div className="bg-card shadow-soft hover-lift h-full rounded-xl border p-4 sm:p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h3 className="truncate text-sm font-semibold" title={c.name}>{c.name}</h3>
@@ -367,9 +391,10 @@ export default async function ReportsPage({
                         <span className="flex items-baseline gap-1.5">
                           <span
                             data-numeric
-                            className={`text-[22px] leading-none font-semibold tracking-[-0.02em] ${
-                              c.approval != null && c.approval < APPROVAL_BAR ? "text-destructive" : ""
-                            }`}
+                            className={cn(
+                              "text-[22px] leading-none font-semibold tracking-[-0.02em]",
+                              c.approval != null && c.approval < APPROVAL_BAR && "text-destructive",
+                            )}
                           >
                             {c.approval != null && <BandDot tone={approvalTone(c.approval)} />}
                             {fmtPct(c.approval)}
@@ -427,16 +452,21 @@ export default async function ReportsPage({
                         <div className="mt-3.5 border-t pt-3" data-print-hide>
                           <Link
                             href={courseHref(c.courseId)}
-                            className="text-primary inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
+                            className="text-primary group/link inline-flex items-center gap-1 text-[13px] font-medium hover:underline"
                           >
-                            Full report <ArrowRight className="size-3.5" aria-hidden />
+                            Full report{" "}
+                            <ArrowRight
+                              className="size-3.5 transition-transform duration-200 group-hover/link:translate-x-0.5"
+                              aria-hidden
+                            />
                           </Link>
                         </div>
                       )}
-                    </div>
+                     </div>
+                    </StaggerItem>
                   );
                 })}
-              </div>
+              </Stagger>
             </>
           )}
         </>

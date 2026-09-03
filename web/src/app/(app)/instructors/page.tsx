@@ -1,17 +1,18 @@
 import { redirect } from "next/navigation";
+import { UserCog } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { MergeForm } from "./merge-form";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Meter, Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 
-export default async function InstructorsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ merged?: string }>;
-}) {
+export const metadata = { title: "Instructors" };
+
+export default async function InstructorsPage() {
   const user = await requireUser();
   if (user.role !== "admin") redirect("/dashboard");
-  const sp = await searchParams;
   const supabase = await createClient();
 
   const [{ data: instructors }, { data: cc }, { data: cls }] = await Promise.all([
@@ -28,45 +29,57 @@ export default async function InstructorsPage({
   for (const r of (cls ?? []) as Array<{ instructor_id?: string }>) bump(r.instructor_id);
 
   const list = (instructors ?? []) as Array<{ id: string; name: string }>;
+  const maxUses = Math.max(1, ...list.map((i) => uses.get(i.id) ?? 0));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Instructors</h1>
-        <p className="text-muted-foreground mt-1">
-          The sheet has some name variants (e.g. Ahmed / Ahmed Elbagoury). Merge duplicates so
-          analytics stay clean — everything on one name moves to the other.
-        </p>
-      </div>
+    <div className="animate-in-up">
+      <PageHeader
+        title="Instructors"
+        description="The sheet has some name variants (e.g. Ahmed / Ahmed Elbagoury). Merge duplicates so analytics stay clean — everything on one name moves to the other."
+      />
 
-      <Card>
+      <Card className="mb-5">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Merge duplicates</CardTitle>
+          <CardTitle className="text-[15px]">Merge duplicates</CardTitle>
           <CardDescription>Pick the duplicate to remove and the correct name to keep.</CardDescription>
         </CardHeader>
         <CardContent>
           <MergeForm instructors={list} />
-          {sp.merged && <p className="mt-3 text-sm text-emerald-600">Merged ✓</p>}
         </CardContent>
       </Card>
 
-      <div className="overflow-hidden rounded-xl border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-muted-foreground text-left">
-            <tr>
-              <th className="px-4 py-2.5 font-medium">Instructor</th>
-              <th className="px-4 py-2.5 font-medium">Used by (classes)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((i) => (
-              <tr key={i.id} className="border-t">
-                <td className="px-4 py-3 font-medium">{i.name}</td>
-                <td className="text-muted-foreground px-4 py-3">{uses.get(i.id) ?? 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
+        {list.length === 0 ? (
+          <EmptyState
+            icon={UserCog}
+            title="No instructors yet"
+            description="Names arrive with the ratings sheet sync and with each new analysis."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Instructor</TableHead>
+                <TableHead>Share of references</TableHead>
+                <TableHead className="text-right">Used by (classes)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody data-stagger>
+              {list.map((i) => {
+                const n = uses.get(i.id) ?? 0;
+                return (
+                  <TableRow key={i.id}>
+                    <TableCell className="font-medium">{i.name}</TableCell>
+                    <TableCell>
+                      <Meter value={(n / maxUses) * 100} className="[&>span:last-child]:hidden" />
+                    </TableCell>
+                    <TableNum className={n === 0 ? "text-muted-foreground" : ""}>{n}</TableNum>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
       </div>
     </div>
   );

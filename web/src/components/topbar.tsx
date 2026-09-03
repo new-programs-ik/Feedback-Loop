@@ -3,6 +3,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { MobileNav } from "@/components/mobile-nav";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { SearchButton } from "@/components/search-button";
 import type { SessionUser } from "@/lib/session";
 
 function initials(name: string): string {
@@ -14,16 +15,17 @@ export function Topbar({ user }: { user: SessionUser }) {
   return (
     <header
       data-print-hide
-      className="bg-background/80 sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b px-4 backdrop-blur-sm md:px-8"
+      className="glass sticky top-0 z-20 flex h-16 items-center justify-between gap-4 border-b px-4 md:px-8"
     >
       <div className="flex min-w-0 items-center gap-3">
         <MobileNav role={user.role} />
         <div className="font-semibold tracking-tight md:hidden">Feedback Loop</div>
         <Breadcrumbs />
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
+        <SearchButton />
         <ThemeToggle />
-        <Badge variant="secondary" className="hidden capitalize sm:inline-flex">
+        <Badge variant="secondary" className="hidden capitalize lg:inline-flex">
           {user.role === "pm" ? "Program Manager" : user.role}
         </Badge>
         <div className="hidden text-right leading-tight sm:block">
@@ -32,7 +34,7 @@ export function Topbar({ user }: { user: SessionUser }) {
             <div className="text-muted-foreground text-xs">{user.email}</div>
           )}
         </div>
-        <div className="from-primary/90 flex size-9 items-center justify-center rounded-full bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-[13px] font-semibold text-white shadow-sm">
+        <div className="from-primary/90 ring-background flex size-9 items-center justify-center rounded-full bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-[13px] font-semibold text-white shadow-sm ring-2">
           {initials(user.name)}
         </div>
         <LogoutButton />

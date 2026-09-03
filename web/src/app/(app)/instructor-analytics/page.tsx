@@ -18,6 +18,7 @@ import {
 } from "@/lib/ratings";
 import { APPROVAL_BAR, GOOD, voteLabel } from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
+import { SmeGalaxy } from "@/components/three/sme-galaxy";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 
@@ -276,6 +277,14 @@ export default async function InstructorAnalyticsPage({
         courses={courseList}
         extra={sp.sort ? { sort: sp.sort } : undefined}
       />
+      {smes.length > 0 && (
+        <SmeGalaxy
+          points={smes.map((s) => ({
+            name: s.name, n: s.n, avgRating: s.avgRating, approval: s.approval, avgParticipation: s.avgParticipation, bad: s.bad,
+          }))}
+          query={qs().toString()}
+        />
+      )}
       {smes.length === 0 ? (
         <div className="bg-card shadow-soft rounded-xl border">
           <EmptyState icon={GraduationCap} title="No instructor data in this range"

@@ -1,18 +1,21 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/session";
 
-/** Merge one instructor into another: reassign every reference, then delete the duplicate. */
-export async function mergeInstructors(formData: FormData) {
+export type MergeState = { error?: string; ok?: string };
+
+/** Merge one instructor into another: reassign every reference, then delete the duplicate.
+ *  Returns the outcome (instead of throwing) so the form can toast a real message; the page
+ *  revalidates in place. */
+export async function mergeInstructors(formData: FormData): Promise<MergeState> {
   const user = await getCurrentUser();
-  if (!user || user.role !== "admin") throw new Error("Only admins can merge instructors.");
+  if (!user || user.role !== "admin") return { error: "Only admins can merge instructors." };
   const fromId = String(formData.get("from_id") ?? "");
   const toId = String(formData.get("to_id") ?? "");
-  if (!fromId || !toId) throw new Error("Pick both instructors.");
-  if (fromId === toId) throw new Error("Pick two different instructors.");
+  if (!fromId || !toId) return { error: "Pick both instructors." };
+  if (fromId === toId) return { error: "Pick two different instructors." };
 
   const supabase = await createClient();
   // Reassign every place an instructor can be referenced.
@@ -23,8 +26,9 @@ export async function mergeInstructors(formData: FormData) {
   await supabase.from("class_catalog").update({ instructor_id: toId }).eq("instructor_id", fromId);
 
   const del = await supabase.from("instructors").delete().eq("id", fromId);
-  if (del.error) throw new Error("Could not merge: " + del.error.message);
+  if (del.error) return { error: "Could not merge: " + del.error.message };
 
   revalidatePath("/instructors");
-  redirect("/instructors?merged=1");
+  revalidatePath("/instructor-analytics");
+  return { ok: "Merged." };
 }

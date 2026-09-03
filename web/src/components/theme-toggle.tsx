@@ -18,8 +18,14 @@ function apply(theme: Theme) {
   const dark =
     theme === "dark" ||
     (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.classList.toggle("dark", dark);
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  const root = document.documentElement;
+  // Cross-fade colours for the flip (the class is defined in globals.css), then drop it so
+  // ordinary interactions are not slowed down by a global transition.
+  root.classList.add("theme-transition");
+  root.classList.toggle("dark", dark);
+  root.style.colorScheme = dark ? "dark" : "light";
+  window.setTimeout(() => root.classList.remove("theme-transition"), 300);
+  window.dispatchEvent(new Event("theme-change"));
 }
 
 const NEXT: Record<Theme, Theme> = { light: "dark", dark: "system", system: "light" };
@@ -59,12 +65,14 @@ export function ThemeToggle() {
   };
 
   const Icon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
+  // The label follows the icon: neutral until mounted so server and client markup agree.
+  const label = mounted ? LABEL[theme] : "Theme";
   return (
     <button
       type="button"
       onClick={cycle}
-      aria-label={LABEL[theme]}
-      title={LABEL[theme]}
+      aria-label={label}
+      title={label}
       className="text-muted-foreground hover:bg-accent hover:text-accent-foreground flex size-9 cursor-pointer items-center justify-center rounded-lg transition-colors"
     >
       {/* Until mounted, render the neutral icon so SSR markup matches every client theme. */}

@@ -1,13 +1,16 @@
 import * as React from "react";
 import { ArrowDownRight, ArrowUpRight, type LucideIcon } from "lucide-react";
+import { CountUp } from "@/components/motion/count-up";
 import { cn } from "@/lib/utils";
 
 /** KPI tile: quiet label row · a confident number · a tinted delta pill vs a named period ·
  *  an integrated sparkline. Numbers use tabular figures + tight tracking; the tile never shouts —
- *  tone colors the delta, not the whole value, unless the metric itself is a problem count. */
+ *  tone colors the delta, not the whole value, unless the metric itself is a problem count.
+ *  Pass `count` instead of `value` and the number counts up the first time it scrolls into view. */
 function StatTile({
   label,
   value,
+  count,
   note,
   delta,
   icon: Icon,
@@ -16,7 +19,8 @@ function StatTile({
   className,
 }: {
   label: string;
-  value: React.ReactNode;
+  value?: React.ReactNode;
+  count?: { value: number; decimals?: number; prefix?: string; suffix?: string };
   note?: string;
   /** e.g. { text: "0.04", suffix: "vs prior 90d", good: false, direction: "down" } */
   delta?: { text: string; suffix?: string; good?: boolean; direction?: "up" | "down" };
@@ -34,7 +38,7 @@ function StatTile({
   }[tone];
   const DeltaArrow = delta?.direction === "down" ? ArrowDownRight : ArrowUpRight;
   return (
-    <div data-slot="stat-tile" className={cn("bg-card shadow-soft rounded-xl border p-4", className)}>
+    <div data-slot="stat-tile" className={cn("bg-card shadow-soft hover-lift rounded-xl border p-4", className)}>
       <div className="flex items-center gap-1.5">
         {Icon && <Icon className="text-muted-foreground/70 size-3.5" aria-hidden />}
         <p className="text-muted-foreground text-xs font-medium">{label}</p>
@@ -44,7 +48,11 @@ function StatTile({
           data-numeric
           className={cn("text-[27px] leading-none font-semibold tracking-[-0.02em]", toneClass)}
         >
-          {value}
+          {count ? (
+            <CountUp value={count.value} decimals={count.decimals} prefix={count.prefix} suffix={count.suffix} />
+          ) : (
+            value
+          )}
         </p>
         {sparkline && <div className="shrink-0 pb-0.5 opacity-80">{sparkline}</div>}
       </div>
