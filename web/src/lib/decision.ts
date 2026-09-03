@@ -27,7 +27,7 @@ export const R_FLOOR = 3.55;
 export const A_FLOOR = 40;
 export const T_FLOOR = 4.05;
 export const T_MIN_CLASSES = 3;
-export const WEIGHTS = { rating: 0.6, approval: 0.3, track: 0.1 } as const;
+export const WEIGHTS = { rating: 0.6, approval: 0.25, track: 0.15 } as const;
 export const URGENT = 70;
 export const BORDERLINE = 90;
 

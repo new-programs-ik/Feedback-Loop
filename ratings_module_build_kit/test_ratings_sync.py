@@ -276,8 +276,8 @@ class TestStoreUpsert(unittest.TestCase):
         dec, p = self._upsert((False, 4.10, 5))
         self.assertEqual((p["yes_votes"], p["no_votes"], p["approval_pct"]), (6, 4, 60.0))
         self.assertEqual(p["track_avg"], 4.1)
-        # R 65, A 50, T 10 -> 39 + 15 + 1 = 55 -> urgent -> video
-        self.assertEqual((p["health_score"], p["health_band"], dec), (55.0, "urgent", "video"))
+        # R 65, A 50, T 10 -> 39 + 12.5 + 1.5 = 53 -> urgent -> video
+        self.assertEqual((p["health_score"], p["health_band"], dec), (53.0, "urgent", "video"))
         self.assertEqual(p["flag_reasons"], ["rating", "approval"])
         self.assertEqual(p["decision"], "video")
 

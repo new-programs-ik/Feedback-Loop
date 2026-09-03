@@ -384,7 +384,7 @@ def pure_score_rows():
 def weights_rows():
     queued = [r for r in rows if verdict_v2(r) in ("video", "transcript")]
     out = ""
-    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), (0.5, 0.4, 0.1), (0.5, 0.3, 0.2)]:
+    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), W, (0.5, 0.4, 0.1), (0.5, 0.3, 0.2)]:
         bc = Counter(band(health(r, w)) for r in queued)
         vid = sum(1 for r in queued if verdict_v2(r, w) == "video")
         cls = " class='pickrow'" if w == W else ""
@@ -693,9 +693,11 @@ predicting the next <i>approval</i> failure the vote is as strong as the rating 
 <div class="formula">
 <b>Rating (with the voice checks) &nbsp;%(wr).0f%%</b> &nbsp;&middot;&nbsp; <b>Approval vote &nbsp;%(wa).0f%%</b>
 &nbsp;&middot;&nbsp; <b>Track record &nbsp;%(wt).0f%%</b><br>
-<span class="sub">Data-supported range: rating 55&ndash;65, vote 25&ndash;35, track record 10&ndash;15. The
-%(wr).0f / %(wa).0f / %(wt).0f split first proposed internally sits inside it, and is the simplest
-version to explain.</span>
+<span class="sub">Derived from lens 2. The joint model's shares for predicting a <i>low rating</i> next class are
+rating %(sRr).0f%% / vote %(sRa).0f%% / track record %(sRt).0f%%; for predicting a <i>failed vote</i> next class they are
+%(sAr).0f%% / %(sAa).0f%% / %(sAt).0f%%. The rule has to catch both kinds of trouble, so we weight the two equally and
+average: <b>%(avR).0f / %(avA).0f / %(avT).0f</b>, rounded to the nearest five. Lens 1 is the cross-check: the vote is
+about half new information (so it cannot be a token weight), the track record almost entirely new.</span>
 </div>
 <p>The rating is the strongest single signal on every lens, so it leads. The vote is half new information
 and the only predictor of approval trouble, so it takes a real share rather than a token one. The track
@@ -712,8 +714,8 @@ average lets a perfect vote buy back a bad rating. With the recommended mix:</p>
 %(pure_rows)s
 </table>
 <p>Read the middle column: at a threshold of 90 the score drops <b>%(drop90)d</b> classes today's rule
-analyses &mdash; in effect it moves the %(line).2f line to about 4.38 for any instructor the room likes, and
-the %(abar)d%% bar to 67%%. Nobody agreed to that. So the bars stay hard, and the score does the two jobs
+analyses &mdash; in effect it moves the %(line).2f line to about %(effline).2f for any instructor the room likes, and
+the %(abar)d%% bar to %(effbar).0f%%. Nobody agreed to that. So the bars stay hard, and the score does the two jobs
 a weighted average is actually good at: <b>ordering the queue</b> and <b>choosing the depth</b>.</p>
 
 <h2>3. The rule</h2>
@@ -841,6 +843,10 @@ approval_rule.py. Confidential &mdash; internal use.</footer>
     both_next=C["lens2_groups"]["rated low, approval low"][1], flow=C["lens2_groups"]["rated fine, approval low"][1],
     tr_ok=C["lens2_groups"]["track record >= line"][1], tr_bad=C["lens2_groups"]["track record < line"][1],
     sR=l2r["share"]["R"], sT=l2r["share"]["T"], saA=l2a["share"]["A"], saR=l2a["share"]["R"],
+    sRr=l2r["share"]["R"], sRa=l2r["share"]["A"], sRt=l2r["share"]["T"],
+    sAr=l2a["share"]["R"], sAa=l2a["share"]["A"], sAt=l2a["share"]["T"],
+    avR=C["avg_share"]["R"], avA=C["avg_share"]["A"], avT=C["avg_share"]["T"],
+    effline=R_FLOOR + (LINE - R_FLOOR) * (1 - 0.1 / W[0]), effbar=A_FLOOR + (APPROVAL_BAR - A_FLOOR) * (1 - 0.1 / W[1]),
     ngrid=len(C["results"]), pure_rows=pure_score_rows(),
     drop90=next(x for x in C["table_thr"] if x["thr"] == 90)["miss_cur"],
     urgent=URGENT, borderline=BORDERLINE, rfloor=R_FLOOR, afloor=A_FLOOR, tfloor=T_FLOOR,

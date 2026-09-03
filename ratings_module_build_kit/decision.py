@@ -48,7 +48,7 @@ A_FLOOR = 40.0       # approval: only 4 in 10 would have the instructor back
 T_FLOOR = 4.05       # instructor's average half a point under the line
 T_MIN_CLASSES = 3    # earlier classes needed before a track record counts
 
-W = (0.6, 0.3, 0.1)  # weights: rating / approval / track record
+W = (0.60, 0.25, 0.15)  # weights: rating / approval / track record
 URGENT = 70.0        # health below this -> 'urgent'
 BORDERLINE = 90.0    # health at or above this -> 'borderline'; between -> 'look'
 

@@ -126,8 +126,8 @@ class TestRuleV2(unittest.TestCase):
         self.assertAlmostEqual(D.health_score(3.55, 40, 4.05), 0.0)      # every floor
         self.assertAlmostEqual(D.health_score(4.55, 80, 4.55), 100.0)    # every bar
         self.assertAlmostEqual(D.health_score(3.55, 80, 4.55), 40.0)     # rating carries 60
-        self.assertAlmostEqual(D.health_score(4.55, 40, 4.55), 70.0)     # approval carries 30
-        self.assertAlmostEqual(D.health_score(4.55, 80, 4.05), 90.0)     # track record carries 10
+        self.assertAlmostEqual(D.health_score(4.55, 40, 4.55), 75.0)     # approval carries 25
+        self.assertAlmostEqual(D.health_score(4.55, 80, 4.05), 85.0)     # track record carries 15
         self.assertEqual(D.health_band(69.9), "urgent")
         self.assertEqual(D.health_band(70), "look")
         self.assertEqual(D.health_band(89.9), "look")

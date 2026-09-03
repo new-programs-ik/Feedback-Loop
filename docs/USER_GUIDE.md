@@ -51,7 +51,7 @@ Don't analyse everything. The team rule:
 "would you want this instructor to take the class again?" (the Yes/No columns on the ratings sheet).
 Either one alone puts the class in the **Needs analysis** queue.
 
-**Class Health Score** = 60% rating + 30% approval vote + 10% the instructor's track record (their
+**Class Health Score** = 60% rating + 25% approval vote + 15% the instructor's track record (their
 average over earlier classes this year). 100 means every bar is met; it falls as the signals get
 worse. The queue shows it next to each class as **Urgent / Needs a look / Borderline**, urgent first,
 together with the vote ("13 of 15 · 87%") and *why* the class was flagged (rating, approval, or both).

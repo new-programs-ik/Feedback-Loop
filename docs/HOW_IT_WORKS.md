@@ -178,8 +178,8 @@ rating is **below 4.55** *or* fewer than **80%** of voters would have the instru
 fine → **no analysis** (unless a PM asks). Fewer than **5** ratings → **watch** only, whichever bar
 failed: one or two opinions is not a class problem yet. Any **escalation** → **video**, always.
 
-**2. The Class Health Score decides *how urgent*.** A 0–100 score, weighted **60% rating · 30%
-approval · 10% track record**. Each part scores 100 at its bar and slides to 0 at "as bad as it
+**2. The Class Health Score decides *how urgent*.** A 0–100 score, weighted **60% rating · 25%
+approval · 15% track record**. Each part scores 100 at its bar and slides to 0 at "as bad as it
 gets" (a rating a full point under the line; only 4 in 10 would have the instructor back; a track
 record half a point under the line). The score sets the **priority band**:
 
@@ -398,7 +398,7 @@ Compare that to the 30–60 minutes of expert time — and up to a 4-hour record
 - **Flag** — one specific issue the AI found, with a timestamp and a quote.
 - **Approval vote** — the learners' Yes/No answer to "would you want this instructor to take the class
   again?", read from the ratings sheet. The bar is 80% Yes.
-- **Class Health Score** — the 0–100 number (60% rating, 30% approval, 10% track record) that ranks a
+- **Class Health Score** — the 0–100 number (60% rating, 25% approval, 15% track record) that ranks a
   flagged class as Urgent / Needs a look / Borderline and picks video vs transcript.
 - **Re-class** — the AI's *private* opinion (for the PM only) on whether the class should be re-taught
   to learners. Never shown to the instructor.

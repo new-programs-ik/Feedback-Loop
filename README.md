@@ -35,7 +35,7 @@ When a class is rated low, this app:
 1. **Tells you whether the class even needs analysing — and which kind.** A built-in helper applies the
    team rule, validated against 8 months of real ratings data and the learners' "would you have this
    instructor back?" vote (rated ≥ 4.55 *and* ≥ 80% approval → usually skip · fewer than 5 ratings →
-   watch only · under either bar, a Class Health Score — 60% rating, 30% approval, 10% track record —
+   watch only · under either bar, a Class Health Score — 60% rating, 25% approval, 15% track record —
    sets the priority: urgent → video, borderline → transcript, in between ≥ 40% participation → video
    · any escalation → always video) and can switch video on with one click,
 2. **Fetches the class transcript** (from Vimeo, or you upload it),

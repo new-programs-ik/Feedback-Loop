@@ -29,6 +29,10 @@ R_FLOOR = 3.55       # rating a full point under the line -> 0
 A_FLOOR = 40         # approval: only 4 in 10 would have the instructor back -> 0
 T_FLOOR = 4.05       # instructor's average half a point under the line -> 0
 T_MIN_CLASSES = 3    # need this many earlier classes before a track record counts
+# The recommended weights (rating / approval / track record). Derived in compute(): the joint
+# model's predictive shares for the two kinds of trouble - a low rating next class, a failed vote
+# next class - averaged, because the rule has to catch both, then rounded to the nearest five.
+RECOMMENDED = (0.60, 0.25, 0.15)
 
 
 def clamp(v, lo=0.0, hi=100.0):
@@ -191,6 +195,12 @@ def compute(verbose=True):
         P("  outcome '%s' (base rate %.0f%%): std betas R %+.2f A %+.2f T %+.2f  -> shares R %.0f%% A %.0f%% T %.0f%%   (alone: R %+.2f A %+.2f T %+.2f)" % (
             name, sum(y) / len(y) * 100, w[1], w[2], w[3], share["R"], share["A"], share["T"],
             singles["R"], singles["A"], singles["T"]))
+    # the derived weights: average the joint shares over the two kinds of trouble, round to 5
+    kr, ka = "next rated below %.2f" % LINE, "next approval below %d%%" % APPROVAL_BAR
+    avg_share = {k: (lens2[kr]["share"][k] + lens2[ka]["share"][k]) / 2 for k in ("R", "A", "T")}
+    derived = tuple(round(avg_share[k] / 5) * 5 / 100 for k in ("R", "A", "T"))
+    P("  derived weights: average shares R %.1f A %.1f T %.1f -> rounded %.2f / %.2f / %.2f (RECOMMENDED = %s)" % (
+        avg_share["R"], avg_share["A"], avg_share["T"], derived[0], derived[1], derived[2], RECOMMENDED))
     # plain-English version: next-class failure rate by this class's verdicts
     P("  next class below the line, given THIS class:")
     grp = {
@@ -285,7 +295,7 @@ def compute(verbose=True):
     # a fixed threshold, what each weight family does (for the report's table)
     P("\n  at threshold 90 - how the weight mix changes the outcome:")
     table90 = []
-    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), (0.55, 0.35, 0.1), (0.5, 0.4, 0.1), (0.5, 0.3, 0.2), (0.6, 0.2, 0.2), (0.4, 0.4, 0.2)]:
+    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), RECOMMENDED, (0.5, 0.4, 0.1), (0.5, 0.3, 0.2), (0.6, 0.2, 0.2), (0.4, 0.4, 0.2)]:
         x = next(y for y in results if y["w"] == w and y["thr"] == 90)
         x["flip"] = flip_rate(w, 90)
         table90.append(x)
@@ -295,7 +305,7 @@ def compute(verbose=True):
     P("\n  the recommended mix across thresholds:")
     table_thr = []
     for thr in thresholds:
-        x = next(y for y in results if y["w"] == (0.55, 0.35, 0.1) and y["thr"] == thr)
+        x = next(y for y in results if y["w"] == RECOMMENDED and y["thr"] == thr)
         x["flip"] = flip_rate(x["w"], thr)
         table_thr.append(x)
         P("    thr %.1f -> flags %4d (%.1f/wk)  misses: consensus %2d clear %2d approval-rule %3d today's %3d | added %3d | flips %.0f%%" % (
@@ -303,6 +313,7 @@ def compute(verbose=True):
 
     return dict(rows=rows, voiced=voiced, results=results, feasible=feasible, table90=table90, table_thr=table_thr,
                 lens1=dict(cRA=cRA, cRT=cRT, cAT=cAT, uR=uR, uA=uA, uT=uT), lens2=lens2, lens2_groups=lens2_groups,
+                avg_share=avg_share, derived=derived,
                 weeks=weeks, health=health, deficits=dict(r=rd, a=ad, t=td))
 
 

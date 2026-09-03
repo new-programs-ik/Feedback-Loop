@@ -15,9 +15,9 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from approval_weights import (compute, score_rating, score_approval, LINE, APPROVAL_BAR, REACH_BAR,  # noqa: E402
-                              VOICES)
+                              VOICES, RECOMMENDED)
 
-W = (0.6, 0.3, 0.1)      # rating / approval / track record
+W = RECOMMENDED          # rating / approval / track record - derived in approval_weights.compute()
 URGENT, BORDERLINE = 70, 90
 
 
@@ -106,7 +106,7 @@ def main():
 
     # weight sensitivity: how does the ORDER/BANDS change between mixes
     print("\nweight sensitivity (queue bands):")
-    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), (0.5, 0.4, 0.1), (0.5, 0.3, 0.2)]:
+    for w in [(0.8, 0.1, 0.1), (0.7, 0.2, 0.1), (0.6, 0.3, 0.1), W, (0.5, 0.4, 0.1), (0.5, 0.3, 0.2)]:
         bc = Counter(band(health(r, w)) for r in queued)
         urg = sum(1 for r in queued if health(r, w) < URGENT and r["pct"] < REACH_BAR)
         print("  R %.0f A %.0f T %.0f -> urgent %3d  look %3d  borderline %3d | urgent-route videos %d" % (
