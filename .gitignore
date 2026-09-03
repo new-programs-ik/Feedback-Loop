@@ -50,9 +50,6 @@ backups/
 Feedback-Loop-User-Guide.pdf
 
 # one-off verification scripts (not part of the app)
-web/verify-prod.mjs
-web/shots.mjs
-web/live-check.mjs
 Rating-Threshold-Study.pdf
 analysis/window_rows.json
 Week-*-Ratings.pdf
@@ -63,3 +60,6 @@ Instructor-Approval-Brief.pdf
 ui-preview/
 ratings_module_build_kit/google-sa.json
 web/start.log
+
+# archived one-offs, confidential docs and recordings (never committed)
+_archive/

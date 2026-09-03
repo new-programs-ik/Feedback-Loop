@@ -1,0 +1,2327 @@
+{
+ "contract": "analysis/sentiment_score.py",
+ "cases": [
+  {
+   "id": "C0-001",
+   "config": "C0",
+   "label": "doc: Ideal class",
+   "note": "",
+   "inputs": {
+    "rating": 5.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 100.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 5.00 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-002",
+   "config": "C0",
+   "label": "doc: High rating, small class, full reach",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 92.8,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.90 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-003",
+   "config": "C0",
+   "label": "doc: High rating, full volume + reach",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 98.8,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.90 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-004",
+   "config": "C0",
+   "label": "doc: Boundary at 4.7",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 96.4,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.70 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-005",
+   "config": "C0",
+   "label": "doc: Boundary at 4.5",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 94.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-006",
+   "config": "C0",
+   "label": "doc: High rating, low instructor approval",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 67.6,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-007",
+   "config": "C0",
+   "label": "doc: Solid mid-range class",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 50.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-008",
+   "config": "C0",
+   "label": "doc: Tiny class, everyone responded",
+   "note": "",
+   "inputs": {
+    "rating": 5.0,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 94.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 5.00 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-009",
+   "config": "C0",
+   "label": "doc: Larger class, weak turnout",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 5,
+    "attended": 29,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.29,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.80 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-010",
+   "config": "C0",
+   "label": "doc: Approval collapse",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 58.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-011",
+   "config": "C0",
+   "label": "doc: Very low rating",
+   "note": "",
+   "inputs": {
+    "rating": 1.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 58.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 1.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-012",
+   "config": "C0",
+   "label": "doc: Worst case",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 5,
+    "attended": 50,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 30.4,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-013",
+   "config": "C0",
+   "label": "doc combo 4.8 yes 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 97.6,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.80 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-014",
+   "config": "C0",
+   "label": "doc combo 4.8 yes 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 91.6,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.80 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-015",
+   "config": "C0",
+   "label": "doc combo 4.8 yes 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 95.2,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.80 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-016",
+   "config": "C0",
+   "label": "doc combo 4.8 yes 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.4,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.80 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-017",
+   "config": "C0",
+   "label": "doc combo 4.8 no 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 67.6,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-018",
+   "config": "C0",
+   "label": "doc combo 4.8 no 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 61.6,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-019",
+   "config": "C0",
+   "label": "doc combo 4.8 no 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 65.2,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-020",
+   "config": "C0",
+   "label": "doc combo 4.8 no 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 58.4,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-021",
+   "config": "C0",
+   "label": "doc combo 4.0 yes 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-022",
+   "config": "C0",
+   "label": "doc combo 4.0 yes 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 82.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-023",
+   "config": "C0",
+   "label": "doc combo 4.0 yes 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 85.6,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-024",
+   "config": "C0",
+   "label": "doc combo 4.0 yes 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 78.8,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-025",
+   "config": "C0",
+   "label": "doc combo 4.0 no 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 58.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-026",
+   "config": "C0",
+   "label": "doc combo 4.0 no 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 52.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-027",
+   "config": "C0",
+   "label": "doc combo 4.0 no 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 55.6,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-028",
+   "config": "C0",
+   "label": "doc combo 4.0 no 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 4.0,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 48.8,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.00 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-029",
+   "config": "C0",
+   "label": "doc combo 2.5 yes 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 70.0,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-030",
+   "config": "C0",
+   "label": "doc combo 2.5 yes 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 64.0,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-031",
+   "config": "C0",
+   "label": "doc combo 2.5 yes 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 67.6,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-032",
+   "config": "C0",
+   "label": "doc combo 2.5 yes 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 60.8,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-033",
+   "config": "C0",
+   "label": "doc combo 2.5 no 100% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 40.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-034",
+   "config": "C0",
+   "label": "doc combo 2.5 no 100% thin",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 34.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-035",
+   "config": "C0",
+   "label": "doc combo 2.5 no 40% adequate",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 2,
+    "no_votes": 8,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 37.6,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-036",
+   "config": "C0",
+   "label": "doc combo 2.5 no 20% thin",
+   "note": "",
+   "inputs": {
+    "rating": 2.5,
+    "num_ratings": 5,
+    "attended": 25,
+    "yes_votes": 1,
+    "no_votes": 4,
+    "escalated": false,
+    "track_avg": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 30.8,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 2.50 \u00b7 1 of 5 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-037",
+   "config": "C0",
+   "label": "edge 90.00 -> excellent",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 94.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-038",
+   "config": "C0",
+   "label": "edge just under 90 -> good",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 10,
+    "attended": 25,
+    "yes_votes": 10,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 91.6,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-039",
+   "config": "C0",
+   "label": "edge 89.99 area: 4.16 full -> good",
+   "note": "",
+   "inputs": {
+    "rating": 4.16,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 89.92,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.16 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-040",
+   "config": "C0",
+   "label": "edge 90 exactly: 4.1667 full",
+   "note": "",
+   "inputs": {
+    "rating": 4.1667,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 90.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.17 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-041",
+   "config": "C0",
+   "label": "edge 75 exactly",
+   "note": "",
+   "inputs": {
+    "rating": 3.75,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 79.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 3.75 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-042",
+   "config": "C0",
+   "label": "edge 60 exactly: 4.1667 no approval full reach adequate",
+   "note": "",
+   "inputs": {
+    "rating": 4.1667,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8
+   },
+   "expected": {
+    "score": 60.0,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.17 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-043",
+   "config": "C0",
+   "label": "edge 59.99: 4.166 no approval",
+   "note": "",
+   "inputs": {
+    "rating": 4.166,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 2,
+    "no_votes": 8
+   },
+   "expected": {
+    "score": 59.99,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.17 \u00b7 2 of 10 would have the instructor back (20%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-044",
+   "config": "C0",
+   "label": "approval exactly 80: 4 of 5",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 4,
+    "no_votes": 1
+   },
+   "expected": {
+    "score": 86.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 4 of 5 would have the instructor back (80%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C0-045",
+   "config": "C0",
+   "label": "approval exactly 80: 8 of 10",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 8,
+    "no_votes": 2
+   },
+   "expected": {
+    "score": 94.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 8 of 10 would have the instructor back (80%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-046",
+   "config": "C0",
+   "label": "approval exactly 80: 12 of 15",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 15,
+    "attended": 15,
+    "yes_votes": 12,
+    "no_votes": 3
+   },
+   "expected": {
+    "score": 94.0,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 12 of 15 would have the instructor back (80%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-047",
+   "config": "C0",
+   "label": "approval 79.99 fails: 3 of 4 = 75",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 4,
+    "attended": 10,
+    "yes_votes": 3,
+    "no_votes": 1
+   },
+   "expected": {
+    "score": 55.6,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 3 of 4 would have the instructor back (75%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-048",
+   "config": "C0",
+   "label": "approval 7 of 9 = 77.8 fails",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 9,
+    "attended": 9,
+    "yes_votes": 7,
+    "no_votes": 2
+   },
+   "expected": {
+    "score": 58.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 7 of 9 would have the instructor back (78%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-049",
+   "config": "C0",
+   "label": "the famous 4.87 with 2 of 3",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1
+   },
+   "expected": {
+    "score": 59.04,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.87 \u00b7 2 of 3 would have the instructor back (67%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-050",
+   "config": "C0",
+   "label": "no rating",
+   "note": "",
+   "inputs": {
+    "rating": null,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 5,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": null,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "no_rating"
+    ]
+   },
+   "reason": "No rating recorded yet."
+  },
+  {
+   "id": "C0-051",
+   "config": "C0",
+   "label": "escalated without rating -> video",
+   "note": "",
+   "inputs": {
+    "rating": null,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "escalated": true
+   },
+   "expected": {
+    "score": null,
+    "band": null,
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "no_rating",
+     "escalated"
+    ]
+   },
+   "reason": "No rating recorded yet."
+  },
+  {
+   "id": "C0-052",
+   "config": "C0",
+   "label": "no vote at all (zero policy)",
+   "note": "",
+   "inputs": {
+    "rating": 4.2,
+    "num_ratings": 10,
+    "attended": 20,
+    "yes_votes": null,
+    "no_votes": null
+   },
+   "expected": {
+    "score": 58.4,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "no_vote"
+    ]
+   },
+   "reason": "Rated 4.20 \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-053",
+   "config": "C0",
+   "label": "attendance missing (zero policy)",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 12,
+    "attended": null,
+    "yes_votes": 12,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 92.4,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "no_attendance"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 12 of 12 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-054",
+   "config": "C0",
+   "label": "responses > attended -> reach clamped",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 25,
+    "attended": 20,
+    "yes_votes": 25,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 95.2,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "reach_clamped"
+    ]
+   },
+   "reason": "Rated 4.60 \u00b7 25 of 25 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C0-055",
+   "config": "C0",
+   "label": "negative responses rejected",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": -3,
+    "attended": 20,
+    "yes_votes": 0,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": null,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "invalid_num_ratings"
+    ]
+   },
+   "reason": "Not enough voices yet to judge this class."
+  },
+  {
+   "id": "C0-056",
+   "config": "C0",
+   "label": "rating above the scale rejected",
+   "note": "",
+   "inputs": {
+    "rating": 7,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": null,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "invalid_rating"
+    ]
+   },
+   "reason": "Not enough voices yet to judge this class."
+  },
+  {
+   "id": "C0-057",
+   "config": "C0",
+   "label": "rating zero rejected",
+   "note": "",
+   "inputs": {
+    "rating": 0,
+    "num_ratings": 5,
+    "attended": 5,
+    "yes_votes": 5,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": null,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "rating_zero"
+    ]
+   },
+   "reason": "Not enough voices yet to judge this class."
+  },
+  {
+   "id": "C0-058",
+   "config": "C0",
+   "label": "nobody attended",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 0,
+    "attended": 0,
+    "yes_votes": 0,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 54.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "no_vote",
+     "zero_responses",
+     "no_attendance"
+    ]
+   },
+   "reason": "Rated 4.50 \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-059",
+   "config": "C0",
+   "label": "rated 1.0 but loved",
+   "note": "",
+   "inputs": {
+    "rating": 1.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0
+   },
+   "expected": {
+    "score": 52.0,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 1.00 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C0-060",
+   "config": "C0",
+   "label": "rated 5.0 but rejected",
+   "note": "",
+   "inputs": {
+    "rating": 5.0,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 0,
+    "no_votes": 10
+   },
+   "expected": {
+    "score": 70.0,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree"
+    ]
+   },
+   "reason": "Rated 5.00 \u00b7 0 of 10 would have the instructor back (0%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C0-061",
+   "config": "C0",
+   "label": "escalated fine class -> video",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": true
+   },
+   "expected": {
+    "score": 98.8,
+    "band": "excellent",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "escalated"
+    ]
+   },
+   "reason": "Rated 4.90 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 video analysis."
+  },
+  {
+   "id": "C5-062",
+   "config": "C5",
+   "label": "famous 4.87 with 2 of 3 -> guarded, provisional",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 90.74,
+    "band": "excellent",
+    "action": "watch",
+    "provisional": true,
+    "flags": [
+     "guarded",
+     "no_track",
+     "thin_provisional"
+    ]
+   },
+   "reason": "Rated 4.87 \u00b7 2 of 3 would have the instructor back (67%) \u2192 Excellent (provisional \u2014 few votes) \u2192 watch."
+  },
+  {
+   "id": "C5-063",
+   "config": "C5",
+   "label": "4.30 with 60% approval, 20 votes -> both lines missed -> bad",
+   "note": "",
+   "inputs": {
+    "rating": 4.3,
+    "num_ratings": 20,
+    "attended": 30,
+    "yes_votes": 12,
+    "no_votes": 8,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 63.5,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_rating_line",
+     "under_approval_bar"
+    ]
+   },
+   "reason": "Rated 4.30 \u00b7 12 of 20 would have the instructor back (60%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C5-064",
+   "config": "C5",
+   "label": "4.80 polite rating, 6 of 10 -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 10,
+    "attended": 20,
+    "yes_votes": 6,
+    "no_votes": 4,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 84.23,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_approval_bar"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 6 of 10 would have the instructor back (60%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C5-065",
+   "config": "C5",
+   "label": "4.30 everyone approves -> rating line -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.3,
+    "num_ratings": 20,
+    "attended": 30,
+    "yes_votes": 20,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 73.35,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_rating_line"
+    ]
+   },
+   "reason": "Rated 4.30 \u00b7 20 of 20 would have the instructor back (100%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C5-066",
+   "config": "C5",
+   "label": "3.60 everyone approves -> bad",
+   "note": "",
+   "inputs": {
+    "rating": 3.6,
+    "num_ratings": 10,
+    "attended": 15,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 51.47,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_rating_line"
+    ]
+   },
+   "reason": "Rated 3.60 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C5-067",
+   "config": "C5",
+   "label": "4.70 with 15 of 20 -> guard keeps a big sample's signal -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 20,
+    "attended": 25,
+    "yes_votes": 15,
+    "no_votes": 5,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 87.21,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_approval_bar"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 15 of 20 would have the instructor back (75%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C5-068",
+   "config": "C5",
+   "label": "3 of 4 yes -> guard passes",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 4,
+    "attended": 10,
+    "yes_votes": 3,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.24,
+    "band": "good",
+    "action": "watch",
+    "provisional": true,
+    "flags": [
+     "guarded",
+     "no_track",
+     "thin_provisional"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 3 of 4 would have the instructor back (75%) \u2192 Good (provisional \u2014 few votes) \u2192 watch."
+  },
+  {
+   "id": "C5-069",
+   "config": "C5",
+   "label": "7 of 9 yes -> guard passes",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 9,
+    "attended": 12,
+    "yes_votes": 7,
+    "no_votes": 2,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.24,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 7 of 9 would have the instructor back (78%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C5-070",
+   "config": "C5",
+   "label": "cohort of 3, all yes -> provisional, watch",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 3,
+    "attended": 3,
+    "yes_votes": 3,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 91.18,
+    "band": "excellent",
+    "action": "watch",
+    "provisional": true,
+    "flags": [
+     "guarded",
+     "no_track",
+     "thin_provisional"
+    ]
+   },
+   "reason": "Rated 4.90 \u00b7 3 of 3 would have the instructor back (100%) \u2192 Excellent (provisional \u2014 few votes) \u2192 watch."
+  },
+  {
+   "id": "C5-071",
+   "config": "C5",
+   "label": "two voters -> no band",
+   "note": "",
+   "inputs": {
+    "rating": 5.0,
+    "num_ratings": 2,
+    "attended": 2,
+    "yes_votes": 2,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 91.6,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "thin_no_band"
+    ]
+   },
+   "reason": "Not enough voices yet to judge this class."
+  },
+  {
+   "id": "C5-072",
+   "config": "C5",
+   "label": "webinar 200 attended, 5 happy raters -> provisional, never bad",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 5,
+    "attended": 200,
+    "yes_votes": 5,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 92.16,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.90 \u00b7 5 of 5 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C5-073",
+   "config": "C5",
+   "label": "big room says no: 40 of 100 -> bad",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 100,
+    "attended": 200,
+    "yes_votes": 40,
+    "no_votes": 60,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 56.94,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree",
+     "guarded",
+     "no_track",
+     "under_approval_bar"
+    ]
+   },
+   "reason": "Rated 4.60 \u00b7 40 of 100 would have the instructor back (40%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C5-074",
+   "config": "C5",
+   "label": "no vote recorded, rating under the line -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.2,
+    "num_ratings": 10,
+    "attended": 20,
+    "yes_votes": null,
+    "no_votes": null,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 61.25,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "no_vote",
+     "guarded",
+     "no_track",
+     "under_rating_line"
+    ]
+   },
+   "reason": "Rated 4.20 \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C5-075",
+   "config": "C5",
+   "label": "bad track record, fine class -> good not excellent",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 12,
+    "attended": 20,
+    "yes_votes": 11,
+    "no_votes": 1,
+    "track_avg": 4.0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 75.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 11 of 12 would have the instructor back (92%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C5-076",
+   "config": "C5",
+   "label": "first class, no track -> neutral",
+   "note": "",
+   "inputs": {
+    "rating": 4.7,
+    "num_ratings": 12,
+    "attended": 20,
+    "yes_votes": 11,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 88.24,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.70 \u00b7 11 of 12 would have the instructor back (92%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C5-077",
+   "config": "C5",
+   "label": "exactly on both lines -> good",
+   "note": "",
+   "inputs": {
+    "rating": 4.55,
+    "num_ratings": 10,
+    "attended": 20,
+    "yes_votes": 8,
+    "no_votes": 2,
+    "track_avg": 4.6,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 86.67,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded"
+    ]
+   },
+   "reason": "Rated 4.55 \u00b7 8 of 10 would have the instructor back (80%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C5-078",
+   "config": "C5",
+   "label": "just under the line, everyone approves -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.54,
+    "num_ratings": 10,
+    "attended": 20,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "track_avg": 4.6,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 86.44,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded"
+    ]
+   },
+   "reason": "Rated 4.54 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C5-079",
+   "config": "C5",
+   "label": "everyone says no, high rating -> flagged, one line missed -> average",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 0,
+    "no_votes": 10,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 64.05,
+    "band": "average",
+    "action": "transcript",
+    "provisional": false,
+    "flags": [
+     "rating_vote_disagree",
+     "guarded",
+     "no_track",
+     "under_approval_bar"
+    ]
+   },
+   "reason": "Rated 4.90 \u00b7 0 of 10 would have the instructor back (0%) \u2192 Average \u2192 transcript analysis."
+  },
+  {
+   "id": "C5-080",
+   "config": "C5",
+   "label": "escalated -> video whatever the band",
+   "note": "",
+   "inputs": {
+    "rating": 4.9,
+    "num_ratings": 10,
+    "attended": 10,
+    "yes_votes": 10,
+    "no_votes": 0,
+    "escalated": true,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 93.46,
+    "band": "excellent",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "escalated"
+    ]
+   },
+   "reason": "Rated 4.90 \u00b7 10 of 10 would have the instructor back (100%) \u2192 Excellent \u2192 video analysis."
+  },
+  {
+   "id": "C5-081",
+   "config": "C5",
+   "label": "test review 8 of 15 rated, all yes -> not penalised",
+   "note": "",
+   "inputs": {
+    "rating": 4.8,
+    "num_ratings": 8,
+    "attended": 15,
+    "yes_votes": 8,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 90.65,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.80 \u00b7 8 of 8 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C5-082",
+   "config": "C5",
+   "label": "hard class great teacher big sample: 3.0, 40 of 40 -> bad",
+   "note": "",
+   "inputs": {
+    "rating": 3.0,
+    "num_ratings": 40,
+    "attended": 45,
+    "yes_votes": 40,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 29.41,
+    "band": "bad",
+    "action": "video",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track",
+     "under_rating_line"
+    ]
+   },
+   "reason": "Rated 3.00 \u00b7 40 of 40 would have the instructor back (100%) \u2192 Bad \u2192 video analysis."
+  },
+  {
+   "id": "C1-083",
+   "config": "C1",
+   "label": "famous 4.87 with 2 of 3",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 59.04,
+    "band": null,
+    "action": "watch",
+    "provisional": false,
+    "flags": [
+     "thin_no_band"
+    ]
+   },
+   "reason": "Not enough voices yet to judge this class."
+  },
+  {
+   "id": "C1-084",
+   "config": "C1",
+   "label": "responses 9 vs 10 at the target",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 9,
+    "attended": 12,
+    "yes_votes": 9,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 87.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 9 of 9 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C1-085",
+   "config": "C1",
+   "label": "approval 79.99 area: 4 of 5",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 4,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 87.2,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.60 \u00b7 4 of 5 would have the instructor back (80%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C2-086",
+   "config": "C2",
+   "label": "famous 4.87 with 2 of 3",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 79.04,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.87 \u00b7 2 of 3 would have the instructor back (67%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C2-087",
+   "config": "C2",
+   "label": "responses 9 vs 10 at the target",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 9,
+    "attended": 12,
+    "yes_votes": 9,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 87.0,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.50 \u00b7 9 of 9 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C2-088",
+   "config": "C2",
+   "label": "approval 79.99 area: 4 of 5",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 4,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 87.2,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": []
+   },
+   "reason": "Rated 4.60 \u00b7 4 of 5 would have the instructor back (80%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C3-089",
+   "config": "C3",
+   "label": "famous 4.87 with 2 of 3",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 89.57,
+    "band": "good",
+    "action": "watch",
+    "provisional": true,
+    "flags": [
+     "guarded",
+     "thin_provisional"
+    ]
+   },
+   "reason": "Rated 4.87 \u00b7 2 of 3 would have the instructor back (67%) \u2192 Good (provisional \u2014 few votes) \u2192 watch."
+  },
+  {
+   "id": "C3-090",
+   "config": "C3",
+   "label": "responses 9 vs 10 at the target",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 9,
+    "attended": 12,
+    "yes_votes": 9,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 93.26,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded"
+    ]
+   },
+   "reason": "Rated 4.50 \u00b7 9 of 9 would have the instructor back (100%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C3-091",
+   "config": "C3",
+   "label": "approval 79.99 area: 4 of 5",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 4,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 90.8,
+    "band": "excellent",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded"
+    ]
+   },
+   "reason": "Rated 4.60 \u00b7 4 of 5 would have the instructor back (80%) \u2192 Excellent \u2192 no analysis."
+  },
+  {
+   "id": "C4-092",
+   "config": "C4",
+   "label": "famous 4.87 with 2 of 3",
+   "note": "",
+   "inputs": {
+    "rating": 4.87,
+    "num_ratings": 3,
+    "attended": 20,
+    "yes_votes": 2,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 90.74,
+    "band": "excellent",
+    "action": "watch",
+    "provisional": true,
+    "flags": [
+     "guarded",
+     "no_track",
+     "thin_provisional"
+    ]
+   },
+   "reason": "Rated 4.87 \u00b7 2 of 3 would have the instructor back (67%) \u2192 Excellent (provisional \u2014 few votes) \u2192 watch."
+  },
+  {
+   "id": "C4-093",
+   "config": "C4",
+   "label": "responses 9 vs 10 at the target",
+   "note": "",
+   "inputs": {
+    "rating": 4.5,
+    "num_ratings": 9,
+    "attended": 12,
+    "yes_votes": 9,
+    "no_votes": 0,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 83.19,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.50 \u00b7 9 of 9 would have the instructor back (100%) \u2192 Good \u2192 no analysis."
+  },
+  {
+   "id": "C4-094",
+   "config": "C4",
+   "label": "approval 79.99 area: 4 of 5",
+   "note": "",
+   "inputs": {
+    "rating": 4.6,
+    "num_ratings": 5,
+    "attended": 10,
+    "yes_votes": 4,
+    "no_votes": 1,
+    "prior_rating": 4.7,
+    "prior_approval": 93
+   },
+   "expected": {
+    "score": 86.27,
+    "band": "good",
+    "action": "none",
+    "provisional": false,
+    "flags": [
+     "guarded",
+     "no_track"
+    ]
+   },
+   "reason": "Rated 4.60 \u00b7 4 of 5 would have the instructor back (80%) \u2192 Good \u2192 no analysis."
+  }
+ ]
+}

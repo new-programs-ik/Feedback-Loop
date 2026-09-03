@@ -53,8 +53,24 @@ def kind_of(type_):
     return "Other"
 
 
-def load(lo, hi):
-    """Every class with a session date in [lo, hi], de-duplicated across the sheets."""
+KIND_CODES = {"live class", "test review session", "review session"}
+
+
+def region_of(type_):
+    """'IND' when the class type says India, else 'US' (the sheet never says US explicitly)."""
+    return "IND" if "india" in (type_ or "").lower() else "US"
+
+
+def load(lo, hi, strict=True):
+    """Every class with a session date in [lo, hi], de-duplicated across the sheets.
+
+    strict=False keeps the rows the strict loader drops (responses > attended, zero attendance)
+    and marks them with r["flags"], so edge-case studies can see them.
+
+    The Agentic tab's "Topic" column holds the SESSION KIND ("Live Class"); the real class name is
+    its "Class" column. So when both headers exist, "Class" wins - otherwise two thirds of the
+    class names would be a kind code (the bug found on 3 Sep 2026).
+    """
     wb = openpyxl.load_workbook(BOOK, read_only=True, data_only=True)
     out, seen = [], set()
     for name in SHEETS:
@@ -72,12 +88,21 @@ def load(lo, hi):
             def g(k):
                 return r[idx[k]] if k in idx and len(r) > idx[k] else None
 
+            flags = []
             rating, resp, att = g("Overall Average"), g("Responses"), g("# Students Attended")
-            if not isinstance(rating, (int, float)) or not isinstance(att, (int, float)) or not att:
+            if not isinstance(rating, (int, float)):
                 continue
-            if resp and resp > att:
-                continue    # data-entry error (e.g. 7 ratings in a class of 1) - 2 rows in Jan-Aug
-            topic = str(g("Topic") or g("Class") or "").strip()
+            if not isinstance(att, (int, float)) or not att:
+                if strict:
+                    continue
+                att, flags = 0.0, flags + ["no_attendance"]
+            if resp and att and resp > att:
+                if strict:
+                    continue    # data-entry error (e.g. 7 ratings in a class of 1) - 2 rows in Jan-Aug
+                flags.append("responses_gt_attended")
+            topic = str(g("Class") or g("Topic") or "").strip()
+            if topic.lower() in KIND_CODES:
+                topic = str(g("Topic") or "").strip() if g("Class") is None else topic
             instructor = str(g("Instructor") or "").strip()
             key = (r[d], instructor, topic, float(rating))
             if key in seen:
@@ -95,8 +120,9 @@ def load(lo, hi):
                 "kind": kind_of(str(g("Type") or "")),
                 "topic": topic, "instructor": instructor,
                 "rating": float(rating), "responses": float(resp or 0),
-                "attended": float(att), "pct": float(resp or 0) / float(att) * 100,
+                "attended": float(att), "pct": (float(resp or 0) / float(att) * 100) if att else 0.0,
                 "yes": yes, "no": no,
                 "approval": (yes / votes * 100) if votes else None,
+                "region": region_of(str(g("Type") or "")), "flags": flags,
             })
     return sorted(out, key=lambda r: r["date"])
