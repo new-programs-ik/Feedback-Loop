@@ -5,9 +5,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
+import { BandDot, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { BAND_ICON, PriorityChip, ReasonChips, approvalTone } from "@/components/priority-chip";
 import { byCourse, fetchRatings, lastSyncRun, type ClassRating } from "@/lib/ratings";
-import { GOOD, MIN_VOICES } from "@/lib/decision";
+import { APPROVAL_BAR, BAND_LABEL, GOOD, MIN_VOICES, voteLabel, type HealthBand } from "@/lib/decision";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { confirmRating, dismissRating, escalateRating, mapCourseLabel, syncNow } from "./actions";
@@ -17,6 +18,14 @@ export const metadata = { title: "Needs analysis" };
 
 const pretty = (isoDate: string) =>
   new Date(isoDate + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" });
+
+const BANDS: HealthBand[] = ["urgent", "look", "borderline"];
+const bandRank = (r: ClassRating) => (r.health_band ? BANDS.indexOf(r.health_band) : BANDS.length);
+/** Urgent first, then the lowest Health Score, then the lowest rating. */
+const byPriority = (a: ClassRating, b: ClassRating) =>
+  bandRank(a) - bandRank(b) ||
+  (a.health_score ?? Infinity) - (b.health_score ?? Infinity) ||
+  a.rating - b.rating;
 
 function DecisionChip({ d }: { d: ClassRating["decision"] }) {
   if (d === "video")
@@ -46,6 +55,30 @@ function StatusBadge({ s }: { s: ClassRating["review_status"] }) {
   };
   const m = map[s];
   return m ? <Badge variant={m.variant}>{m.label}</Badge> : null;
+}
+
+/** "13 of 15 · 87%" — the room's answer to "would you have this instructor back?" — with the
+ *  rating turnout beneath it, so the two participation numbers share one narrow column. */
+function VoteCell({ r }: { r: ClassRating }) {
+  const label = voteLabel(r.yes_votes, r.no_votes);
+  const under = r.approval_pct != null && r.approval_pct < APPROVAL_BAR;
+  return (
+    <TableCell className="whitespace-nowrap" data-numeric>
+      {label ? (
+        <div className={cn(under && "text-destructive font-semibold")}>
+          <BandDot tone={approvalTone(r.approval_pct)} />
+          {label}
+        </div>
+      ) : (
+        <div className="text-muted-foreground">—</div>
+      )}
+      <div className="text-muted-foreground text-xs">
+        {r.num_ratings != null && r.attended != null
+          ? `${r.num_ratings}/${r.attended} rated · ${Math.round(Number(r.participation_pct ?? 0))}%`
+          : "turnout unknown"}
+      </div>
+    </TableCell>
+  );
 }
 
 /** Pill link for the course summary row — the active one wears the primary fill. */
@@ -79,6 +112,29 @@ function CourseChip({
   );
 }
 
+/** Per-band count for the scope on screen — icon + label + number, never colour alone. */
+function BandChip({ band, count }: { band: HealthBand; count: number }) {
+  const Icon = BAND_ICON[band];
+  return (
+    <span
+      className={cn(
+        "bg-card inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+        count === 0 ? "text-muted-foreground/70" : "text-foreground",
+      )}
+    >
+      <Icon
+        className={cn(
+          "size-3",
+          band === "urgent" ? "text-destructive" : band === "look" ? "text-warning" : "text-muted-foreground",
+        )}
+        aria-hidden
+      />
+      {BAND_LABEL[band]}
+      <span data-numeric className="text-muted-foreground">{count}</span>
+    </span>
+  );
+}
+
 export default async function RatingsQueuePage({
   searchParams,
 }: {
@@ -97,9 +153,11 @@ export default async function RatingsQueuePage({
     supabase.from("courses").select("id, name").order("name"),
   ]);
 
-  const actionableAll = rows.filter(
-    (r) => ["video", "transcript"].includes(r.decision) && ["new", "notified", "confirmed"].includes(r.review_status),
-  );
+  const actionableAll = rows
+    .filter(
+      (r) => ["video", "transcript"].includes(r.decision) && ["new", "notified", "confirmed"].includes(r.review_status),
+    )
+    .sort(byPriority);
   const watchAll = rows.filter((r) => r.decision === "watch" && r.review_status !== "dismissed");
 
   // Course scoping (?course=<uuid>). Chips are computed over the FULL actionable set so the
@@ -114,6 +172,10 @@ export default async function RatingsQueuePage({
   const selectedCourseName = courseId
     ? (coursesRes.data ?? []).find((c) => c.id === courseId)?.name
     : undefined;
+  const bandCounts = BANDS.map((band) => ({
+    band,
+    count: actionable.filter((r) => r.health_band === band).length,
+  }));
 
   // Keep ?focus= alive when switching course scope.
   const courseHref = (id?: string | null) => {
@@ -138,7 +200,7 @@ export default async function RatingsQueuePage({
     <div className="animate-in-up">
       <PageHeader
         title="Needs analysis"
-        description={`Classes from the last 45 days that the team rule flags — below ${GOOD} with enough voices behind the score.`}
+        description={`Classes from the last 45 days that the team rule flags — rated below ${GOOD}, or fewer than ${APPROVAL_BAR}% of the room would have the instructor back — with enough voices behind the score. Urgent first.`}
         actions={
           <form action={syncNow}>
             <Button variant="outline" type="submit">
@@ -183,19 +245,30 @@ export default async function RatingsQueuePage({
         )}
       </div>
 
-      {/* course summary chips */}
-      {courseChips.length > 0 && (
+      {/* course summary chips + per-band counts for the scope on screen */}
+      {(courseChips.length > 0 || actionable.length > 0) && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5" data-print-hide>
-          <CourseChip href={courseHref()} active={!courseId} name="All" count={actionableAll.length} />
-          {courseChips.map((c) => (
-            <CourseChip
-              key={c.key}
-              href={courseHref(c.courseId)}
-              active={courseId === c.courseId}
-              name={c.name}
-              count={c.n}
-            />
-          ))}
+          {courseChips.length > 0 && (
+            <>
+              <CourseChip href={courseHref()} active={!courseId} name="All" count={actionableAll.length} />
+              {courseChips.map((c) => (
+                <CourseChip
+                  key={c.key}
+                  href={courseHref(c.courseId)}
+                  active={courseId === c.courseId}
+                  name={c.name}
+                  count={c.n}
+                />
+              ))}
+            </>
+          )}
+          {actionable.length > 0 && (
+            <span className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+              {bandCounts.map((b) => (
+                <BandChip key={b.band} band={b.band} count={b.count} />
+              ))}
+            </span>
+          )}
         </div>
       )}
 
@@ -205,7 +278,7 @@ export default async function RatingsQueuePage({
             <EmptyState
               icon={ListChecks}
               title="Nothing needs analysis"
-              description={`Every recent class with a trustworthy score is at ${GOOD} or above. That's the good kind of empty.`}
+              description={`Every recent class with a trustworthy score is at ${GOOD} or above and ${APPROVAL_BAR}%+ would have the instructor back. That's the good kind of empty.`}
             />
           ) : (
             <EmptyState
@@ -226,12 +299,11 @@ export default async function RatingsQueuePage({
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Rating</TableHead>
-                <TableHead>Rated</TableHead>
+                <TableHead>Vote · rated</TableHead>
                 <TableHead>Class</TableHead>
                 <TableHead>Course</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>Priority</TableHead>
                 <TableHead>Rule says</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -241,25 +313,34 @@ export default async function RatingsQueuePage({
                   key={r.id}
                   className={cn(sp.focus === r.id && "bg-accent/60 hover:bg-accent/60")}
                 >
-                  <TableCell className="text-destructive font-semibold" data-numeric>
+                  <TableCell className={cn("font-semibold", r.rating < GOOD && "text-destructive")} data-numeric>
                     {r.rating.toFixed(2)}
                   </TableCell>
-                  <TableNum className="text-muted-foreground">
-                    {r.num_ratings != null && r.attended != null
-                      ? `${r.num_ratings}/${r.attended} · ${Math.round(Number(r.participation_pct ?? 0))}%`
-                      : "—"}
-                  </TableNum>
+                  <VoteCell r={r} />
                   <TableCell className="max-w-56">
                     <div className="truncate font-medium">{r.topic || r.session_kind}</div>
                     <div className="text-muted-foreground truncate text-xs">
                       {r.session_kind}
                       {r.instructor ? ` · ${r.instructor}` : ""}
+                      {` · ${pretty(r.class_date)}`}
                     </div>
                   </TableCell>
-                  <TableCell className="max-w-40 truncate">{r.course_name ?? r.course_label}</TableCell>
-                  <TableCell className="whitespace-nowrap">{pretty(r.class_date)}</TableCell>
-                  <TableCell><DecisionChip d={r.decision} /></TableCell>
-                  <TableCell><StatusBadge s={r.review_status} /></TableCell>
+                  <TableCell className="max-w-36 truncate">{r.course_name ?? r.course_label}</TableCell>
+                  <TableCell>
+                    <PriorityChip band={r.health_band} />
+                    <div className="mt-1 flex items-center gap-1.5">
+                      {r.health_score != null && (
+                        <span className="text-muted-foreground text-xs" data-numeric title="Class Health Score, 0–100">
+                          {Math.round(r.health_score)}
+                        </span>
+                      )}
+                      <ReasonChips reasons={r.flag_reasons} />
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <DecisionChip d={r.decision} />
+                    <div className="mt-1"><StatusBadge s={r.review_status} /></div>
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1.5">
                       <Button asChild size="sm">
@@ -293,16 +374,16 @@ export default async function RatingsQueuePage({
       {watch.length > 0 && (
         <details className="bg-card shadow-soft mt-4 rounded-xl border">
           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold select-none sm:px-5">
-            Watch list <span className="text-muted-foreground font-normal">— {watch.length} low-rated {watch.length === 1 ? "class" : "classes"} with fewer than {MIN_VOICES} voices (not worth an analysis yet; escalate if you know something&apos;s wrong)</span>
+            Watch list <span className="text-muted-foreground font-normal">— {watch.length} {watch.length === 1 ? "class" : "classes"} under a bar with fewer than {MIN_VOICES} voices (not worth an analysis yet; escalate if you know something&apos;s wrong)</span>
           </summary>
           <Table>
             <TableBody>
               {watch.slice(0, 20).map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-semibold" data-numeric>{r.rating.toFixed(2)}</TableCell>
-                  <TableNum className="text-muted-foreground">
-                    {r.num_ratings != null && r.attended != null ? `${r.num_ratings}/${r.attended}` : "—"}
-                  </TableNum>
+                  <TableCell className={cn("font-semibold", r.rating < GOOD && "text-destructive")} data-numeric>
+                    {r.rating.toFixed(2)}
+                  </TableCell>
+                  <VoteCell r={r} />
                   <TableCell className="max-w-56">
                     <div className="truncate">{r.topic || r.session_kind}</div>
                   </TableCell>

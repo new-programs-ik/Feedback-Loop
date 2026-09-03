@@ -11,8 +11,9 @@ import { SectionHeader } from "@/components/ui/callout";
 import { BandDot, Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 import { ChartCard } from "@/components/charts/chart-card";
 import { Histogram } from "@/components/charts/histogram";
+import { approvalTone } from "@/components/priority-chip";
 import { fetchRatings, byCourse, bands, liveVsReview, worstClasses, summarize } from "@/lib/ratings";
-import { GOOD } from "@/lib/decision";
+import { APPROVAL_BAR, GOOD, voteLabel } from "@/lib/decision";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { PrintButton } from "./print-button";
@@ -38,6 +39,17 @@ function periodFor(rangeKind: string, fromQ?: string, toQ?: string) {
   return { from: iso(start), to: iso(today), label: "This week" };
 }
 
+/** Pooled approval in a table cell: the dot colours the bar, the number carries the status. */
+function ApprovalNum({ value }: { value: number | null }) {
+  if (value == null) return <TableNum className="text-muted-foreground">—</TableNum>;
+  return (
+    <TableNum className={value < APPROVAL_BAR ? "text-destructive font-semibold" : ""}>
+      <BandDot tone={approvalTone(value)} />
+      {Math.round(value)}%
+    </TableNum>
+  );
+}
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -61,7 +73,7 @@ export default async function ReportsPage({
 
   const total = summarize(rows);
   const split = liveVsReview(rows);
-  const courseRows = byCourse(rows).sort((a, b) => b.bad - a.bad || b.n - a.n);
+  const courseRows = byCourse(rows).sort((a, b) => b.bad - a.bad || b.underBar - a.underBar || b.n - a.n);
   const worst = worstClasses(rows, 10);
 
   const tab = (r: string) => {
@@ -148,9 +160,19 @@ export default async function ReportsPage({
         </div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-stagger>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-stagger>
             <StatTile label="Classes rated" value={total.n} />
             <StatTile label="Average rating" value={fmtAvg(total.avgRating)} />
+            <StatTile
+              label="Would have the instructor back"
+              value={fmtPct(total.approval)}
+              tone={total.approval != null && total.approval < APPROVAL_BAR ? "destructive" : "default"}
+              note={
+                total.votes > 0
+                  ? `${total.votes.toLocaleString()} votes · ${total.underBar} ${total.underBar === 1 ? "class" : "classes"} under ${APPROVAL_BAR}%`
+                  : "no votes recorded"
+              }
+            />
             <StatTile
               label={`Below ${GOOD}`}
               value={total.bad}
@@ -169,6 +191,7 @@ export default async function ReportsPage({
                     <TableHead>Category</TableHead>
                     <TableHead className="text-right">Classes</TableHead>
                     <TableHead className="text-right">Avg rating</TableHead>
+                    <TableHead className="text-right">Approval</TableHead>
                     <TableHead className="text-right">Below {GOOD}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -178,6 +201,7 @@ export default async function ReportsPage({
                       <TableCell className="font-medium">{s.kind}</TableCell>
                       <TableNum>{s.n}</TableNum>
                       <TableNum>{fmtAvg(s.avgRating)}</TableNum>
+                      <ApprovalNum value={s.approval} />
                       <TableNum className={s.bad ? "text-destructive font-semibold" : ""}>{s.bad}</TableNum>
                     </TableRow>
                   ))}
@@ -208,7 +232,9 @@ export default async function ReportsPage({
                     <TableHead>Course</TableHead>
                     <TableHead className="text-right">Classes</TableHead>
                     <TableHead className="text-right">Avg rating</TableHead>
+                    <TableHead className="text-right">Approval</TableHead>
                     <TableHead className="text-right">Below {GOOD}</TableHead>
+                    <TableHead className="text-right">Under {APPROVAL_BAR}%</TableHead>
                     <TableHead className="text-right">Participation</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -218,7 +244,9 @@ export default async function ReportsPage({
                       <TableCell className="font-medium">{c.name}</TableCell>
                       <TableNum>{c.n}</TableNum>
                       <TableNum>{fmtAvg(c.avgRating)}</TableNum>
+                      <ApprovalNum value={c.approval} />
                       <TableNum className={c.bad ? "text-destructive font-semibold" : ""}>{c.bad}</TableNum>
+                      <TableNum className={c.underBar ? "text-destructive font-semibold" : ""}>{c.underBar}</TableNum>
                       <TableNum>{fmtPct(c.avgParticipation)}</TableNum>
                     </TableRow>
                   ))}
@@ -236,6 +264,7 @@ export default async function ReportsPage({
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Rating</TableHead>
+                    <TableHead>Vote</TableHead>
                     <TableHead>Rated</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Category</TableHead>
@@ -249,6 +278,13 @@ export default async function ReportsPage({
                     <TableRow key={r.id}>
                       <TableCell className="text-destructive font-semibold" data-numeric>
                         {r.rating.toFixed(2)}
+                      </TableCell>
+                      <TableCell
+                        data-numeric
+                        className={r.approval_pct != null && r.approval_pct < APPROVAL_BAR ? "text-destructive font-semibold" : ""}
+                      >
+                        {r.approval_pct != null && <BandDot tone={approvalTone(r.approval_pct)} />}
+                        {voteLabel(r.yes_votes, r.no_votes) ?? "—"}
                       </TableCell>
                       <TableCell data-numeric>
                         {r.num_ratings != null && r.attended != null
@@ -312,20 +348,37 @@ export default async function ReportsPage({
                           </span>
                         )}
                       </div>
-                      <div className="mt-3 flex items-baseline gap-1.5">
-                        <span data-numeric className="text-[22px] leading-none font-semibold tracking-[-0.02em]">
-                          <BandDot
-                            tone={
-                              c.avgRating != null && c.avgRating < GOOD
-                                ? "bad"
-                                : c.avgRating != null && c.avgRating < 4.7
-                                  ? "warn"
-                                  : "good"
-                            }
-                          />
-                          {fmtAvg(c.avgRating)}
+                      <div className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                        <span className="flex items-baseline gap-1.5">
+                          <span data-numeric className="text-[22px] leading-none font-semibold tracking-[-0.02em]">
+                            <BandDot
+                              tone={
+                                c.avgRating != null && c.avgRating < GOOD
+                                  ? "bad"
+                                  : c.avgRating != null && c.avgRating < 4.7
+                                    ? "warn"
+                                    : "good"
+                              }
+                            />
+                            {fmtAvg(c.avgRating)}
+                          </span>
+                          <span className="text-muted-foreground text-xs">avg rating</span>
                         </span>
-                        <span className="text-muted-foreground text-xs">avg rating</span>
+                        <span className="flex items-baseline gap-1.5">
+                          <span
+                            data-numeric
+                            className={`text-[22px] leading-none font-semibold tracking-[-0.02em] ${
+                              c.approval != null && c.approval < APPROVAL_BAR ? "text-destructive" : ""
+                            }`}
+                          >
+                            {c.approval != null && <BandDot tone={approvalTone(c.approval)} />}
+                            {fmtPct(c.approval)}
+                          </span>
+                          <span className="text-muted-foreground text-xs">
+                            would have the instructor back
+                            {c.underBar > 0 ? ` · ${c.underBar} under ${APPROVAL_BAR}%` : ""}
+                          </span>
+                        </span>
                       </div>
                       <div className="text-muted-foreground mt-3 space-y-1 text-[13px] leading-relaxed">
                         <p>
@@ -359,6 +412,14 @@ export default async function ReportsPage({
                               {worstOf.rating.toFixed(2)}
                             </span>{" "}
                             · {worstOf.topic || worstOf.session_kind}
+                            {voteLabel(worstOf.yes_votes, worstOf.no_votes) && (
+                              <>
+                                {" "}· vote{" "}
+                                <span className="text-foreground font-semibold" data-numeric>
+                                  {voteLabel(worstOf.yes_votes, worstOf.no_votes)}
+                                </span>
+                              </>
+                            )}
                           </p>
                         )}
                       </div>

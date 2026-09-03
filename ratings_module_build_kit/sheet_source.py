@@ -8,6 +8,8 @@ Design notes (why it looks like this):
   A RENAMED/removed required column fails the whole run loudly, with the column named - the
   schema-drift guard. (Same hygiene rules as analysis/ratings_data.py: skip non-numeric rows,
   drop responses>attended data errors, dedupe across tabs.)
+- The approval vote (the "Yes" / "No" columns) is OPTIONAL: a tab without them yields None for
+  both counts and the rule scores approval as no-penalty. Only REQUIRED_COLUMNS are loud.
 - The service-account key comes from GOOGLE_SA_JSON_FILE (a Render Secret File) or GOOGLE_SA_JSON
   (raw JSON in an env var). File wins.
 """
@@ -34,6 +36,9 @@ REQUIRED_COLUMNS = ["Session Date", "Type", "Cohorts", "Topic", "Instructor",
                     "Overall Average", "Responses", "# Students Attended"]
 # "Topic" may be called "Class" on some tabs - either satisfies the requirement.
 TOPIC_FALLBACK = "Class"
+# The approval vote - "would you want this instructor to take the class again?" - as Yes/No
+# counts per class. Optional: read when present, None when the tab has no such columns.
+VOTE_COLUMNS = ("Yes", "No")
 
 
 class SheetSourceError(RuntimeError):
@@ -157,6 +162,7 @@ class SheetRatingsSource:
             rating = _num(g(row, "Overall Average"))
             attended = _num(g(row, "# Students Attended"))
             responses = _num(g(row, "Responses"))
+            yes, no = _num(g(row, VOTE_COLUMNS[0])), _num(g(row, VOTE_COLUMNS[1]))
             if date is None or rating is None or not attended:
                 continue                                    # header repeats, blanks, "No Ratings"
             if responses is not None and responses > attended:
@@ -173,6 +179,8 @@ class SheetRatingsSource:
                 "rating": round(rating, 2),
                 "num_ratings": int(responses) if responses is not None else None,
                 "attended": int(attended),
+                "yes_votes": int(yes) if yes is not None else None,
+                "no_votes": int(no) if no is not None else None,
             })
         return out
 

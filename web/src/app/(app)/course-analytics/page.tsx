@@ -11,8 +11,9 @@ import {
 import { ChartCard } from "@/components/charts/chart-card";
 import { StackedBars } from "@/components/charts/stacked-bars";
 import { Sparkline } from "@/components/charts/sparkline";
+import { approvalTone } from "@/components/priority-chip";
 import { fetchRatings, byCourse, byMonth, summarize } from "@/lib/ratings";
-import { GOOD } from "@/lib/decision";
+import { APPROVAL_BAR, GOOD } from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
@@ -59,6 +60,7 @@ export default async function CourseAnalyticsPage({
     : sort === "classes" ? b.n - a.n
     : sort === "rating" ? (a.avgRating ?? 9) - (b.avgRating ?? 9)
     : sort === "participation" ? (a.avgParticipation ?? 0) - (b.avgParticipation ?? 0)
+    : sort === "approval" ? (a.approval ?? 101) - (b.approval ?? 101)
     : b.bad - a.bad,
   );
   const sparkFor = (courseKey: string) => {
@@ -196,6 +198,7 @@ export default async function CourseAnalyticsPage({
                   <TableHead><Link href={sortHref("name")} className="hover:text-foreground">Course</Link></TableHead>
                   <TableHead className="text-right"><Link href={sortHref("classes")} className="hover:text-foreground">Classes</Link></TableHead>
                   <TableHead className="text-right"><Link href={sortHref("rating")} className="hover:text-foreground">Avg rating</Link></TableHead>
+                  <TableHead className="text-right"><Link href={sortHref("approval")} className="hover:text-foreground">Approval</Link></TableHead>
                   <TableHead className="text-right"><Link href={sortHref("bad")} className="hover:text-foreground">Below {GOOD}</Link></TableHead>
                   <TableHead><Link href={sortHref("participation")} className="hover:text-foreground">Participation</Link></TableHead>
                   <TableHead>90-day trend</TableHead>
@@ -212,6 +215,13 @@ export default async function CourseAnalyticsPage({
                       <TableNum>
                         <BandDot tone={c.avgRating != null && c.avgRating < GOOD ? "bad" : c.avgRating != null && c.avgRating < 4.7 ? "warn" : "good"} />
                         {fmtAvg(c.avgRating)}
+                      </TableNum>
+                      <TableNum className={c.approval != null && c.approval < APPROVAL_BAR ? "text-destructive font-semibold" : ""}>
+                        {c.approval != null ? (
+                          <><BandDot tone={approvalTone(c.approval)} />{Math.round(c.approval)}%</>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableNum>
                       <TableNum>
                         {c.bad > 0 ? (

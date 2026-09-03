@@ -35,15 +35,26 @@ what it all costs.
 
 Don't analyse everything. The team rule:
 
-> **Class rating → Rating participation % → Analysis type**
+> **Two bars decide *whether*. The Class Health Score decides *how urgent* and *how deep*.**
 
 | Situation | What to do |
 |---|---|
-| Rating **4.55 or above** | **No analysis needed** in most cases. Only if a PM asks or there's a specific reason — then Transcript is enough. |
-| Below 4.55 but **fewer than 5 people rated it** | **Watch only** — one or two opinions isn't a class problem yet. Note it; analyse only if a PM asks. |
-| Rating **below 4.55** and **≥ 40%** of attendees rated it | **Video Analysis** — a representative share of the room spoke and it was still low. |
-| Rating **below 4.55** and **< 40%** rated it | **Transcript Analysis** — too thin a sample to trust yet; a first read is enough. |
+| Rating **4.55 or above** *and* **80% or more** of voters would have the instructor back | **No analysis needed** in most cases. Only if a PM asks or there's a specific reason — then Transcript is enough. |
+| Either bar failed but **fewer than 5 people rated it** | **Watch only** — one or two opinions isn't a class problem yet. Note it; analyse only if a PM asks. |
+| Either bar failed and the class is **Urgent** (Health Score under 70) | **Video Analysis**, whatever the participation — both signals point the same way, or one is badly off. |
+| Either bar failed and the class is **Borderline** (Health Score 90 or above) | **Transcript Analysis** first — it is just under a bar, probably one or two votes. |
+| In between (**Needs a look**, 70–89) and **≥ 40%** of attendees rated it | **Video Analysis** — a representative share of the room spoke and it was still low. |
+| In between and **< 40%** rated it | **Transcript Analysis** — too thin a sample to trust yet; a first read is enough. |
 | Any **escalation** or specific issue reported | **Video Analysis**, always. |
+
+**The two bars:** the class **rating below 4.55**, or fewer than **80%** of voters answering *yes* to
+"would you want this instructor to take the class again?" (the Yes/No columns on the ratings sheet).
+Either one alone puts the class in the **Needs analysis** queue.
+
+**Class Health Score** = 60% rating + 30% approval vote + 10% the instructor's track record (their
+average over earlier classes this year). 100 means every bar is met; it falls as the signals get
+worse. The queue shows it next to each class as **Urgent / Needs a look / Borderline**, urgent first,
+together with the vote ("13 of 15 · 87%") and *why* the class was flagged (rating, approval, or both).
 
 **Rating participation %** = (learners who rated ÷ learners who attended) × 100.
 Example: 10 attended, 8 rated → 80%. (These thresholds were set from 8 months of real ratings
@@ -144,9 +155,10 @@ Recording a Loom? Read this while clicking through the steps above (about 3 minu
    in about five minutes, instead of watching a four-hour recording."
 2. "I sign in with my IK Google account… and this is the dashboard — what's analysed, what's waiting,
    and what it costs. About fifty cents a class."
-3. "Before analysing, the rule: rating above 4.5 — usually skip. Below 4.5 — check what percent of
-   attendees rated it. Eighty percent or more: video analysis. Less: transcript. Any escalation: always
-   video. And this helper box works it out for me."
+3. "Before analysing, the rule: rated 4.55 or above and at least 80% of the room would have the
+   instructor back — usually skip. Under either bar, the Health Score says how urgent it is: urgent
+   goes straight to video, borderline starts with a transcript, and in between the participation
+   check decides. Any escalation: always video. And this helper box works it out for me."
 4. "The Vimeo link comes from UpLevel — Resources, Videos, open the class, copy the VIMEO URL box.
    Thirty seconds."
 5. "New analysis: course, topic, instructor, date, rating, paste that Vimeo link — video on, because the

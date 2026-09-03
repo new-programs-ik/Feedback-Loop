@@ -9,6 +9,7 @@ from unittest import mock
 
 import httpx
 
+import decision as D
 import notify as N
 import sheet_source as SS
 
@@ -24,12 +25,12 @@ def sheet_payload(values1, values2=None):
 
 
 HEADER = ["Topic Code", "Type", "Cohorts", "Topic", "Cohorts", "Instructor", "Session Date",
-          "Overall Average", "Responses", "# Students Attended", "% Rated"]
+          "Overall Average", "Responses", "# Students Attended", "% Rated", "Yes", "No"]
 
 
 def row(date="2026-08-24", type_="Agentic AI Live Class", cohort="Applied Agentic AI - Aug",
-        topic="MCP Deep Dive", instructor="Jane Doe", rating=4.31, resp=12, att=25):
-    return ["Live Class", type_, cohort, topic, cohort, instructor, date, rating, resp, att, ""]
+        topic="MCP Deep Dive", instructor="Jane Doe", rating=4.31, resp=12, att=25, yes=10, no=2):
+    return ["Live Class", type_, cohort, topic, cohort, instructor, date, rating, resp, att, "", yes, no]
 
 
 def make_source(payload, env=None, status=200):
@@ -56,6 +57,19 @@ class TestSheetSource(unittest.TestCase):
         self.assertEqual(r["rating"], 4.31)
         self.assertEqual(r["num_ratings"], 12)
         self.assertEqual(r["attended"], 25)
+        self.assertEqual((r["yes_votes"], r["no_votes"]), (10, 2))
+
+    def test_vote_columns_are_optional(self):
+        hdr = [h for h in HEADER if h not in ("Yes", "No")]
+        src = make_source(sheet_payload([hdr, row()[:len(hdr)]]))
+        out = src.fetch_rows()                           # no SheetSourceError
+        self.assertEqual(len(out), 1)
+        self.assertEqual((out[0]["yes_votes"], out[0]["no_votes"]), (None, None))
+
+    def test_blank_vote_cells_are_none(self):
+        src = make_source(sheet_payload([HEADER, row(yes="", no=None)]))
+        r = src.fetch_rows()[0]
+        self.assertEqual((r["yes_votes"], r["no_votes"]), (None, None))
 
     def test_header_reorder_is_harmless(self):
         hdr = list(reversed(HEADER))
@@ -117,7 +131,7 @@ class TestSyncOrchestration(unittest.TestCase):
 
     def _run(self, rows, aliases, pending=None, record_returns=True):
         import ratings_sync as RSY
-        calls = {"upserts": [], "notified": [], "finish": None}
+        calls = {"upserts": [], "rows": [], "notified": [], "finish": None}
 
         fake_st = mock.MagicMock()
         fake_st.connect.return_value = mock.MagicMock()
@@ -126,9 +140,13 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_st.load_aliases.return_value = aliases
         fake_st.load_instructor_ids.return_value = {"Jane Doe": "inst-1"}
 
-        def upsert(cur, row, verdict, course_id, instructor_id):
-            calls["upserts"].append((row["topic"], verdict, course_id, instructor_id))
-            return ("cr-" + row["topic"], verdict, "new")
+        def upsert(cur, row, course_id, instructor_id):
+            # the real store runs decide_v2 itself (it owns the track record); mirror that here
+            v = D.decide_v2(row["rating"], row.get("num_ratings"), row.get("attended"),
+                            approval_pct=D.approval_pct(row.get("yes_votes"), row.get("no_votes")))
+            calls["upserts"].append((row["topic"], v.decision, course_id, instructor_id))
+            calls["rows"].append(row)
+            return ("cr-" + row["topic"], v.decision, "new")
 
         fake_st.upsert_rating.side_effect = upsert
         fake_st.rows_needing_notification.return_value = pending or []
@@ -148,10 +166,20 @@ class TestSyncOrchestration(unittest.TestCase):
             summary = RSY.run_sync("manual", env={}, source=self.FakeSource(rows))
         return summary, calls, fake_notify
 
-    def _row(self, topic="T1", rating=4.2, resp=10, att=20, label="Applied Agentic AI"):
+    def _row(self, topic="T1", rating=4.2, resp=10, att=20, label="Applied Agentic AI",
+             yes=None, no=None):
         return {"course_label": label, "cohort_text": "c", "topic": topic, "instructor": "Jane Doe",
                 "class_date": dt.date(2026, 8, 24), "session_kind": "Live Class",
-                "rating": rating, "num_ratings": resp, "attended": att}
+                "rating": rating, "num_ratings": resp, "attended": att,
+                "yes_votes": yes, "no_votes": no}
+
+    def test_votes_reach_the_store(self):
+        _, calls, _ = self._run([self._row(topic="Voted", rating=4.7, resp=10, att=20, yes=5, no=5)],
+                                aliases={"Applied Agentic AI": "course-1"})
+        stored = calls["rows"][0]
+        self.assertEqual((stored["yes_votes"], stored["no_votes"], stored["source"]), (5, 5, "sheet"))
+        # a fine rating with a failing vote is still queued under rule v2
+        self.assertEqual(calls["upserts"][0][1], "video")
 
     def test_decisions_and_aliases_flow_through(self):
         summary, calls, _ = self._run(
@@ -218,12 +246,70 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_notify.post_sync_alert.assert_called_once()
 
 
+class TestStoreUpsert(unittest.TestCase):
+    """upsert_rating against a scripted cursor: which v2 fields it writes, and where they come from."""
+
+    class Cursor:
+        def __init__(self, prior):
+            self.prior = prior              # what the prior-state query answers: (escalated, avg, n)
+            self.calls = []
+
+        def execute(self, sql, params=None):
+            self.calls.append((sql, params))
+
+        def fetchone(self):
+            if len(self.calls) == 1:
+                return self.prior
+            return ("cr-1", self.calls[-1][1]["decision"], "new")
+
+    def _upsert(self, prior, **over):
+        import ratings_store as ST
+        row = {"course_label": "Applied Agentic AI", "cohort_text": "c", "topic": "T",
+               "instructor": "Jane Doe", "class_date": dt.date(2026, 8, 24),
+               "session_kind": "Live Class", "rating": 4.2, "num_ratings": 10, "attended": 20,
+               "yes_votes": 6, "no_votes": 4, **over}
+        cur = self.Cursor(prior)
+        _, dec, _ = ST.upsert_rating(cur, row, "course-1", "inst-1")
+        return dec, cur.calls[-1][1]
+
+    def test_writes_vote_track_and_health(self):
+        dec, p = self._upsert((False, 4.10, 5))
+        self.assertEqual((p["yes_votes"], p["no_votes"], p["approval_pct"]), (6, 4, 60.0))
+        self.assertEqual(p["track_avg"], 4.1)
+        # R 65, A 50, T 10 -> 39 + 15 + 1 = 55 -> urgent -> video
+        self.assertEqual((p["health_score"], p["health_band"], dec), (55.0, "urgent", "video"))
+        self.assertEqual(p["flag_reasons"], ["rating", "approval"])
+        self.assertEqual(p["decision"], "video")
+
+    def test_track_record_needs_three_earlier_classes(self):
+        _, p = self._upsert((False, 4.10, 2))
+        self.assertIsNone(p["track_avg"])
+        _, p = self._upsert((False, 4.10, 9), instructor="")     # a blank name never gets one
+        self.assertIsNone(p["track_avg"])
+
+    def test_escalated_row_is_video_with_the_reason(self):
+        dec, p = self._upsert((True, None, 0), rating=4.9, yes_votes=10, no_votes=0)
+        self.assertEqual((dec, p["flag_reasons"], p["health_band"]), ("video", ["escalated"], "borderline"))
+
+    def test_no_votes_means_null_approval(self):
+        _, p = self._upsert((False, None, 0), yes_votes=None, no_votes=None)
+        self.assertIsNone(p["approval_pct"])
+        self.assertEqual((p["flag_reasons"], p["health_score"]), (["rating"], 79.0))
+
+    def test_fine_row_writes_no_band_and_no_reasons(self):
+        dec, p = self._upsert((False, None, 0), rating=4.8, yes_votes=9, no_votes=1)
+        self.assertEqual((dec, p["health_band"], p["flag_reasons"], p["health_score"]),
+                         ("none", None, [], 100.0))
+
+
 class TestSlackPayload(unittest.TestCase):
     ROW = {"id": "cr-1", "topic": "MCP Deep Dive", "instructor": "Jane Doe",
            "class_date": dt.date(2026, 9, 1), "session_kind": "Live Class", "rating": 4.31,
            "num_ratings": 12, "attended": 25, "participation_pct": 48.0, "decision": "video",
            "course_name": "Applied Agentic AI", "handler_name": "Bishal",
            "handler_email": "b@ik.com", "slack_user_id": "U777", "handler_id": "h-1"}
+    ROW_V2 = {**ROW, "yes_votes": 13, "no_votes": 2, "approval_pct": 86.67,
+              "health_score": 55.0, "health_band": "urgent", "flag_reasons": ["rating", "approval"]}
 
     def test_blocks_carry_the_facts_and_the_link_button(self):
         blocks = N.flag_blocks(self.ROW, "https://app/ratings?focus=cr-1", "U777")
@@ -232,6 +318,18 @@ class TestSlackPayload(unittest.TestCase):
                        "12 of 25 rated (48%)", "<@U777>", "ratings?focus=cr-1"):
             self.assertIn(needle, text)
         self.assertEqual(blocks[-2]["elements"][0]["type"], "button")   # URL button, no webhook
+
+    def test_blocks_carry_the_vote_line(self):
+        text = json.dumps(N.flag_blocks(self.ROW_V2, "https://app/ratings?focus=cr-1", "U777"))
+        for needle in ("*Priority:* Urgent", "*Vote:* 13 of 15 would have them back (87%)",
+                       "*Why:* rating below 4.55, approval under 80%"):
+            self.assertIn(needle, text)
+
+    def test_vote_line_tolerates_rows_without_v2_fields(self):
+        self.assertEqual(N.priority_line(self.ROW), "*Vote:* no vote recorded")
+        line = N.priority_line({**self.ROW, "flag_reasons": ["escalated"], "health_band": "borderline"})
+        self.assertIn("*Priority:* Borderline", line)
+        self.assertIn("*Why:* escalated by a PM", line)
 
     def test_post_failure_never_raises(self):
         def handler(request):

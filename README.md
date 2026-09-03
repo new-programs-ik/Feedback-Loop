@@ -33,9 +33,11 @@ Built for Interview Kickstart's New Programs team, now used across teams.
 
 When a class is rated low, this app:
 1. **Tells you whether the class even needs analysing — and which kind.** A built-in helper applies the
-   team rule, validated against 8 months of real ratings data (rating ≥ 4.55 → usually skip · fewer
-   than 5 ratings → watch only · below 4.55 with ≥ 40% rating participation → video · under 40% →
-   transcript · any escalation → always video) and can switch video on with one click,
+   team rule, validated against 8 months of real ratings data and the learners' "would you have this
+   instructor back?" vote (rated ≥ 4.55 *and* ≥ 80% approval → usually skip · fewer than 5 ratings →
+   watch only · under either bar, a Class Health Score — 60% rating, 30% approval, 10% track record —
+   sets the priority: urgent → video, borderline → transcript, in between ≥ 40% participation → video
+   · any escalation → always video) and can switch video on with one click,
 2. **Fetches the class transcript** (from Vimeo, or you upload it),
 3. **Optionally watches the class**, sampling a frame every 2–3 minutes to check camera on/off, screen
    sharing, and whether the slides match the plan — problems a transcript can never reveal
@@ -143,7 +145,7 @@ cd ratings_module_build_kit && ./.venv/Scripts/python -m uvicorn service:app --p
 # Website (needs Supabase keys in web/.env.local)
 cd web && npm install && npm run dev
 ```
-Tests: `cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest` (199 tests) ·
+Tests: `cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest` (248 tests) ·
 web typecheck: `cd web && npx tsc --noEmit`.
 Deploy: see **[DEPLOY.md](DEPLOY.md)**. Secrets live in `.env` / `.env.local` (gitignored) and in
 Vercel/Render settings — **never** in the code.

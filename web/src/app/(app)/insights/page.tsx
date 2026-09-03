@@ -10,16 +10,20 @@ import { StackedBars } from "@/components/charts/stacked-bars";
 import { Histogram } from "@/components/charts/histogram";
 import { ScatterChart } from "@/components/charts/scatter-chart";
 import { Sparkline } from "@/components/charts/sparkline";
+import { approvalTone } from "@/components/priority-chip";
 import {
   fetchRatings, byCourse, byMonth, bands, byTopic, bestSmePerTopic, summarize, isBad,
 } from "@/lib/ratings";
-import { GOOD, MIN_VOICES, PARTICIPATION_BAR } from "@/lib/decision";
+import {
+  APPROVAL_BAR, BORDERLINE, GOOD, MIN_VOICES, PARTICIPATION_BAR, URGENT, WEIGHTS,
+} from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
 import { requireUser } from "@/lib/session";
 
 export const metadata = { title: "Insights" };
 
 const fmtAvg = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+const fmtPct = (v: number | null) => (v == null ? "—" : `${Math.round(v)}%`);
 
 const VISION: { title: string; body: string; status: "live" | "building" | "planned" }[] = [
   { title: "SME strengths & improvement areas by topic",
@@ -64,6 +68,29 @@ export default async function InsightsPage() {
   const attended = rows.reduce((a, r) => a + (r.attended ?? 0), 0);
   const rated = rows.reduce((a, r) => a + (r.num_ratings ?? 0), 0);
 
+  // ── the vote: the four corners of the rating × approval plane ───────────────
+  const voted = rows.filter((r) => r.approval_pct != null);
+  const under = (r: (typeof rows)[number]) => (r.approval_pct ?? 100) < APPROVAL_BAR;
+  const fineBoth = voted.filter((r) => !isBad(r) && !under(r)).length;
+  const failsBoth = voted.filter((r) => isBad(r) && under(r)).length;
+  const hardGood = voted.filter((r) => isBad(r) && !under(r)).length;
+  const polite = voted.filter((r) => !isBad(r) && under(r));
+  const politeVoiced = polite.filter((r) => (r.num_ratings ?? 0) >= MIN_VOICES).length;
+  const badVoted = voted.filter(isBad).length;
+  const nobodySaidNo = voted.filter((r) => r.no_votes === 0).length;
+  const noVotesInGood = voted.filter((r) => !isBad(r)).reduce((a, r) => a + (r.no_votes ?? 0), 0);
+  const noVotesAll = voted.reduce((a, r) => a + (r.no_votes ?? 0), 0);
+  const approvalPoints = voted.map(
+    (r) => [Number(r.approval_pct), r.rating, isBad(r) || under(r) ? 1 : 0] as [number, number, number],
+  );
+  const quadrants = [
+    { label: "Fine on both", n: fineBoth, note: `Rated ${GOOD}+ and ${APPROVAL_BAR}%+ would have the instructor back — no analysis.`, tone: "good" as const },
+    { label: "Fails both", n: failsBoth, note: "Rated low and the room would rather have someone else — the videos concentrate here.", tone: "bad" as const },
+    { label: "Hard class, good teacher", n: hardGood, note: "Rated low, instructor approved — analysed, but the vote says where not to look first.", tone: "warn" as const },
+    { label: "Polite rating", n: polite.length, note: `Rated ${GOOD}+ yet under the ${APPROVAL_BAR}% bar — an instructor question the rating rule alone never sees.`, tone: "warn" as const },
+  ];
+  const underShare = (m: (typeof months)[number]) => (m.n ? Math.round((m.underBar / m.n) * 100) : 0);
+
   const watchlist = byTopic(rows, 4)
     .filter((t) => t.instructors >= 2 && (t.avgRating ?? 5) < GOOD)
     .sort((a, b) => (a.avgRating ?? 5) - (b.avgRating ?? 5))
@@ -75,7 +102,7 @@ export default async function InsightsPage() {
 
   // ── the course dimension ────────────────────────────────────────────────────
   const courseAgg = byCourse(rows);
-  // The course carrying the largest share of this year's below-GOOD classes (for section 2).
+  // The course carrying the largest share of this year's below-GOOD classes (for section 3).
   const topBadCourse = courseAgg.filter((c) => c.bad > 0).sort((a, b) => b.bad - a.bad)[0];
   // Small multiples: every course with a readable sample, worst bad-share first. Each card
   // carries ONE sentence chosen by its own monthly data.
@@ -117,14 +144,24 @@ export default async function InsightsPage() {
       <p className="text-muted-foreground mt-2 max-w-2xl text-[14.5px] leading-relaxed">
         Every live class and test review since January, straight from the ratings sheet — recomputed
         on every sync, so this page is never out of date. <b className="text-foreground">{attended.toLocaleString()}</b>{" "}
-        learners sat in a class; <b className="text-foreground">{rated.toLocaleString()}</b> of them rated one.
+        learners sat in a class; <b className="text-foreground">{rated.toLocaleString()}</b> of them rated one
+        {total.votes > 0 && total.votes === rated && (
+          <> — and every rating came with a vote on whether they would have the instructor back</>
+        )}
+        {total.votes > 0 && total.votes !== rated && (
+          <>
+            , and <b className="text-foreground">{total.votes.toLocaleString()}</b> said whether they would have the instructor back
+          </>
+        )}
+        .
       </p>
 
       {/* stat strip */}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-stagger>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-stagger>
         {[
           { v: total.n.toLocaleString(), l: "classes rated since January" },
           { v: `${Math.round((total.badShare ?? 0) * 100)}%`, l: `rated below ${GOOD}`, bad: true },
+          { v: fmtPct(total.approval), l: "would have the instructor back", bad: total.approval != null && total.approval < APPROVAL_BAR },
           { v: `${Math.round(total.avgParticipation ?? 0)}%`, l: "typical participation — half the room" },
           { v: `${above80Pct.toFixed(1)}%`, l: "of classes ever reach 80% participation", bad: true },
         ].map((s) => (
@@ -155,15 +192,96 @@ export default async function InsightsPage() {
       >
         <ScatterChart points={scatterPoints} threshold={GOOD} bar={PARTICIPATION_BAR} />
       </ChartCard>
-      <Callout tone="ok" title="The rule this data produced" className="mt-3">
-        Rating <b>{GOOD}+</b> → no analysis · fewer than <b>{MIN_VOICES} ratings</b> → watch only ·
-        below {GOOD} with <b>≥ {PARTICIPATION_BAR}%</b> of the room rating → video analysis · under{" "}
-        {PARTICIPATION_BAR}% → transcript · any escalation → video. Every threshold on this page was
-        measured, not guessed — and the app&apos;s <Link href="/ratings" className="text-primary font-medium">Needs-analysis queue</Link>{" "}
-        applies it automatically.
+      <Callout tone="ok" title="What participation decides" className="mt-3">
+        Fewer than <b>{MIN_VOICES} ratings</b> → watch only, whatever the score · below {GOOD} → the class
+        enters the queue · <b>≥ {PARTICIPATION_BAR}%</b> of the room rating → a video analysis, under{" "}
+        {PARTICIPATION_BAR}% → a transcript read. Every threshold here was measured, not guessed — and
+        section 2 adds the second signal that decides how urgent each case is.
       </Callout>
 
-      <SectionHeader n={2} title="The trend leadership should watch" />
+      <SectionHeader n={2} title="The vote is not the rating" />
+      {voted.length === 0 ? (
+        <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
+          The ratings form also asks whether the room would have the instructor back. No votes have
+          synced yet — this section fills in once the sheet&apos;s Yes / No columns arrive.
+        </p>
+      ) : (
+        <>
+          <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
+            Every rating form asks a second question: <i>would you want this instructor to take the
+            class again?</i> Across <b className="text-foreground">{voted.length.toLocaleString()}</b> classes
+            with a vote, <b className="text-foreground">{fmtPct(total.approval)}</b> of{" "}
+            {total.votes.toLocaleString()} answers say yes, and in{" "}
+            <b className="text-foreground">{Math.round((nobodySaidNo / voted.length) * 100)}%</b> of classes
+            nobody said no. The two signals move together but do not agree: the rating flags the class,
+            the vote flags the instructor. Of the <b className="text-foreground">{badVoted}</b> classes rated
+            under {GOOD}, <b className="text-foreground">{hardGood} ({badVoted ? Math.round((hardGood / badVoted) * 100) : 0}%)</b>{" "}
+            still cleared the {APPROVAL_BAR}% bar — the room found the class hard but did not blame the
+            teacher. And{" "}
+            {noVotesAll > 0 && (
+              <>
+                <b className="text-foreground">{Math.round((noVotesInGood / noVotesAll) * 100)}%</b>{" "}
+                of every &ldquo;no&rdquo; was cast in a class rated {GOOD} or better —{" "}
+              </>
+            )}
+            <b className="text-foreground">{polite.length}</b> classes were rated fine yet fell under the bar
+            ({politeVoiced} of them with {MIN_VOICES} or more votes). Two different questions, two different answers.
+          </p>
+          <ChartCard
+            title="Every class with a vote"
+            subtitle={`Rating against the share who would have the instructor back · the ${GOOD} line and the ${APPROVAL_BAR}% bar cut the cloud into four · the shaded corner fails both; the two thin strips are where the signals disagree`}
+            legend={[
+              { label: "Clears both bars", color: "var(--chart-1)" },
+              { label: "Fails a bar", color: "var(--viz-bad)" },
+            ]}
+          >
+            <ScatterChart
+              points={approvalPoints}
+              threshold={GOOD}
+              bar={APPROVAL_BAR}
+              cornerSide="left"
+              xLabel="share of voters who would have the instructor back"
+              barLabel={`${APPROVAL_BAR}% bar`}
+              lineLabel={`rating ${GOOD} — below this we look`}
+              cornerLabel="fails both bars"
+              ariaLabel="Every class plotted by rating against the share who would have the instructor back. Most sit top-right; the shaded corner fails both bars; the strips beside it are where the two signals disagree."
+            />
+          </ChartCard>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-stagger>
+            {quadrants.map((q) => (
+              <div key={q.label} className="bg-card shadow-soft rounded-xl border p-4">
+                <div className="text-[12.5px] font-semibold">
+                  <BandDot tone={q.tone} />
+                  {q.label}
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className={`text-[24px] leading-none font-semibold tracking-[-0.02em] ${q.tone === "bad" ? "text-destructive" : ""}`} data-numeric>
+                    {q.n.toLocaleString()}
+                  </span>
+                  <span className="text-muted-foreground text-xs" data-numeric>
+                    {Math.round((q.n / voted.length) * 100)}% of classes
+                  </span>
+                </div>
+                <p className="text-muted-foreground mt-2 text-xs leading-relaxed">{q.note}</p>
+              </div>
+            ))}
+          </div>
+          <Callout tone="ok" title="Rule v2 — two bars decide if, the Health Score decides how urgent and how deep" className="mt-3">
+            Rated below <b>{GOOD}</b>, <i>or</i> fewer than <b>{APPROVAL_BAR}%</b> would have the instructor
+            back (either one, with at least {MIN_VOICES} voices) → the class enters the queue. A Class Health
+            Score — rating <b>{Math.round(WEIGHTS.rating * 100)}%</b>, approval vote{" "}
+            <b>{Math.round(WEIGHTS.approval * 100)}%</b>, the instructor&apos;s track record{" "}
+            <b>{Math.round(WEIGHTS.track * 100)}%</b> — then sets the priority: <b>urgent</b> under {URGENT} goes
+            to video whatever the reach, <b>borderline</b> at {BORDERLINE}+ starts with a transcript, and in
+            between the {PARTICIPATION_BAR}% reach bar decides. A weighted score alone could not replace the
+            bars — it would let a liked instructor&apos;s perfect vote buy back a bad rating — so the bars stay
+            hard and the score does the two jobs an average is good at: ordering the{" "}
+            <Link href="/ratings" className="text-primary font-medium">queue</Link> and choosing the depth.
+          </Callout>
+        </>
+      )}
+
+      <SectionHeader n={3} title="The trend leadership should watch" />
       {worstMonth && first && last && (
         <Callout tone="warn" title="Low-rated classes are climbing" className="mb-3">
           The share of classes rated below {GOOD} has risen from{" "}
@@ -174,6 +292,14 @@ export default async function InsightsPage() {
             : ` (peak: ${Math.round((worstMonth.badShare ?? 0) * 100)}% in ${fmtMonth(worstMonth.month)}).`}
           {" "}Participation stayed flat all year, so this is a real quality trend — not a change in
           who fills in ratings.
+          {first.votes > 0 && last.votes > 0 && (
+            <>
+              {" "}The vote moves on the same slope: classes under the {APPROVAL_BAR}% approval bar went from{" "}
+              <b>{underShare(first)}% in {fmtMonth(first.month)}</b> to{" "}
+              <b>{underShare(last)}% in {fmtMonth(last.month)}</b> — the room is not just rating lower; it
+              is more often asking for a different instructor.
+            </>
+          )}
           {topBadCourse && bad.length > 0 && (
             <>
               {" "}And it is concentrated: <b>{topBadCourse.name}</b> carries the largest share of the
@@ -191,9 +317,9 @@ export default async function InsightsPage() {
           { label: `Below ${GOOD}`, color: "var(--viz-bad)" },
         ]}
         table={{
-          headers: ["Month", `${GOOD}+`, "Below", "Share"],
+          headers: ["Month", `${GOOD}+`, "Below", "Share", "Approval", `Under ${APPROVAL_BAR}%`],
           rows: months.map((m) => [fmtMonth(m.month), m.n - m.bad, m.bad,
-            m.badShare != null ? `${Math.round(m.badShare * 100)}%` : "—"]),
+            m.badShare != null ? `${Math.round(m.badShare * 100)}%` : "—", fmtPct(m.approval), m.underBar]),
         }}
       >
         <StackedBars
@@ -208,7 +334,7 @@ export default async function InsightsPage() {
         />
       </ChartCard>
 
-      <SectionHeader n={3} title="How all ratings spread" />
+      <SectionHeader n={4} title="How all ratings spread" />
       <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
         Most classes land at 4.75 or above — <b className="text-foreground">{bands(rows)[4]?.count.toLocaleString()}</b>{" "}
         of them. The {GOOD} line separates the healthy middle from the{" "}
@@ -222,11 +348,11 @@ export default async function InsightsPage() {
         <Histogram bands={bands(rows)} height={200} />
       </ChartCard>
 
-      <SectionHeader n={4} title="How each course is doing" />
+      <SectionHeader n={5} title="How each course is doing" />
       <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
-        The trend in section 2 is not spread evenly. Every course with at least{" "}
+        The trend in section 3 is not spread evenly. Every course with at least{" "}
         <b className="text-foreground">10 rated classes</b>, worst first — the pill is its share of
-        classes below {GOOD}, the line is that share month by month.
+        classes below {GOOD}, the line is that share month by month, and the vote sits beside the rating.
       </p>
       {courseCards.length === 0 ? (
         <p className="text-muted-foreground text-[13px]">
@@ -260,6 +386,17 @@ export default async function InsightsPage() {
               <p className="text-muted-foreground mt-1 text-xs">
                 <b className="text-foreground font-semibold" data-numeric>{c.n}</b> classes · avg{" "}
                 <b className="text-foreground font-semibold" data-numeric>{fmtAvg(c.avgRating)}</b>
+                {c.approval != null && (
+                  <>
+                    {" "}·{" "}
+                    <BandDot tone={approvalTone(c.approval)} />
+                    <b className={`font-semibold ${c.approval < APPROVAL_BAR ? "text-destructive" : "text-foreground"}`} data-numeric>
+                      {Math.round(c.approval)}%
+                    </b>{" "}
+                    would have the instructor back
+                    {c.underBar > 0 ? ` · ${c.underBar} under ${APPROVAL_BAR}%` : ""}
+                  </>
+                )}
               </p>
               {c.spark.length >= 2 && (
                 <div className="mt-2.5 flex items-center gap-2">
@@ -280,7 +417,7 @@ export default async function InsightsPage() {
         </div>
       )}
 
-      <SectionHeader n={5} title="Content problems vs instructor problems — the data can tell them apart" />
+      <SectionHeader n={6} title="Content problems vs instructor problems — the data can tell them apart" />
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
           <div className="flex items-start gap-2.5 px-4 pt-4 sm:px-5">
@@ -291,6 +428,7 @@ export default async function InsightsPage() {
               <h3 className="text-[13px] font-semibold">Module watchlist — likely content issues</h3>
               <p className="text-muted-foreground text-xs">
                 Rated below {GOOD} across <b>two or more different SMEs</b> — pointing at the material, not the person.
+                A healthy approval beside a low rating says the same thing.
               </p>
             </div>
           </div>
@@ -299,6 +437,7 @@ export default async function InsightsPage() {
               <TableRow className="hover:bg-transparent">
                 <TableHead>Module</TableHead>
                 <TableHead className="text-right">Avg</TableHead>
+                <TableHead className="text-right">Approval</TableHead>
                 <TableHead className="text-right">Classes</TableHead>
                 <TableHead className="text-right">SMEs</TableHead>
               </TableRow>
@@ -308,6 +447,9 @@ export default async function InsightsPage() {
                 <TableRow key={t.topic}>
                   <TableCell className="max-w-60 truncate font-medium">{t.topic}</TableCell>
                   <TableNum><BandDot tone="bad" />{fmtAvg(t.avgRating)}</TableNum>
+                  <TableNum className={t.approval != null && t.approval < APPROVAL_BAR ? "text-destructive font-semibold" : ""}>
+                    {t.approval != null ? <><BandDot tone={approvalTone(t.approval)} />{Math.round(t.approval)}%</> : <span className="text-muted-foreground">—</span>}
+                  </TableNum>
                   <TableNum className="text-muted-foreground">{t.n}</TableNum>
                   <TableNum className="text-muted-foreground">{t.instructors}</TableNum>
                 </TableRow>
@@ -361,7 +503,7 @@ export default async function InsightsPage() {
         </div>
       </div>
 
-      <SectionHeader n={6} title="Where this goes — the SME & Learner Intelligence System" />
+      <SectionHeader n={7} title="Where this goes — the SME & Learner Intelligence System" />
       <div className="bg-card shadow-soft rounded-xl border p-5 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="bg-primary/12 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">

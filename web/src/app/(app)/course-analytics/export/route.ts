@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const header = "date,course,category,topic,instructor,rating,rated,attended,participation_pct,decision";
+  const header =
+    "date,course,category,topic,instructor,rating,rated,attended,participation_pct,yes_votes,no_votes,approval_pct,health_score,health_band,flag_reasons,decision";
   const lines = rows.map((r) =>
     [
       r.class_date,
@@ -31,6 +32,12 @@ export async function GET(req: NextRequest) {
       r.num_ratings ?? "",
       r.attended ?? "",
       r.participation_pct ?? "",
+      r.yes_votes ?? "",
+      r.no_votes ?? "",
+      r.approval_pct ?? "",
+      r.health_score ?? "",
+      r.health_band ?? "",
+      r.flag_reasons.join("|"),
       r.decision,
     ].join(","),
   );

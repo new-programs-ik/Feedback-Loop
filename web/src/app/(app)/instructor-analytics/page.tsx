@@ -1,20 +1,22 @@
 import Link from "next/link";
-import { ArrowLeft, GraduationCap, Star, TrendingDown, Users } from "lucide-react";
+import { ArrowLeft, GraduationCap, Star, ThumbsUp, TrendingDown, Users } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { FilterBar, rangeToDates, type RangePreset } from "@/components/filter-bar";
 import { StatTile } from "@/components/ui/stat-tile";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { Callout } from "@/components/ui/callout";
 import {
   BandDot, Meter, Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow,
 } from "@/components/ui/table";
 import { ChartCard } from "@/components/charts/chart-card";
 import { LineChart } from "@/components/charts/line-chart";
 import { Sparkline } from "@/components/charts/sparkline";
+import { approvalTone } from "@/components/priority-chip";
 import {
   fetchRatings, byInstructor, byMonth, byCourse, smeTopics, summarize, worstClasses,
 } from "@/lib/ratings";
-import { GOOD } from "@/lib/decision";
+import { APPROVAL_BAR, GOOD, voteLabel } from "@/lib/decision";
 import { fmtMonth } from "@/components/charts/chart-kit";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
@@ -65,6 +67,8 @@ export default async function InstructorAnalyticsPage({
     const weak = [...topics].reverse().filter((x) => (x.avgRating ?? 5) < GOOD);
     const courses = byCourse(own);
     const worst = worstClasses(own, 6);
+    const politeRating = t.avgRating != null && t.avgRating >= GOOD && t.approval != null && t.approval < APPROVAL_BAR;
+    const hardClass = t.avgRating != null && t.avgRating < GOOD && t.approval != null && t.approval >= APPROVAL_BAR;
 
     return (
       <div className="animate-in-up">
@@ -94,19 +98,41 @@ export default async function InstructorAnalyticsPage({
           </div>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-stagger>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-stagger>
               <StatTile label="Classes rated" value={t.n} icon={GraduationCap} />
               <StatTile label="Average rating" value={fmtAvg(t.avgRating)} icon={Star}
                         sparkline={<Sparkline values={months.map((m) => m.avgRating).filter((v): v is number => v != null)} />} />
+              <StatTile label="Would have them back" value={fmtPct(t.approval)} icon={ThumbsUp}
+                        tone={t.approval != null && t.approval < APPROVAL_BAR ? "destructive" : "default"}
+                        note={t.votes > 0
+                          ? `${t.votes.toLocaleString()} votes · ${t.underBar} ${t.underBar === 1 ? "class" : "classes"} under ${APPROVAL_BAR}%`
+                          : "no votes recorded"} />
               <StatTile label={`Below ${GOOD}`} value={t.bad} icon={TrendingDown}
                         tone={t.bad > 0 ? "destructive" : "success"}
                         note={t.badShare != null ? `${Math.round(t.badShare * 100)}% of their classes` : undefined} />
               <StatTile label="Avg participation" value={fmtPct(t.avgParticipation)} icon={Users} />
             </div>
 
+            {politeRating && (
+              <Callout tone="warn" title="Polite rating — the room rates the class fine but would rather have someone else" className="mt-4">
+                Averages <b>{fmtAvg(t.avgRating)}</b> across {t.n} classes, yet only{" "}
+                <b>{Math.round(t.approval!)}%</b> of {t.votes.toLocaleString()} votes would have this instructor
+                back — under the {APPROVAL_BAR}% bar. The rating rule alone never sees this; the vote is an
+                instructor question, and here the room is answering it.
+              </Callout>
+            )}
+            {hardClass && (
+              <Callout tone="ok" title="Hard class, good teacher — low ratings the room does not pin on the instructor" className="mt-4">
+                Averages <b>{fmtAvg(t.avgRating)}</b> across {t.n} classes, but{" "}
+                <b>{Math.round(t.approval!)}%</b> of {t.votes.toLocaleString()} votes would still have this
+                instructor back. The rating says something went wrong; the vote says where not to look first —
+                the room is not asking for a different instructor, so start with the content and the difficulty.
+              </Callout>
+            )}
+
             {months.length >= 2 && (
               <ChartCard className="mt-4" title="Rating trend" subtitle="Monthly average, against the 4.55 line"
-                table={{ headers: ["Month", "Avg rating", "Classes"], rows: months.map((m) => [fmtMonth(m.month), fmtAvg(m.avgRating), m.n]) }}>
+                table={{ headers: ["Month", "Avg rating", "Approval", "Classes"], rows: months.map((m) => [fmtMonth(m.month), fmtAvg(m.avgRating), fmtPct(m.approval), m.n]) }}>
                 <LineChart
                   labels={months.map((m) => fmtMonth(m.month))}
                   series={[{ name: "Avg rating", values: months.map((m) => m.avgRating) }]}
@@ -131,6 +157,9 @@ export default async function InstructorAnalyticsPage({
                       <TableRow key={x.topic}>
                         <TableCell className="max-w-64 truncate font-medium">{x.topic}</TableCell>
                         <TableNum><BandDot tone="good" />{fmtAvg(x.avgRating)}</TableNum>
+                        <TableNum className="text-muted-foreground">
+                          {x.approval != null ? <><BandDot tone={approvalTone(x.approval)} />{Math.round(x.approval)}% back</> : "—"}
+                        </TableNum>
                         <TableNum className="text-muted-foreground">{x.n} classes</TableNum>
                       </TableRow>
                     ))}
@@ -151,6 +180,9 @@ export default async function InstructorAnalyticsPage({
                       <TableRow key={x.topic}>
                         <TableCell className="max-w-64 truncate font-medium">{x.topic}</TableCell>
                         <TableNum><BandDot tone="bad" />{fmtAvg(x.avgRating)}</TableNum>
+                        <TableNum className="text-muted-foreground">
+                          {x.approval != null ? <><BandDot tone={approvalTone(x.approval)} />{Math.round(x.approval)}% back</> : "—"}
+                        </TableNum>
                         <TableNum className="text-muted-foreground">{x.n} classes</TableNum>
                       </TableRow>
                     ))}
@@ -171,6 +203,9 @@ export default async function InstructorAnalyticsPage({
                       <TableRow key={c.key}>
                         <TableCell className="font-medium">{c.name}</TableCell>
                         <TableNum>{fmtAvg(c.avgRating)}</TableNum>
+                        <TableNum className="text-muted-foreground">
+                          {c.approval != null ? <><BandDot tone={approvalTone(c.approval)} />{Math.round(c.approval)}% back</> : "—"}
+                        </TableNum>
                         <TableNum className="text-muted-foreground">{c.n} classes</TableNum>
                       </TableRow>
                     ))}
@@ -185,6 +220,7 @@ export default async function InstructorAnalyticsPage({
                       <TableRow key={r.id}>
                         <TableCell className="text-destructive font-semibold" data-numeric>{r.rating.toFixed(2)}</TableCell>
                         <TableCell className="max-w-56 truncate">{r.topic || r.session_kind}</TableCell>
+                        <TableNum className="text-muted-foreground">{voteLabel(r.yes_votes, r.no_votes) ?? "—"}</TableNum>
                         <TableNum className="text-muted-foreground">{pretty(r.class_date)}</TableNum>
                       </TableRow>
                     ))}
@@ -205,6 +241,7 @@ export default async function InstructorAnalyticsPage({
     sort === "name" ? a.name.localeCompare(b.name)
     : sort === "classes" ? b.n - a.n
     : sort === "rating" ? (a.avgRating ?? 9) - (b.avgRating ?? 9)
+    : sort === "approval" ? (a.approval ?? 101) - (b.approval ?? 101)
     : b.bad - a.bad,
   );
   const months = byMonth(rows);
@@ -228,7 +265,7 @@ export default async function InstructorAnalyticsPage({
     <div className="animate-in-up">
       <PageHeader
         title="Instructor Analytics"
-        description={`Every SME with 3+ rated classes · click a row for their per-topic strengths and improvement areas · ${from} → ${to}`}
+        description={`Every SME with 3+ rated classes · click a row for their per-topic strengths, improvement areas and the room's vote · ${from} → ${to}`}
       />
       <FilterBar
         basePath="/instructor-analytics"
@@ -254,6 +291,7 @@ export default async function InstructorAnalyticsPage({
                 <TableHead><Link href={sortHref("name")} className="hover:text-foreground">Instructor</Link></TableHead>
                 <TableHead className="text-right"><Link href={sortHref("classes")} className="hover:text-foreground">Classes</Link></TableHead>
                 <TableHead className="text-right"><Link href={sortHref("rating")} className="hover:text-foreground">Avg rating</Link></TableHead>
+                <TableHead className="text-right"><Link href={sortHref("approval")} className="hover:text-foreground">Approval</Link></TableHead>
                 <TableHead className="text-right"><Link href={sortHref("bad")} className="hover:text-foreground">Below {GOOD}</Link></TableHead>
                 <TableHead>Participation</TableHead>
                 <TableHead>Trend</TableHead>
@@ -273,6 +311,9 @@ export default async function InstructorAnalyticsPage({
                     <TableNum>
                       <BandDot tone={s.avgRating != null && s.avgRating < GOOD ? "bad" : s.avgRating != null && s.avgRating < 4.7 ? "warn" : "good"} />
                       {fmtAvg(s.avgRating)}
+                    </TableNum>
+                    <TableNum className={s.approval != null && s.approval < APPROVAL_BAR ? "text-destructive font-semibold" : ""}>
+                      {s.approval != null ? <><BandDot tone={approvalTone(s.approval)} />{Math.round(s.approval)}%</> : <span className="text-muted-foreground">—</span>}
                     </TableNum>
                     <TableNum>
                       {s.bad > 0 ? (

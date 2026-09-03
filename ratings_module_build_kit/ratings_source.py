@@ -14,6 +14,8 @@ Canonical row (plain dict):
     rating        float
     num_ratings   int | None   - learners who rated
     attended      int | None   - learners who attended
+    yes_votes     int | None   - "would you have this instructor back?" Yes count; None = no vote data
+    no_votes      int | None   - the No count; None = no vote data (never a penalty in the rule)
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from typing import Protocol
 
 
 CANONICAL_FIELDS = ["course_label", "cohort_text", "topic", "instructor", "class_date",
-                    "session_kind", "rating", "num_ratings", "attended"]
+                    "session_kind", "rating", "num_ratings", "attended", "yes_votes", "no_votes"]
 
 
 class RatingsSource(Protocol):

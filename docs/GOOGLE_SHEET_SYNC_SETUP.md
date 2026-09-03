@@ -54,6 +54,26 @@ GOOGLE_SA_JSON_FILE=google-sa.json
 Open the app → **Needs analysis** → **Sync now**. Within a minute the banner should read
 "Last synced just now · N rows".
 
+## Which columns it reads
+
+Columns are found **by their header name**, so reordering or adding columns is harmless. Renaming
+one of the required ones stops the sync with the column named.
+
+| Header in the sheet | Required? | Used for |
+|---|---|---|
+| `Session Date` | yes | the class date |
+| `Type` | yes | Live Class vs Test Review, and the course fallback |
+| `Cohorts` | yes | the course (mapped by the cohort text) |
+| `Topic` (or `Class`) | yes | the class topic |
+| `Instructor` | yes | the instructor, and their track record |
+| `Overall Average` | yes | the rating |
+| `Responses` | yes | how many rated |
+| `# Students Attended` | yes | how many attended (participation %) |
+| `Yes` / `No` | **optional** | the approval vote — "would you want this instructor to take the class again?" |
+
+A tab without the `Yes` / `No` columns still syncs; those classes simply carry no vote, which is
+never a penalty in the rule (see `docs/HOW_IT_WORKS.md`, "The decision rule").
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -61,6 +81,7 @@ Open the app → **Needs analysis** → **Sync now**. Within a minute the banner
 | Sync failed: "403 — the sheet is not shared…" | Step 3 missed or wrong email | Re-share with the exact `client_email` |
 | Sync failed: "404 — sheet id not found" | Wrong `RATINGS_SHEET_ID` | Copy the id from the sheet URL again |
 | Sync failed: "missing required column(s) [X]" | Someone renamed a header in the sheet | Rename it back, or tell the dev team |
+| Classes show "no vote recorded" | The `Yes` / `No` headers are missing or renamed on that tab | Optional — add or rename them back and the next sync fills the vote in |
 | Banner never updates | Worker not running | Locally: start the worker; in production: check Render |
 
 ## At deploy time (later, not now)

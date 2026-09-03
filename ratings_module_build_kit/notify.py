@@ -13,9 +13,15 @@ from typing import Optional
 
 import httpx
 
+import decision as D
+
 log = logging.getLogger("notify")
 
 SLACK_API = "https://slack.com/api"
+BAND_LABELS = {"urgent": "Urgent", "look": "Needs a look", "borderline": "Borderline"}
+REASON_TEXT = {"rating": f"rating below {D.GOOD}",
+               "approval": f"approval under {D.APPROVAL_BAR:.0f}%",
+               "escalated": "escalated by a PM"}
 
 
 def slack_configured(env: dict | None = None) -> bool:
@@ -49,6 +55,26 @@ def lookup_user_id(email: str, env: dict | None = None,
         return None
 
 
+def priority_line(row: dict) -> str:
+    """One mrkdwn line - the band, the vote, and why it was flagged, e.g.
+    '*Priority:* Urgent · *Vote:* 13 of 15 would have them back (87%) · *Why:* rating below 4.55'.
+    Tolerates rows without the v2 fields (a pending row synced before the vote existed)."""
+    parts = []
+    band = row.get("health_band")
+    if band:
+        parts.append(f"*Priority:* {BAND_LABELS.get(band, band)}")
+    yes, no = row.get("yes_votes"), row.get("no_votes")
+    if yes is not None and no is not None and (yes + no) > 0:
+        parts.append(f"*Vote:* {yes:.0f} of {yes + no:.0f} would have them back "
+                     f"({yes / (yes + no) * 100:.0f}%)")
+    else:
+        parts.append("*Vote:* no vote recorded")
+    reasons = [REASON_TEXT.get(r, r) for r in (row.get("flag_reasons") or ())]
+    if reasons:
+        parts.append("*Why:* " + ", ".join(reasons))
+    return " · ".join(parts)
+
+
 def flag_blocks(row: dict, link: str, slack_user_id: Optional[str]) -> list[dict]:
     """Block Kit card for one flagged class. `row` comes from rows_needing_notification."""
     verdict = "Video analysis" if row["decision"] == "video" else "Transcript analysis"
@@ -69,6 +95,8 @@ def flag_blocks(row: dict, link: str, slack_user_id: Optional[str]) -> list[dict
              {"type": "mrkdwn", "text": f"*Rating*\n{row['rating']} ★ ({rated})"},
              {"type": "mrkdwn", "text": f"*Rule says*\n{verdict}"},
          ]},
+        {"type": "section",
+         "text": {"type": "mrkdwn", "text": priority_line(row)}},
         {"type": "section",
          "text": {"type": "mrkdwn",
                   "text": f"{who} — does this class need an analysis? Please confirm or dismiss."}},

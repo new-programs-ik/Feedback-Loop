@@ -1,6 +1,7 @@
 """ratings_sync.py - one sync run, start to finish.
 
-fetch (sheet or metabase) -> decide per row -> upsert all -> notify newly-flagged handlers.
+fetch (sheet or metabase) -> upsert all (the store applies rule v2 per row) -> notify newly-flagged
+handlers.
 Every run is recorded in sync_runs (the UI banner reads it); any failure marks the run failed
 AND pings the PM Slack channel, so a silently-drifting sheet gets noticed the same hour.
 """
@@ -8,7 +9,6 @@ from __future__ import annotations
 
 import logging
 
-import decision as D
 import notify as N
 import ratings_source as RS
 import ratings_store as ST
@@ -47,10 +47,8 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
             course_id = aliases.get(row["course_label"])
             if course_id is None:
                 unmapped.append(row["course_label"])
-            verdict = D.decide(row["rating"], row.get("num_ratings"), row.get("attended"))
             _, dec, _status = ST.upsert_rating(
-                cur, {**row, "source": src.name}, verdict, course_id,
-                instructors.get(row["instructor"]))
+                cur, {**row, "source": src.name}, course_id, instructors.get(row["instructor"]))
             upserted += 1
             if dec in ("video", "transcript"):
                 flagged += 1

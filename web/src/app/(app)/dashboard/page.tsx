@@ -5,9 +5,10 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BandDot } from "@/components/ui/table";
+import { approvalTone } from "@/components/priority-chip";
 import { rangeToDates } from "@/components/filter-bar";
 import { fetchRatings, byCourse as ratingsByCourse, summarize } from "@/lib/ratings";
-import { GOOD } from "@/lib/decision";
+import { APPROVAL_BAR, GOOD } from "@/lib/decision";
 import {
   Activity, ArrowRight, BadgeCheck, ChevronRight, CircleDollarSign, Hourglass, MessageSquareText,
   Plus, RefreshCcw,
@@ -76,9 +77,10 @@ export default async function DashboardPage() {
 
   // Ratings pulse: which courses are hurting, judged by the team rule (below GOOD = flagged).
   const pulseCourses = ratingsByCourse(pulseRows)
-    .sort((a, b) => b.bad - a.bad || (a.avgRating ?? 9) - (b.avgRating ?? 9))
+    .sort((a, b) => b.bad - a.bad || b.underBar - a.underBar || (a.avgRating ?? 9) - (b.avgRating ?? 9))
     .slice(0, 5);
-  const pulseFlagged = summarize(pulseRows).bad;
+  const pulse = summarize(pulseRows);
+  const pulseFlagged = pulse.bad;
 
   const stats = [
     { label: "Classes analyzed", value: analyzed.length, note: "all courses", icon: MessageSquareText, tone: "text-primary" },
@@ -245,7 +247,9 @@ export default async function DashboardPage() {
               <CardTitle className="flex items-center gap-2 text-base">
                 <Activity className="text-primary size-4" /> Ratings pulse — by course
               </CardTitle>
-              <CardDescription>Classes rated below {GOOD} in the last 30 days.</CardDescription>
+              <CardDescription>
+                Classes rated below {GOOD} in the last 30 days, and the share of each room that would have the instructor back.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="divide-y">
@@ -263,6 +267,15 @@ export default async function DashboardPage() {
                       <BandDot tone={c.avgRating != null && c.avgRating < GOOD ? "bad" : c.avgRating != null && c.avgRating < 4.7 ? "warn" : "good"} />
                       {c.avgRating != null ? c.avgRating.toFixed(2) : "—"}
                     </span>
+                    <span
+                      className={`w-14 shrink-0 text-right text-[13px] ${
+                        c.approval != null && c.approval < APPROVAL_BAR ? "text-destructive font-semibold" : "text-muted-foreground"
+                      }`}
+                      data-numeric
+                      title="Share of voters who would have the instructor back"
+                    >
+                      {c.approval != null ? <><BandDot tone={approvalTone(c.approval)} />{Math.round(c.approval)}%</> : "—"}
+                    </span>
                     <Link
                       href={c.courseId ? `/ratings?course=${c.courseId}` : "/ratings"}
                       aria-label={`Ratings for ${c.name}`}
@@ -278,9 +291,16 @@ export default async function DashboardPage() {
                   href="/ratings"
                   className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs"
                 >
-                  <span className="text-foreground font-semibold" data-numeric>{pulseFlagged}</span>
-                  {pulseFlagged === 1 ? "class" : "classes"} flagged below {GOOD} in 30 days — open the queue
-                  <ArrowRight className="size-3.5" aria-hidden />
+                  <span>
+                    <span className="text-foreground font-semibold" data-numeric>{pulseFlagged}</span> below {GOOD}
+                    {pulse.underBar > 0 && (
+                      <>
+                        {" "}· <span className="text-foreground font-semibold" data-numeric>{pulse.underBar}</span> under {APPROVAL_BAR}%
+                      </>
+                    )}{" "}
+                    in 30 days — open the queue
+                  </span>
+                  <ArrowRight className="size-3.5 shrink-0" aria-hidden />
                 </Link>
               </div>
             </CardContent>

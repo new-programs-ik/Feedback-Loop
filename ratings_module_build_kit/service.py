@@ -32,6 +32,7 @@ import config
 
 config.load_env()
 
+import decision as D  # noqa: E402
 import engine as E  # noqa: E402  (after load_env so config is present)
 import materials_fetch as MF  # noqa: E402
 import store as ST  # noqa: E402
@@ -233,6 +234,7 @@ def health() -> dict:
         "video_max_frames": VD.VCFG.max_frames,
         "review_enabled": E.CFG.review_enabled,
         "ratings_source": os.environ.get("RATINGS_SOURCE") or "sheet",
+        "rule_version": D.RULE_VERSION,
         "sheet_configured": bool(os.environ.get("RATINGS_SHEET_ID")
                                  and (os.environ.get("GOOGLE_SA_JSON_FILE")
                                       or os.environ.get("GOOGLE_SA_JSON"))),

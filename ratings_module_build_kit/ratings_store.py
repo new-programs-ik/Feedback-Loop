@@ -3,6 +3,11 @@
 All statements are idempotent upserts on the natural key. A PM's manual state is sacred: rows
 with a decision_override, or already dismissed / analysis_started, keep their decision when the
 sheet re-syncs - the sync updates their numbers but never re-opens a closed call.
+
+The verdict (rule v2, decision.decide_v2) is computed HERE rather than by the caller, because one
+of its inputs - the instructor's track record - is the average of their earlier rows in this very
+table. The health read-out (score, band, reasons) always refreshes; only `decision` is frozen by
+the PM-state rule above.
 """
 from __future__ import annotations
 
@@ -10,6 +15,8 @@ import os
 from typing import Optional
 
 import psycopg2
+
+import decision as D
 
 
 def connect():
@@ -57,19 +64,48 @@ def running_run_exists(cur, max_age_minutes: int = 10) -> bool:
     return cur.fetchone() is not None
 
 
-def upsert_rating(cur, row: dict, decision: str,
-                  course_id: Optional[str], instructor_id: Optional[str]) -> tuple[str, str, str]:
+def prior_state(cur, row: dict) -> tuple[bool, Optional[float]]:
+    """What the table already knows that the verdict needs, in one round trip:
+    - the PM's escalation toggle on this row (false for a row never seen), and
+    - the instructor's track record: their average rating over classes dated strictly before
+      this one, None until there are T_MIN_CLASSES of them. A blank instructor name gets no
+      track record (it would pool every nameless row into one phantom instructor)."""
+    cur.execute(
+        """
+        select coalesce((select escalated from class_ratings
+                          where class_date=%(class_date)s and topic=%(topic)s
+                            and instructor=%(instructor)s and session_kind=%(session_kind)s), false),
+               (select avg(rating) from class_ratings
+                 where instructor=%(instructor)s and class_date < %(class_date)s),
+               (select count(*) from class_ratings
+                 where instructor=%(instructor)s and class_date < %(class_date)s)
+        """, row)
+    escalated, avg, n = cur.fetchone()
+    track = round(float(avg), 2) if row.get("instructor") and n >= D.T_MIN_CLASSES else None
+    return bool(escalated), track
+
+
+def upsert_rating(cur, row: dict, course_id: Optional[str],
+                  instructor_id: Optional[str]) -> tuple[str, str, str]:
     """Insert or refresh one class_ratings row. Returns (id, decision_now, review_status)."""
     pct = (round(row["num_ratings"] / row["attended"] * 100, 1)
            if row.get("num_ratings") is not None and row.get("attended") else None)
+    approval = D.approval_pct(row.get("yes_votes"), row.get("no_votes"))
+    escalated, track = prior_state(cur, row)
+    v = D.decide_v2(row["rating"], row.get("num_ratings"), row.get("attended"),
+                    escalated=escalated, approval_pct=approval, track_avg=track)
     cur.execute(
         """
         insert into class_ratings
           (source, course_label, course_id, cohort_text, topic, instructor, instructor_id,
-           class_date, session_kind, rating, num_ratings, attended, participation_pct, decision)
+           class_date, session_kind, rating, num_ratings, attended, participation_pct,
+           yes_votes, no_votes, approval_pct, track_avg, health_score, health_band, flag_reasons,
+           decision)
         values (%(source)s, %(course_label)s, %(course_id)s, %(cohort_text)s, %(topic)s,
                 %(instructor)s, %(instructor_id)s, %(class_date)s, %(session_kind)s, %(rating)s,
-                %(num_ratings)s, %(attended)s, %(pct)s, %(decision)s)
+                %(num_ratings)s, %(attended)s, %(pct)s,
+                %(yes_votes)s, %(no_votes)s, %(approval_pct)s, %(track_avg)s, %(health_score)s,
+                %(health_band)s, %(flag_reasons)s, %(decision)s)
         on conflict (class_date, topic, instructor, session_kind) do update set
           source            = excluded.source,
           course_label      = excluded.course_label,
@@ -80,6 +116,14 @@ def upsert_rating(cur, row: dict, decision: str,
           num_ratings       = excluded.num_ratings,
           attended          = excluded.attended,
           participation_pct = excluded.participation_pct,
+          -- the vote and the health read-out always follow the latest numbers:
+          yes_votes         = excluded.yes_votes,
+          no_votes          = excluded.no_votes,
+          approval_pct      = excluded.approval_pct,
+          track_avg         = excluded.track_avg,
+          health_score      = excluded.health_score,
+          health_band       = excluded.health_band,
+          flag_reasons      = excluded.flag_reasons,
           -- the sync's verdict applies only while the row is untouched by a human:
           decision = case
             when class_ratings.decision_override is not null then class_ratings.decision
@@ -91,7 +135,11 @@ def upsert_rating(cur, row: dict, decision: str,
         returning id, decision, review_status
         """,
         {**row, "source": row.get("source", "sheet"), "course_id": course_id,
-         "instructor_id": instructor_id, "pct": pct, "decision": decision},
+         "instructor_id": instructor_id, "pct": pct,
+         "yes_votes": row.get("yes_votes"), "no_votes": row.get("no_votes"),
+         "approval_pct": approval, "track_avg": track,
+         "health_score": v.health_score, "health_band": v.health_band,
+         "flag_reasons": list(v.flag_reasons), "decision": v.decision},
     )
     rid, dec, status = cur.fetchone()
     return str(rid), dec, status
@@ -103,6 +151,8 @@ def rows_needing_notification(cur) -> list[dict]:
         """
         select cr.id, cr.topic, cr.instructor, cr.class_date, cr.session_kind, cr.rating,
                cr.num_ratings, cr.attended, cr.participation_pct, cr.decision,
+               cr.yes_votes, cr.no_votes, cr.approval_pct, cr.health_score, cr.health_band,
+               cr.flag_reasons,
                c.name as course_name, h.handler_name, h.handler_email, h.slack_user_id, h.id as handler_id
         from class_ratings cr
         join courses c on c.id = cr.course_id

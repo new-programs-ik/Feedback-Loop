@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import type { HealthBand } from "@/lib/decision";
 
 // Give the analysis kick-off (Vimeo fetch + handing the job to the worker) the platform max.
 export const maxDuration = 60;
@@ -25,7 +26,9 @@ export default async function NewAnalysisPage({
     prefillId
       ? supabase
           .from("class_ratings")
-          .select("id, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, escalated, decision")
+          .select(
+            "id, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, yes_votes, no_votes, track_avg, health_score, health_band, escalated, decision",
+          )
           .eq("id", prefillId)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -34,6 +37,8 @@ export default async function NewAnalysisPage({
   const p = prefillRes.data as {
     id: string; course_id: string | null; topic: string; instructor: string; class_date: string;
     session_kind: string; rating: number; num_ratings: number | null; attended: number | null;
+    yes_votes: number | null; no_votes: number | null; track_avg: number | string | null;
+    health_score: number | string | null; health_band: HealthBand | null;
     escalated: boolean; decision: string;
   } | null;
   // One click from the Needs-analysis queue lands here with everything filled in.
@@ -48,6 +53,11 @@ export default async function NewAnalysisPage({
         rating: String(p.rating),
         numRatings: p.num_ratings != null ? String(p.num_ratings) : "",
         attended: p.attended != null ? String(p.attended) : "",
+        yesVotes: p.yes_votes != null ? String(p.yes_votes) : "",
+        noVotes: p.no_votes != null ? String(p.no_votes) : "",
+        trackAvg: p.track_avg != null ? Number(p.track_avg) : null,
+        healthScore: p.health_score != null ? Number(p.health_score) : null,
+        healthBand: p.health_band,
         escalated: p.escalated,
         video: p.decision === "video",
       }

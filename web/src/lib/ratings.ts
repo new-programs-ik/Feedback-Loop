@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { GOOD } from "@/lib/decision";
+import { APPROVAL_BAR, GOOD, MIN_VOICES, type FlagReason, type HealthBand } from "@/lib/decision";
 
 /** Typed access + pure aggregation over class_ratings (the hourly-synced ratings feed).
  *  ~350 rows/month — in-process aggregation is fine; if volume ever grows, swap the fetchers
@@ -19,6 +19,13 @@ export type ClassRating = {
   num_ratings: number | null;
   attended: number | null;
   participation_pct: number | null;
+  yes_votes: number | null;
+  no_votes: number | null;
+  approval_pct: number | null;
+  track_avg: number | null;
+  health_score: number | null;
+  health_band: HealthBand | null;
+  flag_reasons: FlagReason[];
   escalated: boolean;
   decision: "none" | "watch" | "transcript" | "video";
   decision_override: "none" | "watch" | "transcript" | "video" | null;
@@ -27,10 +34,20 @@ export type ClassRating = {
   synced_at: string;
 };
 
-type Row = Omit<ClassRating, "course_name" | "rating"> & {
+type Numeric = number | string | null;
+type Row = Omit<
+  ClassRating,
+  "course_name" | "rating" | "participation_pct" | "approval_pct" | "track_avg" | "health_score" | "flag_reasons"
+> & {
   rating: number | string;
+  participation_pct: Numeric;
+  approval_pct: Numeric;
+  track_avg: Numeric;
+  health_score: Numeric;
+  flag_reasons: FlagReason[] | null;
   courses: { name: string } | null;
 };
+const numOrNull = (v: Numeric) => (v == null ? null : Number(v));
 
 export async function fetchRatings(opts: {
   from: string;
@@ -46,7 +63,7 @@ export async function fetchRatings(opts: {
     let q = supabase
       .from("class_ratings")
       .select(
-        "id, course_label, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, participation_pct, escalated, decision, decision_override, review_status, class_id, synced_at, courses(name)",
+        "id, course_label, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, participation_pct, yes_votes, no_votes, approval_pct, track_avg, health_score, health_band, flag_reasons, escalated, decision, decision_override, review_status, class_id, synced_at, courses(name)",
       )
       .gte("class_date", opts.from)
       .lte("class_date", opts.to)
@@ -62,6 +79,11 @@ export async function fetchRatings(opts: {
   return all.map((r) => ({
     ...r,
     rating: Number(r.rating),
+    participation_pct: numOrNull(r.participation_pct),
+    approval_pct: numOrNull(r.approval_pct),
+    track_avg: numOrNull(r.track_avg),
+    health_score: numOrNull(r.health_score),
+    flag_reasons: r.flag_reasons ?? [],
     course_name: r.courses?.name ?? null,
   }));
 }
@@ -79,7 +101,27 @@ export async function lastSyncRun() {
 
 // ── aggregation helpers (pure) ────────────────────────────────────────────────
 export const isBad = (r: ClassRating) => r.rating < GOOD;
+/** Under the 80% approval bar with enough voices for the vote to count. */
+export const isUnderBar = (r: ClassRating) =>
+  r.approval_pct != null && r.approval_pct < APPROVAL_BAR && (r.num_ratings ?? 0) >= MIN_VOICES;
+export const underBar = (rows: ClassRating[]) => rows.filter(isUnderBar);
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+/** Pooled approval — every yes over every vote, not an average of percentages — so a class of
+ *  four cannot outweigh a class of forty. Null when nobody in the set voted. */
+export function approvalOf(rows: ClassRating[]): number | null {
+  let yes = 0;
+  let votes = 0;
+  for (const r of rows) {
+    if (r.yes_votes == null || r.no_votes == null) continue;
+    yes += r.yes_votes;
+    votes += r.yes_votes + r.no_votes;
+  }
+  return votes > 0 ? (yes / votes) * 100 : null;
+}
+
+export const votesOf = (rows: ClassRating[]) =>
+  rows.reduce((a, r) => a + (r.yes_votes ?? 0) + (r.no_votes ?? 0), 0);
 
 export function summarize(rows: ClassRating[]) {
   const bad = rows.filter(isBad);
@@ -91,6 +133,9 @@ export function summarize(rows: ClassRating[]) {
     avgParticipation: avg(
       rows.map((r) => r.participation_pct).filter((v): v is number => v != null).map(Number),
     ),
+    approval: approvalOf(rows),
+    votes: votesOf(rows),
+    underBar: underBar(rows).length,
   };
 }
 
@@ -198,7 +243,9 @@ export function bestSmePerTopic(rows: ClassRating[], minClasses = 3) {
     const inner = byPair.get(t)!;
     inner.set(r.instructor, [...(inner.get(r.instructor) ?? []), r]);
   }
-  const out: { topic: string; instructor: string; n: number; avgRating: number; contenders: number }[] = [];
+  const out: {
+    topic: string; instructor: string; n: number; avgRating: number; approval: number | null; contenders: number;
+  }[] = [];
   for (const [topic, inner] of byPair) {
     const qualified = [...inner.entries()]
       .map(([instructor, list]) => ({ instructor, ...summarize(list) }))
@@ -210,6 +257,7 @@ export function bestSmePerTopic(rows: ClassRating[], minClasses = 3) {
       instructor: qualified[0].instructor,
       n: qualified[0].n,
       avgRating: qualified[0].avgRating!,
+      approval: qualified[0].approval,
       contenders: qualified.length,
     });
   }

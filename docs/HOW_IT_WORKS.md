@@ -63,9 +63,11 @@ get in; anyone else is bounced out automatically.
 there's a small helper: type the **class rating**, how many **attended**, how many **rated**, and tick
 **escalation** if there was one. It works out the *rating participation %* and tells you what to do —
 skip it, run a **transcript** analysis, or run a **video** analysis — and can switch video on for you
-with one click. (The team rule, validated against 8 months of ratings data: 4.55 or above → usually
-skip · fewer than 5 ratings → watch only · below 4.55 with ≥ 40% of attendees rating → video ·
-under 40% → transcript · any escalation → always video.)
+with one click. (The team rule — validated against 8 months of ratings data and the learners'
+*would-you-have-this-instructor-back* vote — in one breath: a class needs a look when its rating is
+**below 4.55** *or* fewer than **80%** of voters would have the instructor back · fewer than
+**5** ratings → watch only · any escalation → always video · a **Class Health Score** then sets the
+priority and the depth. The full rule is in §5, "The decision rule".)
 
 **Step 2b — You fetch the recording link.** The class's **Vimeo link** lives in IK's **UpLevel**:
 *Resources → Videos →* open the class *→ Basic Details →* copy the **VIMEO URL** box. (This step will
@@ -162,6 +164,39 @@ This is the specialist you send the class to. It's a small always-available prog
 It's **"stateless"** — a fancy word meaning it **keeps nothing**. It does the job and forgets
 everything. It never touches the database. (It runs on Render's **free tier**, which "sleeps" when
 unused — so the *first* analysis after a quiet period takes ~1 extra minute to wake up.)
+
+### 📏 The decision rule — which classes get flagged, and how deep ("Rule v2")
+
+Every synced class gets a verdict from one fixed rule (the same code runs in the worker and in the
+website, so the queue and the New Analysis helper never disagree). It reads **three numbers** from
+the ratings sheet — the **rating**, how many **attended vs rated**, and the **approval vote**
+("would you want this instructor to take the class again?", counted as Yes/No) — plus the
+instructor's **track record** (their average rating over earlier classes this year).
+
+**1. Two bars decide *whether* a class needs a look.** A class enters the queue when **either** its
+rating is **below 4.55** *or* fewer than **80%** of voters would have the instructor back. Both bars
+fine → **no analysis** (unless a PM asks). Fewer than **5** ratings → **watch** only, whichever bar
+failed: one or two opinions is not a class problem yet. Any **escalation** → **video**, always.
+
+**2. The Class Health Score decides *how urgent*.** A 0–100 score, weighted **60% rating · 30%
+approval · 10% track record**. Each part scores 100 at its bar and slides to 0 at "as bad as it
+gets" (a rating a full point under the line; only 4 in 10 would have the instructor back; a track
+record half a point under the line). The score sets the **priority band**:
+
+| Band | Health | Meaning |
+|---|---|---|
+| **Urgent** | under 70 | both signals point the same way, or one is badly off |
+| **Needs a look** | 70 – 89 | clearly under a bar, not a crisis |
+| **Borderline** | 90 and up | just under a bar — probably one or two votes |
+
+**3. The band decides *how deep*.** **Urgent → video** analysis, whatever the turnout. **Borderline →
+transcript**, whatever the turnout. In between, the old participation bar applies: **≥ 40%** of
+attendees rated → video (a representative share of the room spoke), under 40% → transcript.
+
+**What's never a penalty:** a class with **no vote** recorded, or an instructor with fewer than **3**
+earlier classes, simply scores 100 on that part — missing data can only leave a class *out* of the
+queue, never push one in. On the Slack card and the queue you see the band, the vote ("13 of 15
+would have them back — 87%") and the reason(s) it was flagged (*rating*, *approval*, *escalated*).
 
 ### 🎬 Vimeo (the recordings + captions)
 IK's class recordings live on Vimeo, and Vimeo auto-generates **captions** (the text of what was
@@ -361,6 +396,10 @@ Compare that to the 30–60 minutes of expert time — and up to a 4-hour record
 - **Worker / AI Brain** — the small program that fetches the transcript and runs the AI.
 - **Rubric** — the fixed checklist the AI grades against.
 - **Flag** — one specific issue the AI found, with a timestamp and a quote.
+- **Approval vote** — the learners' Yes/No answer to "would you want this instructor to take the class
+  again?", read from the ratings sheet. The bar is 80% Yes.
+- **Class Health Score** — the 0–100 number (60% rating, 30% approval, 10% track record) that ranks a
+  flagged class as Urgent / Needs a look / Borderline and picks video vs transcript.
 - **Re-class** — the AI's *private* opinion (for the PM only) on whether the class should be re-taught
   to learners. Never shown to the instructor.
 - **Cohort** — one batch of learners (e.g. "US August 2025").

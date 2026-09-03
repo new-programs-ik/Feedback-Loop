@@ -83,6 +83,12 @@ def load(lo, hi):
             if key in seen:
                 continue
             seen.add(key)
+            # The approval vote - "would you want this instructor to take the class again?" -
+            # as Yes/No counts per class. Yes+No equals Responses on every Jan-Aug row.
+            yes, no = g("Yes"), g("No")
+            yes = float(yes) if isinstance(yes, (int, float)) else None
+            no = float(no) if isinstance(no, (int, float)) else None
+            votes = (yes + no) if yes is not None and no is not None else 0
             out.append({
                 "date": r[d], "type": g("Type"),
                 "course": course_of(str(g("Cohorts") or ""), str(g("Type") or "")),
@@ -90,5 +96,7 @@ def load(lo, hi):
                 "topic": topic, "instructor": instructor,
                 "rating": float(rating), "responses": float(resp or 0),
                 "attended": float(att), "pct": float(resp or 0) / float(att) * 100,
+                "yes": yes, "no": no,
+                "approval": (yes / votes * 100) if votes else None,
             })
     return sorted(out, key=lambda r: r["date"])
