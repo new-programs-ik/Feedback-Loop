@@ -1,419 +1,724 @@
 # How the Feedback Loop works — the full story, in plain English
 
-> This guide explains **everything** the system does, top to bottom, with **no assumed technical
-> knowledge**. If you're a manager, a PM, or just curious — this is written for you. Every "black
-> box" is opened up and explained simply. Read top to bottom, or jump to a section.
+> This guide explains everything the system does, top to bottom, with no technical knowledge
+> assumed. Managers, PMs and the curious: this is written for you. Engineers get the exact names
+> in `code`. Read it in order, or jump to a section.
+
+**Contents**
+
+1. [What this is, in one paragraph](#1-what-this-is-in-one-paragraph)
+2. [The problem it solves](#2-the-problem-it-solves)
+3. [The picture — who does what](#3-the-picture--who-does-what)
+4. [Where things are in the app](#4-where-things-are-in-the-app)
+5. [From the sheet to a scored class — the data pipeline](#5-from-the-sheet-to-a-scored-class--the-data-pipeline)
+6. [The Class Sentiment Score](#6-the-class-sentiment-score)
+7. [The queue — Needs analysis](#7-the-queue--needs-analysis)
+8. [The course workspace, page by page](#8-the-course-workspace-page-by-page)
+9. [The team level](#9-the-team-level)
+10. [People and ownership — and the Slack cards](#10-people-and-ownership--and-the-slack-cards)
+11. [Instructor identity — one person, one name](#11-instructor-identity--one-person-one-name)
+12. [Changing the scoring — versions, preview, activate, roll back](#12-changing-the-scoring--versions-preview-activate-roll-back)
+13. [Reports and sharing](#13-reports-and-sharing)
+14. [The AI analysis engine (unchanged in v3)](#14-the-ai-analysis-engine-unchanged-in-v3)
+15. [What is stored, who can do what, what it costs](#15-what-is-stored-who-can-do-what-what-it-costs)
+16. [What is planned, not built](#16-what-is-planned-not-built)
+17. [Glossary](#17-glossary)
 
 ---
 
-## 1. What this is, in one line
+## 1. What this is, in one paragraph
 
-**A website that turns a low-rated class recording into clear, ready-to-send feedback for the
-instructor — written by AI in minutes, and approved by a human before anyone sees it.**
+Feedback Loop is the New Programs team's website for class quality. Every hour it reads the
+team's ratings sheet, gives each class one score (the **Class Sentiment Score**, 0–100) and a
+band (**Excellent · Good · Average · Bad**), and puts the classes whose band calls for a closer
+look into a queue: Bad ones for a video analysis, Average ones for a transcript analysis. A PM
+confirms, the AI reads the recording and drafts the instructor feedback, and the PM edits,
+approves and sends it. Around that loop sit a workspace for every course, a team view for
+leadership, instructor portfolios, cohort journeys, module hot-spots and reports — and the scoring
+rules themselves are settings an admin can change, preview and roll back.
 
 ## 2. The problem it solves
 
-When a class gets a low learner rating, someone has to:
-1. Watch the **entire ~4-hour recording**,
-2. Figure out what went wrong (pacing? unclear? skipped topics?),
-3. Write kind, specific feedback for the instructor.
+Three problems, really:
 
-That's **2–4 hours of work per class**. With ~1–4 low-rated classes a week, it adds up fast.
+1. **"How is this class doing?" had no shared answer.** Ratings lived in a sheet, every PM read
+   them differently, and one "no" vote from three voters could look like a disaster. The score
+   gives the whole team one language, with the arithmetic one hover away.
+2. **Finding out *why* a class went badly took hours.** Watching a four-hour recording and writing
+   kind, specific feedback is 2–4 hours per class. The AI does the watching and the first draft in
+   a few minutes for well under a dollar; a person reviews, tweaks and approves.
+3. **The same instructor appeared under several spellings, and cohorts were free text.** Every
+   per-instructor and per-cohort figure was unreliable. Now spellings resolve to one person (with a
+   human deciding the doubtful ones), and cohorts and modules are read from the sheet's own text.
 
-**The Feedback Loop does the watching and the first draft in a few minutes for a few cents.** A
-person then just **reviews, tweaks, and approves**. The AI never sends anything on its own — a
-human always has the final say.
-
----
-
-## 3. The big picture — who does what
-
-Think of it as **five helpers** working together:
+## 3. The picture — who does what
 
 ```mermaid
-flowchart TD
-  U["👤 You (in your web browser)"] -->|click around| W["🌐 The Website"]
-  U -. "sign in" .-> G["🔑 Google login (IK staff only)"]
-  W <-->|store & read data| DB[("🗄️ The Database")]
-  W -->|"analyze this class"| AI["🧠 The AI Brain"]
-  AI -->|"get the transcript"| V["🎬 Vimeo"]
-  AI -->|"read the materials + write feedback"| C["🤖 Claude (the AI model)"]
+flowchart LR
+  subgraph SRC["Where data comes from"]
+    GS["Google Sheet (now, hourly)"]
+    MB["Metabase (later, one switch)"]
+    LX["Learner export (later)"]
+  end
+  subgraph WK["The worker (Python, Render)"]
+    SY["sync: read sheet → parse cohorts → resolve instructor names → save"]
+    NT["Slack cards to the course's people"]
+    ENG["the AI analysis engine"]
+  end
+  subgraph DB["The database (Supabase Postgres)"]
+    CFG["scoring versions<br/>+ the scoring function"]
+    CR["class ratings<br/>+ score, band, action, breakdown, version"]
+    ID["instructors + aliases + suggestions + merges"]
+    CO["cohorts (region, start) · modules"]
+    CM["course members (who owns what)"]
+    V["rollups: course × month, instructor, cohort journey, module hot-spots"]
+    HIST["score history · audit log"]
+    AN["analyses + feedback drafts"]
+  end
+  subgraph WEB["The website (Next.js, Vercel)"]
+    WS["/c/[course]/… workspaces · /team"]
+    ADM["admin: scoring · identity · people · sync · audit"]
+  end
+  GS --> SY
+  MB -.-> SY
+  LX -.-> WK
+  SY --> CR
+  SY --> ID
+  SY --> CO
+  CFG --> CR --> HIST
+  CR --> V --> WS
+  ADM -- "activate a scoring version → re-score every class in one step" --> CFG
+  ADM -- "merge / undo" --> ID
+  SY --> NT --> CM
+  CRON["hourly timer (pg_cron, :00 and :05)"] --> SY
+  WS -- "Analyze" --> ENG --> AN
 ```
 
 | Helper | Plain-English job | Where it lives |
 |---|---|---|
-| 🌐 **The Website** | The screens you click — dashboard, forms, buttons. | Vercel (a website host) |
-| 🔑 **Google login** | Lets **only @interviewkickstart.com** people in. | Google |
-| 🗄️ **The Database** | The secure filing cabinet — stores everything. | Supabase |
-| 🧠 **The AI Brain** | The "specialist" that watches the class and writes feedback. | Render (a small server) |
-| 🎬 **Vimeo** | Where the class recordings + their captions live. | Vimeo |
-| 🤖 **Claude** | The actual AI model that reads and writes. | Anthropic |
+| **The website** | The screens you click: workspaces, the queue, the drawer, admin. It owns every read and write to the database, under row-level security. | Vercel |
+| **Sign-in** | Google, restricted to `@interviewkickstart.com`. Locally, an email + password login also works. | Supabase Auth + Google |
+| **The database** | The filing cabinet with locks. Classes and scores, the scoring versions and *the scoring function itself*, instructors and aliases, cohorts and modules, course members, analyses, the audit log. | Supabase (Postgres) |
+| **The worker** | Two jobs in one small server: the hourly ratings sync (and the "Sync now" button), and the AI analysis engine. | Render (a Docker container) |
+| **The ratings sheet** | The team's Google Sheet, read by a view-only "robot" account. Still the source; the app keeps a scored copy. | Google Sheets |
+| **Slack** | Where a flagged class is announced to the course's people, and where a failed sync is reported. | Slack (a bot token) |
+| **Vimeo** | The class recordings and their captions (the transcript). | Vimeo |
+| **Claude** | The AI model that reads a class and writes the findings and the feedback. | Anthropic |
 
----
-
-## 4. The journey of ONE class (step by step)
-
-Here's exactly what happens, start to finish. The parts in **_italics_** are the behind-the-scenes
-magic that's normally hidden.
-
-**Step 1 — You log in.** You go to the website and click **"Continue with Google"**. Only IK staff
-get in; anyone else is bounced out automatically.
-
-**Step 2 — You decide whether this class needs analysing at all.** At the top of the New Analysis page
-there's a small helper: type the **class rating**, how many **attended**, how many **rated**, and tick
-**escalation** if there was one. It works out the *rating participation %* and tells you what to do —
-skip it, run a **transcript** analysis, or run a **video** analysis — and can switch video on for you
-with one click. (The team rule — validated against 8 months of ratings data and the learners'
-*would-you-have-this-instructor-back* vote — in one breath: a class needs a look when its rating is
-**below 4.55** *or* fewer than **80%** of voters would have the instructor back · fewer than
-**5** ratings → watch only · any escalation → always video · a **Class Health Score** then sets the
-priority and the depth. The full rule is in §5, "The decision rule".)
-
-**Step 2b — You fetch the recording link.** The class's **Vimeo link** lives in IK's **UpLevel**:
-*Resources → Videos →* open the class *→ Basic Details →* copy the **VIMEO URL** box. (This step will
-be automated later.)
-
-**Step 3 — You start a New Analysis.** You pick the **course** (or add a new one right there) and type
-the **class topic**; the instructor name autocompletes. You add the **rating**, choose
-the **class type** (Live class or Assignment Review), and give it the recording — either **paste the
-Vimeo link** or **upload the transcript file**. Optionally, you tick **"Analyze the video too"**, and
-attach the **class materials** (slides, coding notebook, docs) — as many as you like.
-
-**Step 4 — You click "Analyze."** Now the hidden work begins:
+## 4. Where things are in the app
 
 ```mermaid
-sequenceDiagram
-  participant You
-  participant Website
-  participant Brain as AI Brain
-  participant Vimeo
-  participant Claude
-  You->>Website: Analyze this class
-  Website->>Brain: transcript/link + materials + details
-  Brain->>Vimeo: give me this class's captions
-  Vimeo-->>Brain: the transcript (~4 hours of text)
-  Brain->>Brain: read materials → make an outline of what was planned
-  Brain->>Claude: for each 30-min chunk, "what went well / wrong here?"
-  Claude-->>Brain: specific issues with timestamps + exact quotes
-  Brain->>Claude: combine, double-check, write the feedback + a re-teach call
-  Claude-->>Brain: final analysis
-  Brain-->>Website: summary + issues + draft feedback + PM-only re-class
-  Website->>You: show it for review
+flowchart LR
+  ROOT["/ → your last workspace, else your first course, else /team"]
+  ROOT --> TEAM["/team — all courses (leadership)"]
+  ROOT --> WS["/c/[course] — the course workspace"]
+  TEAM --> TQ["/team/queue (all courses, course chips)"]
+  TEAM --> TI["/team/instructors → portfolios across courses"]
+  TEAM --> TR["/team/reports"]
+  TEAM --> TS["/team/insights (the live ratings study)"]
+  WS --> OV["overview"]
+  WS --> CL["classes → class drawer / class page"]
+  WS --> QU["queue — Needs analysis"]
+  WS --> IN["instructors → portfolio"]
+  WS --> CO["cohorts → journey"]
+  WS --> MO["modules → module × instructor"]
+  WS --> FB["feedback (this course's analyses)"]
+  WS --> RP["reports → print · CSV · share link"]
+  WS --> ST["settings: team · cohorts · modules · notifications · shares"]
+  ADM["/admin: scoring · identity · people · sync · audit"]
+  TOOLS["/tools/what-if (any PM)"]
+  SHARE["/share/[token] (read-only report)"]
+  QU -. Analyze .-> ENG["/feedback/new · /feedback/[id] — the AI engine, unchanged"]
 ```
 
-_**a.** The website hands the job to the **AI Brain**._
-_**b.** The Brain goes to **Vimeo** and downloads the class **captions** (the transcript — everything the instructor said)._
-_**c.** The **materials agent** converts your slides/notebook into a clean **Markdown** version of *what was supposed to be taught*._
-_**d.** It splits the long transcript into **30-minute chunks**, and for each chunk asks **Claude**: "what went well or wrong here?" — collecting **specific moments, each with a timestamp and the exact words**._
-_**e.** It **combines** all the findings, **double-checks** each one (drops anything the quote doesn't support), and writes four things:_
-   - _an **overall summary** of what likely caused the low rating,_
-   - _a **list of issues** (each with severity + a timestamped quote),_
-   - _a **short, crisp note for the instructor** — one opening line with the rating, then at most 4–5 bullets, each naming one specific error (in plain words, no timestamps) and the concrete **Fix**,_
-   - _a **private "should this class be re-taught?" call** — for the PM only, never shown to the instructor._
+**Where you land.** `/` sends you to the workspace you used last (remembered in a cookie), else to
+the first course you are a member of, else — for an admin — to `/team`, else to the first course.
+The identity block at the top of the left rail is the **course switcher**: *My courses* first,
+then every course, with the team level pinned at the bottom (`⌘1`–`⌘9` jump to a course, `⌘0` to
+the team). `⌘K` / Ctrl-K opens the command palette: any page, any course, an instructor, *Sync
+now*, the theme.
 
-**Step 5 — You review.** You see everything on one screen — including the badges that tell you
-*how* it was analysed (**🎬 Video verified · N frames** or **Transcript only**, and **✓ Self-checked**),
-a **▶ Watch recording** link to jump into the video and check any flag yourself, and a **Self-check**
-section showing what the second AI reviewer confirmed, softened or removed. If the draft wording isn't
-right, you have two options:
-- **Edit it directly**, or
-- Use the **"Tell the AI what to change"** box — type something like *"make it shorter"* or *"focus
-  on the skipped problems"* and the AI **rewrites the draft right there**. Keep going until it's right.
+**Old links keep working.** `/dashboard` and `/course-analytics` → the overview; `/ratings` → the
+queue (with `?focus=` kept, so Slack cards already sent still open the right class);
+`/instructor-analytics` → instructors; `/reports` → reports; `/insights` → `/team/insights`;
+`/feedback` → the course's feedback list; `/courses` → Admin › People; `/instructors` → Admin ›
+Identity; `/admin/users` → People; `/admin/audit-log` → Audit.
 
-**Step 6 — You decide.** Click **Approve** (it's stored, with your edits kept separately from the
-original so we can see how much you changed), **Discard**, or **Delete** it entirely. Nothing is ever
-sent to the instructor automatically — you're always in control.
+## 5. From the sheet to a scored class — the data pipeline
 
-**Step 7 — You send it and mark it done.** Copy the note, send it to the instructor the way you
-normally do, then click **Mark as sent**. The class then shows **"Sent to instructor ✓"**, so anyone on
-the team can see at a glance what has actually gone out.
+**When.** Every hour: a timer inside the database (`pg_cron`, migration 0013) calls the worker's
+`POST /sync-ratings` at :00, and again at :05 in case the worker was asleep (Render's free tier
+sleeps when idle; a second run is harmless because a sync that finds another one running just
+stops). Any staff member can also press **Sync now** (queue page, Admin › Sync, or `⌘K`).
 
-> 🛟 **If something goes wrong.** The dashboard shows the AI engine's live status. If an analysis fails,
-> the class is marked **failed** with the reason on the page; if one stalls for more than 30 minutes,
-> the page says so. Both give you a one-click **Retry analysis** button — nothing gets silently stuck.
+**What is read.** The two default tabs (`MLSU_Live_Class_Poll` and `Agentic_AI_Live_Class_Poll`;
+`RATINGS_SHEET_TABS` changes that), through a service account that can only *view* the one sheet
+shared with it. Columns are found by their header name, so reordering or adding columns is
+harmless; renaming a required one stops the run with the column named.
 
----
-
-## 5. The "black boxes" — each helper, opened up
-
-### 🌐 The Website (hosted on **Vercel**)
-This is everything you see and click. It's a modern web app. It **does not do the heavy thinking
-itself** — it collects your input, shows results, and talks to the other helpers. It updates
-automatically whenever we improve the code.
-
-### 🔑 The Login (Google, IK-only)
-Instead of yet another password, you sign in with your **IK Google account** — the same one you use
-for email. The system is locked so that **only `@interviewkickstart.com` accounts can enter**. If
-someone outside IK tries, they're signed out instantly. Anyone from IK who logs in automatically
-becomes a **staff member** who can use the tool.
-
-### 🗄️ The Database (**Supabase**) — the filing cabinet **with locks**
-This securely stores the class details, the analyses, the feedback drafts + your edits, the full
-history, and the course/cohort/instructor lists. The important part is the **locks** (a technology
-called **Row-Level Security**): the database itself refuses to hand out any data unless the request
-comes from a signed-in IK staff member. It's not just the screen hiding things — the vault door is
-locked at the deepest level.
-
-### 🧠 The AI Brain / "Worker" (hosted on **Render**)
-This is the specialist you send the class to. It's a small always-available program that:
-1. fetches the transcript from Vimeo,
-2. reads the materials,
-3. runs the analysis (talking to Claude),
-4. hands back the result.
-
-It's **"stateless"** — a fancy word meaning it **keeps nothing**. It does the job and forgets
-everything. It never touches the database. (It runs on Render's **free tier**, which "sleeps" when
-unused — so the *first* analysis after a quiet period takes ~1 extra minute to wake up.)
-
-### 📏 The decision rule — which classes get flagged, and how deep ("Rule v2")
-
-Every synced class gets a verdict from one fixed rule (the same code runs in the worker and in the
-website, so the queue and the New Analysis helper never disagree). It reads **three numbers** from
-the ratings sheet — the **rating**, how many **attended vs rated**, and the **approval vote**
-("would you want this instructor to take the class again?", counted as Yes/No) — plus the
-instructor's **track record** (their average rating over earlier classes this year).
-
-**1. Two bars decide *whether* a class needs a look.** A class enters the queue when **either** its
-rating is **below 4.55** *or* fewer than **80%** of voters would have the instructor back. Both bars
-fine → **no analysis** (unless a PM asks). Fewer than **5** ratings → **watch** only, whichever bar
-failed: one or two opinions is not a class problem yet. Any **escalation** → **video**, always.
-
-**2. The Class Health Score decides *how urgent*.** A 0–100 score, weighted **60% rating · 25%
-approval · 15% track record**. Each part scores 100 at its bar and slides to 0 at "as bad as it
-gets" (a rating a full point under the line; only 4 in 10 would have the instructor back; a track
-record half a point under the line). The score sets the **priority band**:
-
-| Band | Health | Meaning |
+| Header in the sheet | Required? | Used for |
 |---|---|---|
-| **Urgent** | under 70 | both signals point the same way, or one is badly off |
-| **Needs a look** | 70 – 89 | clearly under a bar, not a crisis |
-| **Borderline** | 90 and up | just under a bar — probably one or two votes |
+| `Session Date` | yes | the class date |
+| `Type` | yes | Live Class vs Test Review, the region ("India …" → IND, else US), and a fallback for the course |
+| `Cohorts` | yes | the course (matched by the cohort text) and the cohorts themselves |
+| `Class` — or `Topic` on a tab that has no `Class` column | yes | **the class name.** On the Agentic tab `Topic` holds the session kind ("Live Class" / "Test Review Session") and `Class` the real name; reading `Topic` there had mislabelled two-thirds of all classes until 3 Sep 2026. |
+| `Instructor` | yes | the instructor, as spelled that day |
+| `Overall Average` | yes | the rating |
+| `Responses` | yes | how many learners rated |
+| `# Students Attended` | yes | how many attended (for the reach) |
+| `Yes` / `No` | optional | the approval vote — "would you want this instructor to take the class again?" A tab without them still syncs; those classes carry no vote. |
 
-**3. The band decides *how deep*.** **Urgent → video** analysis, whatever the turnout. **Borderline →
-transcript**, whatever the turnout. In between, the old participation bar applies: **≥ 40%** of
-attendees rated → video (a representative share of the room spoke), under 40% → transcript.
+**What happens to each row**, oldest first:
 
-**What's never a penalty:** a class with **no vote** recorded, or an instructor with fewer than **3**
-earlier classes, simply scores 100 on that part — missing data can only leave a class *out* of the
-queue, never push one in. On the Slack card and the queue you see the band, the vote ("13 of 15
-would have them back — 87%") and the reason(s) it was flagged (*rating*, *approval*, *escalated*).
+1. **The course** is read from the cohort text (first match wins: "pwc" → the PwC course,
+   "applied agentic ai" → Applied Agentic AI, and so on), falling back to the `Type`. A label the
+   app does not know stays *unmapped* until someone maps it to a course (Admin › Sync).
+2. **The cohorts** are parsed from the same text. One cell often glues several labels together,
+   separated by commas or semicolons, each shaped like
+   *Program - [IND ][2nd ]Early|Mid|End-Month Year[ : Cohort n]*. From it the app reads the
+   region, the intake window (start month, early / mid / end), the ordinal ("2nd"), the cohort
+   number and the audience (SWE / Tech / PM / EM). Junk labels (placeholder, template, deprecated,
+   DNU, test cohort…) are dropped. A class can belong to several cohorts; what cannot be parsed is
+   counted, never fatal.
+3. **The instructor** is resolved to a person **only by exact normalised spelling** — lower-case,
+   accents removed, punctuation stripped, spaces collapsed — through the `instructors` table and
+   the `instructor_aliases` table. Anything else stays *unresolved* and becomes a suggestion for a
+   human (section 11). The resolved display name is stored on the row as `instructor_canonical`.
+4. **The module** (the app calls it a *topic*) is resolved through `topics` and `topic_aliases`
+   per course; a class name the table has never seen becomes a new topic.
+5. **The row is saved and scored in one statement.** The save calls the database's scoring
+   function with the active scoring version and the course's typical values, and stores the score,
+   the band, the action (video / transcript / none / watch), whether it is provisional, the flags,
+   the full breakdown and the version that produced it. The queue's `decision` follows the action
+   — unless a PM has frozen the row (a manual override, a dismissal, an analysis already started,
+   or an escalation, which is always video).
 
-### 🎬 Vimeo (the recordings + captions)
-IK's class recordings live on Vimeo, and Vimeo auto-generates **captions** (the text of what was
-said). The Brain uses an IK Vimeo key to download those captions as the transcript. If a video has
-no captions, you simply **upload the transcript file** instead — the tool works either way.
+Rows are matched on their natural key (date + class name + instructor + kind), so re-running a
+sync updates rows in place and never duplicates them.
 
-### 📎 Reading the materials — the "materials agent"
-When you attach slides / a notebook / a doc, a dedicated step — the **materials agent** — first
-converts it into a clean, structured **Markdown** version (slide order and headings kept, code in
-code blocks, boilerplate dropped), and *that* Markdown is what the analysis reads as "the planned
-class." The analysis then checks the session **against it** — so instead of guessing, it can say
-*"Slide 14's topic was never taught"* or *"the instructor explained this differently from the
-notebook."* Files are read one at a time with hard size caps, so even a huge deck can't overload the
-worker. **Your materials are used only for that one analysis and are never stored** (more in §7).
+**After the loop**, the run writes duplicate-name suggestions for the unresolved spellings, turns
+unknown class names into topics, posts the Slack cards (section 10), records itself in
+`sync_runs` (rows fetched, upserted and scored, the scoring version, the band counts, cohorts
+created and unparsed, unresolved names, suggestions created, unmapped topics, duration, any error)
+and pings the website so every page shows fresh rows. A failed run is recorded *and* posted to the
+Slack channel, so a drifting sheet is noticed the same hour.
 
-You can give materials **three ways**: **upload** the file, **paste** the text, or — best for big
-decks — **paste a link** (a Google Drive / Docs / Slides link, or an internal materials-app link). With
-a link, a small "materials agent" quietly downloads the file, reads it, and hands the content to the
-analysis — so a huge deck never has to be uploaded. For a Drive link, the file must be shared
-*"Anyone with the link → Viewer"* (or be an IK link the system can open). One trade-off to know:
-giving the AI the materials **improves the analysis but uses noticeably more tokens** (a little more
-cost per class).
+**For one more release** the sync also writes the previous rule's read-out (`approval_pct`,
+`track_avg`, `health_score`, `health_band`, `flag_reasons`, and a one-time `decision_v2`
+snapshot) so the two rules can be compared side by side. Nothing else reads them.
 
-### 📨 Two feedbacks: one to send, one for the team
-Every analysis now writes **two** versions:
-- A **short note to send the instructor** — one opening line (what genuinely worked, plus the
-  **class rating**), then **bullet points**: each names one specific problem and a **"Fix:"** — the
-  exact thing to do differently next time. **Four bullets, five at the very most** — if the analysis
-  found more issues than that, the note keeps only the most important ones (the rest stay in the
-  internal version). **No timestamps and no transcript quotes** — those belong to the detailed internal
-  feedback; the instructor's note reads like a person wrote it. No walk-through of the whole class, no
-  padding. This is the message you actually send.
-- The **detailed, timestamped analysis for the internal team** — every flag with its exact quote and
-  time. This stays in-house for coaching and records; the instructor doesn't receive it.
+**Without the Google key** (a laptop that has the workbook but not the robot account), the same
+path runs from the local workbook copy: `analysis/resync_from_workbook.py --check` compares,
+`--run` backs the database up and syncs, with Slack switched off.
 
-On the review page the summary is marked **"Send this"** (with a copy button); the detailed version is
-labelled **"internal team."**
+## 6. The Class Sentiment Score
 
-### 📋 The rubrics — the AI's "checklist" (Live vs ARS)
-The AI doesn't judge randomly — it follows a **fixed checklist** of things to look for, and there are
-**two different checklists** because the two class types are different:
+One number per class, 0 to 100, two decimals, and a band read from it:
 
-- **Live Class** — a teaching session. 14 things checked: pace, clarity, structure, examples,
-  correctness, coverage of the agenda, coding time, time balance, deferred topics, doubt handling,
-  engagement, and more.
-- **ARS (Assignment Review Session)** — where homework solutions are reviewed. 17 things checked:
-  were all problems covered, was each solution *walked through* (not just read out), was the
-  *reasoning* taught, complexity/edge cases (only when code is involved), common mistakes, and —
-  weighted heavily — how well doubts were cleared.
+| Band | Score | What it means | What happens |
+|---|---|---|---|
+| **Excellent** | 90 and up | clears every bar with room to spare | nothing, unless a PM asks |
+| **Good** | 75 – 89.99 | fine on both lines | nothing, unless a PM asks |
+| **Average** | 60 – 74.99 | one line missed — worth a transcript read | transcript analysis |
+| **Bad** | under 60 | both lines missed, or the score itself is under 60 | video analysis |
+| *(no band)* | — | too few votes to judge | watch |
 
-You choose the type when creating the analysis (and it auto-suggests "ARS" if the class name says so).
+Every band → action mapping, every weight and every bar below is a **setting of the active scoring
+version** (section 12). The descriptions here explain the machinery; the exact numbers in force
+are whatever the version marked **Active** on Admin › Scoring says, and the queue page names that
+version in its filter bar.
 
-### 🗣️ Who said what — the instructor vs the learners
-A class transcript is a **conversation**: the instructor teaches, and learners ask questions or
-respond. The tool **keeps track of who is speaking** — from speaker labels in the transcript when
-they exist, and by reasoning about the content when they don't. This matters enormously, because:
+### What goes in
 
-- A **learner** saying something wrong or confused is **not the instructor's mistake** — the tool
-  will never blame the instructor for a learner's words. (If anything, an instructor *correcting* a
-  learner's misconception counts *in their favour*.)
-- A **doubt a learner raises and the instructor answers later** is a doubt *handled well* — not a
-  problem. The tool follows that thread across the whole session before deciding.
+Five things about the class, from the sheet:
 
-### 🤖 Claude (the AI model)
-The actual intelligence — **Claude Sonnet 5** (upgraded from Sonnet 4.6 in September 2026). It reads the transcript, works out the flow, and
-writes the findings and feedback. It's told **strict rules**: quote the transcript exactly (never
-make things up), judge the **instructor only**, stay formal and kind (never harsh), be concise, and
-anchor every point to a timestamp. It runs at **temperature 0** (the most consistent, least "creative"
-setting) so the same class gives the same read.
+- **Rating** — the class's average star rating (out of 5).
+- **Approval** — the share of voters who said *yes* to "would you want this instructor to take the
+  class again?" (from the `Yes` / `No` columns).
+- **Responses** — how many learners rated.
+- **Reach** — the share of attendees who rated (responses ÷ attended, capped at 100%).
+- **Track record** — the instructor's average rating over earlier classes (it needs at least
+  three earlier classes to count).
 
----
+Plus two things about the course, used by the small-sample guard: its typical rating and its
+pooled approval. And whether a PM has **escalated** the class.
 
-## 6. How the AI *actually* looks at a class (in simple terms)
+### How the parts become points
 
-The goal is an **intelligent read of the whole conversation** — not a machine that flags any snippet
-that *looks* bad out of context. So before it judges anything, it reads the entire class **once, as a
-whole**:
+Each part is turned into a 0–100 value, then weighted. A version chooses, for each part, *how*:
 
-1. **Read the whole session first (the "session map").** Claude reads the full transcript end-to-end
-   and writes itself a neutral summary: *who* is the instructor vs the learners, the real order of
-   topics, **which learner doubts got resolved later**, and what was left unfinished. This map is the
-   shared context for every step that follows — so nothing is judged in isolation.
-2. **Chop** the (often multi-hour) transcript into ~30-minute chunks — but each chunk is now judged
-   **with the whole-session map in hand**.
-3. **Ask per chunk:** Claude first decides *who is speaking*, then lists only concrete **instructor**
-   issues it can *prove* with a quote + timestamp. It skips anything the map shows was resolved later,
-   and never turns a learner's words into an instructor flag. A clean chunk produces nothing.
-4. **Combine + verify against the whole session:** all findings are merged and each is re-checked and
-   **dropped** if — the quote doesn't back the claim, the quote is actually a *learner* speaking, or
-   the concern is *resolved elsewhere* in the class. This verification step is what removes the
-   "text-segmentation" false alarms.
-5. **Write:** from the surviving, verified findings, Claude writes the summary, the instructor
-   feedback, and the PM-only re-class call.
-6. **Self-check (the skeptic).** Before you see anything, a second, adversarial AI reviewer tries to
-   **refute** every serious finding: is the quote real and really the instructor's? does the whole
-   session contradict it? does the evidence truly meet the bar for that severity? Findings get
-   confirmed, softened, or removed — by fixed rules, not by mood — and every decision is shown on the
-   review page in a "Self-check" card, so nothing disappears silently. A "re-teach this class"
-   recommendation only survives if a genuine major content problem survived the check.
+| Part | The choices a version can make |
+|---|---|
+| Rating | **linear** (rating ÷ 5) or a **knee**: 0 at a floor (3.55), a set value at the line (4.55), 100 at 5 — so points fall faster below the line |
+| Approval | a **cliff** (all the points at or above the bar, 80%, none below) or **graded** (0 at 40%, rising to all the points at 80%) |
+| Responses | a **cliff** at the target (10), **graded** (responses ÷ target), or **off** |
+| Reach | **graded** (the share itself) or **off** |
+| Track record | **on** (0 at a floor of 4.05, 100 at 4.55) or **off** |
 
-### 🎬 Watching the video (optional)
+The weights say how many points each part is worth. Only parts that are *included* count: a part
+that is switched off, or missing and set to "neutral", is left out and the remaining weights are
+re-scaled so the total still reads out of 100. A part that is missing and set to "zero" scores
+zero for its weight (version 1 does this for a missing vote and a missing attendance).
 
-Tick **"Analyze the video too"** on New Analysis and the system also *watches* the class: it samples
-about one frame every 2–3 minutes from the recording (streamed, never downloaded or stored), and a
-neutral observer notes what's visible — camera on or off, screen shared or frozen, slides or a coding
-notebook on screen, slide titles. Those observations become extra evidence: "camera was off from
-00:14 to 00:31" is now a fact from the video, not a guess from the transcript. It adds roughly
-$0.20–0.40 and 5–10 minutes per class. If the video can't be read, the analysis simply continues
-transcript-only and tells you why. To enable it for plain Vimeo links, see
-**[VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md)** (a 5-minute, one-time setup); a direct mp4 or
-Google Drive link to the recording works today with no setup.
+The result is rounded to two decimals, and **the band is read from that rounded number** — so what
+you see on the screen is exactly what drives the queue.
 
-### ⚖️ Why severity can be trusted
+### The safeguards a version can switch on
 
-"Critical" must be **earned**: the AI works to fixed severity bars (major = a provable delivery
-failure — wrong content, a planned item skipped entirely, or learners lost and never recovered), ties
-break to the softer level, and style issues (engagement, camera, logistics…) can't exceed "moderate"
-unless something catastrophic and quoted happened. The skeptic pass then re-tests every serious flag
-against those same bars. This is the fix for "it called something critical that wasn't."
+- **Minimum votes.** Two floors: below the first, no band is shown at all ("— · too few voices");
+  below the second, a band is shown but marked **provisional** and the class goes to *watch*
+  rather than to an analysis.
+- **The small-sample guard.** With few votes, the class's rating and approval are blended with the
+  course's typical values (weight *k*, typically 5), so three opinions cannot sink a class on their
+  own; once a class has ten or more votes its own numbers dominate.
+- **The hard lines.** Under the 4.55 rating line, or under the 80% approval bar (with enough votes
+  to count), the band can never sit above **Average**; missing both makes it **Bad**, whatever the
+  score says. This keeps the two lines the team already agreed.
 
-This is why the feedback is **specific and trustworthy** — every point traces back to a real moment,
-attributed to the right person, and checked against the flow of the whole class rather than a vague
-impression or an out-of-context snippet.
+### The action
 
-> **The parameters, in one place (for the curious):** model **Claude Sonnet 5** (no temperature setting — the model reasons before answering by default, and consistency comes from the strict contracts below);
-> ~**30-minute** analysis windows with a 2-minute overlap; **strict JSON** output that's schema-checked
-> and auto-repaired once if malformed; **precision over recall** (when unsure, it stays silent — a
-> false criticism is treated as worse than a missed one); every finding needs a **verbatim quote +
-> timestamp**. Two separate checklists (Live vs ARS) — see §5.
+The band picks the action from the version's mapping (today: Bad → video, Average → transcript,
+Good and Excellent → none, no band → watch). Two overrides: an **escalated** class is always
+*video*, whatever its numbers; and a **provisional** band goes to *watch*.
 
-> 🧠 **Want the AI's *actual words*?** This section describes the analysis in plain English. If you want
-> to read the **exact prompts** the AI is given at every step — and suggest changes to them — see the
-> companion doc **[THE_AI_ANALYSIS_PROMPTS.md](THE_AI_ANALYSIS_PROMPTS.md)**.
+### The flags
 
----
+Alongside the score the database stores plain flags, shown in words on the class drawer and the
+Slack card: *no vote recorded*, *nobody responded*, *attendance is missing*, *more raters than
+attendees (reach capped at 100%)*, *the rating and the vote disagree*, *few votes — blended with
+the course's typical values*, *no track record yet*, *under the 4.55 rating line*, *under the 80%
+approval bar*, *too few voices for a band*, *too few voices for an analysis — provisional*,
+*escalated by a PM*. Negative or nonsense numbers are rejected: no score, no band, *watch*.
 
-## 7. What's stored, what's **never** stored (confidentiality)
+### The six stored versions
 
-This matters, so it's spelled out plainly:
+| Version | Name (as stored) | What it changes against version 1 |
+|---|---|---|
+| **1** | Manager's original (60/30/6/4, pass/fail) | The baseline: rating ÷ 5 for up to 60 points; approval 30 points all-or-nothing at 80%; responses 6 points all-or-nothing at 10; reach up to 4 points; a missing vote or attendance scores zero; no minimum votes, no guard, no hard lines. |
+| 2 | Original + minimum votes | The same, but a class needs 5 votes to show a band and 5 to trigger an analysis. |
+| 3 | Graded approval | Approval earns its points gradually from 40% to 80%; a missing vote is left out rather than scored zero. |
+| 4 | Graded + small-sample guard | As 3, plus graded responses, the guard (k = 5), a band from 3 votes and an analysis from 5. |
+| 5 | Data-derived weights | The rating knee, graded approval, responses and reach switched off, the track record on; weights 60 / 25 / 15; guard k = 5; 3 / 5 votes. |
+| 6 | Two lines + graded score | As 5, plus the two hard lines (4.55 and 80%). |
+
+All six are seeded by migration 0015 from `supabase/fixtures/scoring_configs.json`. Version 1 is
+made active on first run if nothing else is; the others are drafts. The **validation study**
+(`analysis/sentiment_run_all.py` → `Sentiment-Score-Validation.pdf` and the two-page
+`Sentiment-Score-One-Pager.pdf`, shared separately because they carry instructor names) replays
+eight months of real classes through all six and recommends which to activate. Whatever the team
+decides, the version marked **Active** is the one in force.
+
+### Where you see it
+
+One component draws every score: **number + band label, always** — colour only reinforces. A 4-px
+band bar sits underneath. Hover or focus shows the breakdown: each part, what was measured, the
+points earned out of the weight, the version, and what the rule says. Averages (a course, an
+instructor, a cohort, a module) are drawn **outlined and say "avg"**, so an average is never
+mistaken for a class score. A class with no band shows **"— · too few voices"**, never a fake
+number. The same score appears in the classes table, the drawer, the queue, the portfolios, the
+reports, the CSV export and the Slack card.
+
+### Two worked examples
+
+*Under version 1.* A class rated **4.30**, **9 of 12** voters would have the instructor back
+(75%), **12 rated of 30 attended**:
+
+| Part | Measured | Points |
+|---|---|---|
+| Rating | 4.30 / 5 | 51.60 of 60 |
+| Approval | 9 of 12 · 75% (bar 80%) | 0 of 30 — under the bar, the cliff gives nothing |
+| Responses | 12 rated (target 10) | 6 of 6 |
+| Reach | 12 of 30 · 40% | 1.60 of 4 |
+| **Score** | | **59.20 → Bad → video analysis** |
+
+*The same class with 11 of 12 saying yes (92%)* scores 89.20 under version 1 → Good → no analysis:
+the 4.30 rating is hidden by the approval points. Under version 6 the rating is under the 4.55
+line, so the band is capped at **Average → transcript** however the points add up. That difference
+— which low-rated classes get read, and which do not — is exactly what the validation study
+measures, and why the settings are versions rather than code.
+
+### One source of truth
+
+The scoring function lives **in the database** (`score_class_rating()` in migration 0015), so a
+change of version re-scores every class in one statement, in seconds, without the worker being
+awake. The website carries a copy (`web/src/lib/sentiment.ts`) used only for live previews, and
+the study uses the Python reference (`analysis/sentiment_score.py`). All three must reproduce the
+same 94 cases in `supabase/fixtures/scoring_cases.json` — the manager's worked examples plus every
+edge case we could think of (nobody attended; one attendee who rated 5.0; a 200-person webinar
+with five happy raters; a big room saying no; ratings but no vote; more raters than attendees;
+approval exactly 80.00 and 79.99; every band edge; an instructor's first class; a source with no
+vote column; nonsense values) — and tests on all three sides pin that: `npm test` (107 tests),
+`supabase/test_scoring_sql.py`, and `analysis/test_sentiment_score.py` (the 44 edge cases).
+
+## 7. The queue — Needs analysis
+
+One page for a course (`/c/<course>/queue`) and one for the whole team (`/team/queue`, with a chip
+per course), in three sections:
+
+- **Bad → video**
+- **Average → transcript**
+- **Watch** — classes with fewer votes than the version's analysis floor (no band, or a
+  provisional one).
+
+Under every row, the reason in plain words — *"Rated 4.31 · 7 of 16 would have the instructor back
+(44%) → Bad → video analysis."* — and the flags. At the top, **the week's cost**:
+*"5 videos · 9 transcripts ≈ $8.09 · ~1.1 h"*, from $0.70 per video and $0.51 per transcript
+analysis, and about 7 and 3.5 minutes of a PM's time each. The filter bar (kept in the URL, so a
+filtered view is a shareable link) has the period (default the last 45 days), cohort, live vs
+review, instructor and status; the default status is *open* (new · handler pinged · confirmed).
+
+Each row's actions:
+
+| Action | What it does |
+|---|---|
+| **Analyze** | Opens the New analysis form prefilled with the class (course, name, instructor, date, kind, rating, votes). The engine is unchanged (section 14). |
+| **Confirm** | "Yes, this class should be analysed" — the handler's acknowledgement of the Slack card. |
+| **Dismiss** | "No analysis needed." The row fades out and no later sync re-opens it. |
+| **Escalate** | Forces the video verdict whatever the numbers say, and re-opens the row. |
+
+A class moves through *new → notified (the Slack card went out) → confirmed → analysis started*,
+or to *dismissed*. Everything a PM does here is written to the audit log.
+
+## 8. The course workspace, page by page
+
+Everything under `/c/<course>/…` is that course only; its colour square and name are on every
+page, and the filter bar (period · cohort · live/review · instructor · band) is kept in the URL.
+
+**Overview.** A KPI row — classes rated, average score, the band mix, approval (against the 80%
+bar), reach, the open queue — each against the previous period of the same length. Then *Score by
+week* (with the four band zones shaded), *Band mix by week*, *Worst classes* (a row opens the
+class), *Instructors* (three or more classes, with a bullet against the course average), *Live vs
+review* ("is it the class or the review?"), *Module hot-spots*, *Cohorts* as small multiples,
+*Reach vs score* ("are low scores just thin turnout?"), and a *Calendar* of the average score per
+day ("do bad classes cluster on certain days?").
+
+**Classes.** Every class in the period, scored, 50 to a page, sortable, with a compact-density
+toggle. Clicking a row opens the **drawer** on the right — the URL gains `?class=<id>`, so a
+drawer is a link you can send; the same content is also a printable page of its own
+(`/classes/<id>`). The drawer shows: the score hero and a 0–100 bullet with the band zones; what
+the rule says and why, in one sentence; the flags; **What the score is made of** (each part, what
+was measured, the points); **The room** (the vote and the reach); the instructor's recent classes;
+**This module** (the module's average); **Actions** (Analyze · Confirm · Dismiss · Escalate); the
+**History** of the class's score across versions and the Slack pings; and the link to the AI
+analysis when one exists.
+
+**Instructors.** The leaderboard (instructors with three or more classes, sorted best, worst,
+most classes or recent; delta against the previous period; a bullet against the course average),
+and, below it, those with fewer classes. A name opens the **portfolio**: the header (the
+canonical name and *"also recorded as …"* for the other spellings, classes, average score, band
+mix, approval, reach, against the course), *Score trend* (weekly, grey = the course, a marker on
+each week AI feedback was sent), *Modules* (this instructor's module scores against the course's
+module averages), *Monthly approval* against the 80% bar, *The four boxes* (fine on both lines /
+polite rating / hard class, good teacher / fails both), *Best five* and *Worst five* classes, and
+*AI feedback* — every note sent, with the average of the next three classes.
+
+**Cohorts.** Every cohort with rated classes: region, start, *week n of 14* (counted from the
+cohort's first rated class), classes, average score, band mix, and the journey as a sparkline;
+then all cohorts *side by side* on one axis with the median of every cohort as a grey reference.
+A cohort opens its **journey**: *The journey* line (live and review series, band zones, the
+reference line from earlier cohorts of the same audience), *Week by week* (module, instructor,
+the live and review pills, reach), *Against the last three cohorts*, and *Reach by week*.
+
+**Modules.** Every module with two or more classes, in curriculum order, with a tag —
+**content** (low across two or more instructors: the material) or **delivery** (low for one of
+several: the teaching) — the best-known SME, and the band mix; the **Module × instructor**
+matrix (band-tinted cells); and *The six weakest, over time*. A module opens its own page: *By
+instructor* ("who should teach this next time?"), *By cohort*, *Score by week*, *Every class*.
+
+**Feedback.** This course's AI analyses — status, re-teach call, cost — and the *New analysis*
+button, which carries the course into the engine.
+
+**Reports.** Section 13.
+
+**Settings.** Five tabs. **Team**: who is on the course, their role (Owner · PM · Viewer) and
+scope (whole course or one cohort), who the handler is, *Add by IK email*, *Hand over to…* (with
+a note that goes into the audit trail), remove. **Cohorts**: rename. **Modules**: map every raw
+class name to a module once — it sticks for every sync. **Notifications**: Slack on or off per
+person (a person can always change their own). **Shares**: the read-only report links for this
+course. Owners and admins edit; everyone else reads — course is a label, not a wall.
+
+## 9. The team level
+
+`/team` is for leadership: **every course at once**. A housekeeping line first — last sync,
+unmapped sheet labels, courses without a handler, duplicate names waiting — each with a link to
+the page that fixes it. Then a card per course (average score, band strip, a 12-week sparkline,
+the change against the prior 30 days, the open Bad / Average counts, the handler), sorted by the
+share of Bad classes; *Every course, one axis* (small multiples against all courses in grey);
+*Instructors that moved* and *Modules that moved* month over month; the *Course × month* matrix;
+*Queue capacity* per course (videos, transcripts, cost, backlog age); and *Is the loop closing?*
+— flagged → confirmed → analysed → approved → sent over the last 30 days, with days per step.
+
+`/team/queue` is the same queue across every course with a chip per course. `/team/instructors`
+is the directory across courses (with the 3D galaxy as an optional *3D view* behind a toggle, off
+by default — the table is the product). `/team/reports` is the report across courses.
+`/team/insights` is the live version of the ratings study: participation, the vote, the trend,
+how ratings spread, by course, content problems vs instructor problems, and where this goes.
+
+## 10. People and ownership — and the Slack cards
+
+One table, `course_members`, says who owns what: a person by IK email (linked to their login the
+first time they sign in), a course, a role (**owner · pm · viewer**), an optional cohort (a
+member scoped to one cohort), the **handler** flag — exactly one handler per course, enforced by
+the database — Slack on or off, who added them, and the hand-over history. Course owners and
+admins edit a course's team; admins see the whole **people × courses** matrix on Admin › People,
+along with each course's identity (one of eight colours and up to three initials, used only for
+the identity square) and every share link.
+
+**Hand-over.** *Hand over to…* on the Team tab makes another member the handler, records who it
+came from and when on their row, and writes an audit row with the note. Slack routing follows on
+the next sync.
+
+**The Slack card.** After every sync, each newly flagged class (video or transcript, still *new*,
+mapped to a course, never pinged before) gets one card in the team's Slack channel. It leads with
+the score — *"Sentiment 58 · Bad → video"* — then the course and class, the date, the instructor
+(with *"recorded as …"* when the sheet's spelling differs), the rating and how many rated, the
+vote, *why* in plain words (the flags), *rule says* video or transcript, and a **Review in
+Feedback Loop** button that opens the course's queue with that class in focus. The card
+**mentions the course's people**: every member with Slack switched on, the handler first, and
+members scoped to a cohort only for that cohort's classes. A course with nobody on it gets a card
+that says *"No owner assigned — set one in Admin › People"*. (Only when a course has no members at
+all does the card fall back to the older handler table.) Two guard rails stop a flood: only classes
+from the last 10 days are pinged, at most 25 per run (both are settings). A failed sync posts a
+warning to the same channel. Confirm and Dismiss live in the app, not on the card.
+
+The **weekly digest** to every member is designed but not built yet (section 16).
+
+## 11. Instructor identity — one person, one name
+
+The sheet spells the same person several ways — "Jane Smith", "Jane", "jane smith", "Dr. Jane
+Smith", "Jane Smiht". Until those resolve to one person, every per-instructor figure is wrong.
+
+- **Normalisation** is the exact rule on both sides (the worker and the database): lower-case,
+  accents removed, everything but letters, digits and spaces stripped, spaces collapsed. Two
+  spellings that normalise to the same string are the same person, automatically.
+- **Aliases.** `instructor_aliases` maps any spelling to one instructor. The sync resolves through
+  it and links every class row it can; what it cannot, it counts as *unresolved*.
+- **Suggestions.** After every sync, the matcher scores each unresolved spelling against every
+  known instructor — identical once honorifics and doubled words are removed; the same first name
+  where that first name belongs to exactly one instructor; one name a prefix of the other;
+  initials; a one-letter typo; plus a bonus when the candidate taught the same course within four
+  months, and a penalty when both names taught different sessions on the same day (probably two
+  people). Anything scoring high enough becomes a suggestion with its evidence.
+- **Admin › Identity** has three panels. *Suspected duplicates*: each suggestion side by side
+  (classes, first and last dates, average, top modules), **Accept** or **Not the same person**
+  (never suggested again), and *Accept all* above a confidence you choose. *Unresolved names*:
+  **Link to an existing instructor**, or create a new instructor from the spelling. *Instructors*:
+  the directory, **Merge this (duplicate) → Into this (keep)** with a preview of what moves, and
+  the recent merges with **Undo**.
+- **Merges are soft and reversible.** The duplicate row is kept, the spelling becomes an alias of
+  the survivor, every moved row id is stored, and *Undo* replays it in reverse. The page offers
+  Undo for 30 days.
+- **A merged identity flows through everything**: the classes table, the leaderboard, the
+  portfolio (whose header lists *"also recorded as …"*), the track record used by the score, the
+  Slack card, and the engine's instructor autocomplete.
+
+## 12. Changing the scoring — versions, preview, activate, roll back
+
+`scoring_configs` holds every version: a number, a name, a key, a note, the settings, who
+created it, when, and a status — **draft**, **active** (only one at a time, enforced by the
+database) or **retired**. Every stored class score carries the version that produced it, and
+`class_score_history` records a row whenever a class's score, band or version changes.
+
+**Admin › Scoring** is one screen in two halves. On the left: what to start from (the active
+version, any stored version, or the two presets — the manager's original and *Two lines + graded
+score*), the draft's name, key and note, and every setting: the rating scale, the approval mode
+and bar, the response target, reach, the track record, the weights, the guard, the vote floors,
+the hard lines, the band edges, what a missing input does, and the band → action mapping. On the
+right: **the live preview** over a chosen month or range of real classes — the band mix before
+and after, *Classes that change band*, *Analyses per week* (video and transcript, and the cost per
+week), *Dropped from today's queue*, *Flip on one vote* (the share of classes whose band would
+change if one learner voted differently, also for classes with ten or more votes), and the list of
+every class that moves. *Compare with the database* asks Postgres to compute the same summary
+(`scoring_whatif_summary()`), so the browser's mirror and the database are checked against each
+other.
+
+The buttons: **Save draft**; **New draft from this version**; **Publish this version** (a name
+and a note are required — the note goes into the audit trail; the confirm button reads *Publish
+and re-score*); on a retired version, **Roll back to this**; **Delete** (drafts only). Publishing or rolling back calls `apply_scoring_config()`: the previous
+version is retired, the chosen one activated, **every class re-scored in one statement**, the
+history rows written, an audit row recorded (`scoring_published` or `scoring_rolled_back`), and
+every page refreshed. The queue's `decision` follows the new action on every row a PM has not
+frozen.
+
+**Tools › What-if** is the same editor and preview for any PM. Nothing there changes the live
+score; **Propose to admin…** saves the settings as a draft with the PM's name and note, and the
+admin sees it under Versions.
+
+## 13. Reports and sharing
+
+Per course (`/c/<course>/reports`) and across the team (`/team/reports`): **Weekly**, **Monthly**
+or **Custom**, with previous / next period arrows. The page holds the headline tiles (classes
+rated, average score, band mix, approval, reach, flagged — each against the previous period),
+*Score vs the previous period*, *Instructors that moved* and *Modules that moved*, the *Worst
+classes* with what happened to each, the instructors, the cohorts, the modules (lowest first),
+and *Loop outcomes* (flagged → confirmed → analysed → approved → sent, with the median days per
+step). The team report adds a table of every course.
+
+Three ways out:
+
+- **Print / Save PDF** — the browser's print, with A4 page breaks between sections and the chrome
+  hidden. (A server-rendered PDF is planned; today the PDF comes from your browser.)
+- **CSV** — every scored class in the period: date, course, cohort, kind, class, instructor (and
+  the spelling as recorded), rating, rated, attended, reach, the votes, approval, score, band,
+  action, provisional, which version scored it, the review status, and the reason.
+- **Share** — a read-only link (`/share/<token>`): an unguessable token, an expiry (30 days by
+  default, up to a year), revocable by its creator or an admin from the course's Shares tab or
+  Admin › People. The page behind it shows the headline tiles, the band mix, live vs review, the
+  lowest classes, and the instructors — no filters, no actions, no drawer — and still requires an
+  IK sign-in.
+
+## 14. The AI analysis engine (unchanged in v3)
+
+Everything from the queue's **Analyze** button onwards is the engine the team already uses. The
+exact prompts are in [THE_AI_ANALYSIS_PROMPTS.md](THE_AI_ANALYSIS_PROMPTS.md); this is the plain
+version.
+
+**The journey of one class.** The form arrives prefilled from the queue (course, class name,
+instructor, date, kind, rating, the votes) — or you fill it by hand. You give it the recording:
+the class's **Vimeo link** (from UpLevel: *Resources → Videos → the class → Basic Details → VIMEO
+URL*) or an uploaded transcript file; optionally tick **Analyze the video too**; optionally attach
+the **class materials** (upload, paste text, or paste a Google Drive / Docs / Slides link). Click
+**Analyze class**. The website hands the job to the worker, which runs it in the background and
+writes the finished analysis to the database; the page refreshes itself. Transcript-only takes
+3–4 minutes, with video 6–8. A failed run is marked failed with the reason; a stalled one is
+detected; both offer one-click **Retry**.
+
+**How it reads a class.**
+
+1. *The materials agent* converts slides, notebooks or docs into a clean outline of what was
+   planned, so the analysis can say "slide 14's topic was never taught".
+2. *The session map*: Claude reads the whole transcript once — who is the instructor, who are the
+   learners, the real order of topics, which doubts were answered later. Nothing is judged out of
+   context.
+3. *Per 30-minute window* (with the map in hand): who is speaking, then only concrete
+   **instructor** issues it can prove with a quote and a timestamp. A learner's confusion is never
+   the instructor's flaw; a doubt answered later is a doubt handled well.
+4. *Combine and verify*: findings are merged and each is dropped if the quote does not support it,
+   the speaker was a learner, or the concern is resolved elsewhere.
+5. *Write*: the overall summary, the list of flags with severity, the short note for the
+   instructor, the detailed internal version, and the PM-only "should this class be re-taught?"
+   call.
+6. *The self-check*: a second, deliberately sceptical pass tries to refute every serious finding —
+   is the quote real, is it really the instructor, does the rest of the session contradict it,
+   does the evidence meet the bar for that severity? Findings are confirmed, softened or removed
+   by fixed rules, and every decision is shown on the review page. "Critical" has to be earned.
+
+**Watching the video** (optional per class): about one frame every 2–3 minutes, streamed from
+Vimeo and never stored; a neutral observer notes camera on or off, screen shared or frozen, slides
+or a notebook on screen, slide titles. Those become facts ("camera off from 00:14 to 00:31") the
+transcript could never give. If the video cannot be read, the analysis continues transcript-only
+and says why. Setup for plain Vimeo links: [VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md).
+
+**Two checklists**: 14 points for a **live class** (pace, clarity, structure, examples,
+correctness, agenda coverage, coding time, doubt handling, engagement…), 17 for an **assignment
+review session** (every problem covered, solutions walked through not read out, the reasoning
+taught, complexity and edge cases, common mistakes, doubts cleared).
+
+**Two outputs**: a **short note to send the instructor** — one opening line with the rating, then
+at most four or five bullets, each one specific error and its **Fix**, no timestamps, no
+transcript quotes; and the **detailed, timestamped analysis for the internal team**, kept in-house
+for coaching. On the review page the note is marked *Send this*; the badges say how the class was
+analysed (*Video verified · N frames* or *Transcript only*, and *Self-checked*), and *Watch
+recording* jumps into the video to check any flag yourself.
+
+**Review, approve, send.** Edit the text directly, or tell the AI what to change ("warmer",
+"focus on the skipped problems") and click **Revise**. **Approve & store** keeps your edits beside
+the original; copy the note, send it the way you normally do, then **Mark as sent** so the whole team
+sees *Sent to instructor ✓* — and the loop funnel on the reports counts it.
+
+The model is Claude Sonnet 5; the engine asks for strict, schema-checked answers, prefers
+silence to a false criticism, and anchors every point to a verbatim quote and a timestamp.
+
+## 15. What is stored, who can do what, what it costs
 
 | Thing | Stored? | Notes |
 |---|---|---|
-| Class details (course, instructor, rating…) | ✅ Yes | In the locked database. |
-| The analysis result + feedback + your edits | ✅ Yes | This is the point of the tool. |
-| The transcript | ⏳ Yes, then **auto-deleted after 20 days** | A scheduled job wipes old transcripts automatically. |
-| **Your uploaded materials (slides/notebooks)** | ❌ **Never** | Read once in memory for the analysis, then discarded. |
-| Anything on GitHub | ❌ No confidential data | The code is there; **no spreadsheets, keys, or class data**. Checked automatically before every update. |
+| Every rated class from the sheet (course, cohort text, class name, instructor, date, kind, rating, responses, attended, the vote) | ✅ Yes | A scored copy of the sheet, in the locked database. |
+| The score, band, action, flags, breakdown, version — and the history of changes | ✅ Yes | So before and after can be compared, and a rollback is honest. |
+| Instructors, aliases, suggestions, merges; cohorts; modules; course members (IK email, Slack user id) | ✅ Yes | The identity and ownership layers. |
+| The analysis result, the feedback drafts and your edits | ✅ Yes | The point of the tool. |
+| The transcript | ⏳ Yes, then **auto-deleted after 20 days** | A scheduled job wipes old transcripts. |
+| **Uploaded materials and video frames** | ❌ **Never** | Read once in memory for that analysis, then discarded. |
+| Share links | ✅ The token, the period, the expiry, who made it | Revocable; the page still needs an IK sign-in. |
+| Every meaningful action (activations, merges, hand-overs, confirmations, dismissals, share links…) | ✅ The audit log | Admin › Audit, filterable by action. |
+| Anything on GitHub | ❌ No confidential data | The code and these docs only. The workbook, the study PDFs and Word documents, key files and `.env` files are gitignored. |
 
-**Access:** only signed-in `@interviewkickstart.com` staff can see anything, enforced at the database
-level. **Secrets** (the AI key, database keys) live in secure settings, never in the code.
+**Who can do what.**
 
----
-
-## 8. Who can do what (roles)
-
-| Role | Can do |
+| Role | Can |
 |---|---|
-| **Staff (PM)** — any IK person who logs in | Create analyses, review/edit/approve, delete, add courses, assign instructors, download the schedule. Sees all feedback data (it's an internal team tool). |
-| **Admin** | Everything staff can, **plus** merge duplicate instructors and (soon) manage who has access. |
-| **Learner** | Reserved for the future — their own performance only. Not used yet. |
+| **Staff — PM** (any IK sign-in) | Read every course; the queue's actions; run, review and approve analyses; the what-if simulator and *Propose to admin*; create and revoke their own share links; map an unmapped sheet label; press Sync now. |
+| **Course owner** (a membership role) | Everything a PM can, plus edit that course's settings: team, handler, hand-over, cohorts, modules, notifications. |
+| **Admin** | Everything, plus Scoring (publish, roll back), Identity (accept, merge, undo), People (the matrix, course identity, all share links), Sync, Audit. |
+| **Learner** | Reserved for the future; sees nothing of the ratings. |
+
+Access is enforced by the database's row-level security, not just by the screens; since
+migration 0021 the ratings tables are readable by staff only.
+
+**What it costs.** Measured on real classes: about **$0.51** per transcript analysis and
+**$0.70** with video; a short review session costs less, materials add a little. The queue shows
+the week's total before anyone starts. The website, the database and the worker run on the free
+tiers of Vercel, Supabase and Render today; the sheet is read through a free service account.
+
+**Outside services.** Vercel (the website) · Supabase (Postgres, sign-in, the hourly timer via
+`pg_cron` and `pg_net`, the Vault for the timer's two secrets) · Render (the worker) · Google
+(sign-in restricted to IK; the Sheets API through a view-only service account) · Slack (a bot
+token, one channel) · Vimeo (recordings and captions) · Anthropic (Claude) · GitHub (the code).
+
+## 16. What is planned, not built
+
+Designed in the v3 plan and left for the next release. None of these exist in the app today:
+
+- **The weekly Slack digest** to every course member (the routing table is in place).
+- **A server-rendered PDF** for the reports (today: the browser's print).
+- **The learner-level pages** — the learner × week heatmap, the at-risk list, the rater-bias and
+  "who says no" panels. The tables (`learners`, `learner_ratings`, `learner_import_runs`) exist,
+  empty, and the ingestion contract is written ([LEARNER_INGEST_CONTRACT.md](LEARNER_INGEST_CONTRACT.md));
+  the worker's `POST /sync-learners` answers "not configured" until a learner-level export exists.
+- **Per-course scoring overrides** (one version applies to every course).
+- **A TA-quality view** from the sheet's TA tab.
+- **The bump chart** (rank by month).
+- **Metabase as the ratings source** — the switch (`RATINGS_SOURCE=metabase`) and the seam exist;
+  the sheet is the source today.
+- Validating the manager's other two sheet models (Instructor Insight risk labels, Topic Fit)
+  with the same yardsticks as the score.
+
+## 17. Glossary
+
+- **Class Sentiment Score** — the 0–100 number every class gets, from the rating, the approval
+  vote, the responses, the reach and (in some versions) the instructor's track record.
+- **Band** — Excellent (90+), Good (75–89), Average (60–74), Bad (under 60), read from the
+  rounded score. **No band** = too few votes.
+- **Action** — what the band calls for: video analysis, transcript analysis, none, or watch.
+- **Provisional** — a band shown from fewer votes than an analysis needs; the class is watched.
+- **Approval vote** — the learners' Yes / No to "would you want this instructor to take the class
+  again?"; the bar is 80%.
+- **Reach** — the share of attendees who rated (responses ÷ attended).
+- **Responses** — how many learners rated; the target in the original method is 10.
+- **Track record** — the instructor's average rating over earlier classes (three or more).
+- **Small-sample guard** — blending a class with few votes toward the course's typical values so a
+  handful of opinions cannot decide a band on their own.
+- **Hard lines** — under 4.55 or under 80% caps the band at Average; both → Bad.
+- **Scoring version** — one stored set of every scoring setting; draft, active or retired.
+- **Queue** — the *Needs analysis* page: Bad → video, Average → transcript, Watch.
+- **Escalate** — a PM forcing the video verdict.
+- **Handler** — the one person per course a flagged class is addressed to first.
+- **Owner · PM · Viewer** — the three membership roles on a course.
+- **Alias** — a spelling that resolves to one instructor. **Suggestion** — a probable alias
+  waiting for a human. **Merge** — folding one instructor row into another, undoable.
+- **Cohort** — one intake of learners, parsed from the sheet's cohort text (region, start month,
+  early / mid / end, cohort number, audience). **Module** (topic) — the canonical class name.
+- **Workspace** — a course's own set of pages under `/c/<course>/…`; the team level is `/team`.
+- **Sync run** — one pass of the worker over the sheet, recorded with its counts.
+- **Share link** — a read-only, expiring, revocable link to a report.
+- **Transcript** — the text of everything said in the class, from the Vimeo captions.
+- **Worker** — the small server that runs the sync and the AI engine.
+- **Rubric** — the fixed checklist the AI grades a class against. **Flag** — one issue the AI
+  found, with a timestamp and a quote. **Re-class** — the AI's private opinion on whether a
+  class should be re-taught; never shown to the instructor.
+- **RLS (row-level security)** — the database's built-in locks that decide who can read what.
+- **Migration** — one numbered SQL file that changes the database; v3 adds 0015 → 0023.
 
 ---
 
-## 9. What it costs
-
-Measured on real classes (every analysis records its own exact cost, shown in the app):
-
-| What you run | AI cost | Time to result |
-|---|---|---|
-| Transcript only | **~$0.51** per class | ~3–4 minutes |
-| With video analysis | **~$0.70** per class | ~6–8 minutes |
-
-Short sessions cost less (a ~25-minute ARS runs about **$0.14**); attaching materials adds a little.
-Compare that to the 30–60 minutes of expert time — and up to a 4-hour recording — it replaces.
-
-- **Hosting:** the website, database, and AI Brain all run on **free tiers** today.
-
----
-
-## 10. The outside services we rely on (and why)
-
-| Service | What it does for us | Free? |
-|---|---|---|
-| **Vercel** | Hosts the website | ✅ |
-| **Supabase** | Database + login + security | ✅ |
-| **Render** | Hosts the AI Brain (worker) | ✅ (sleeps when idle) |
-| **Google** | Sign-in, restricted to IK | ✅ |
-| **Vimeo** | Class recordings + captions | (IK account) |
-| **Anthropic (Claude)** | The AI that reads + writes | pay-per-use (cents) |
-| **GitHub** | Stores the code + these docs | ✅ |
-
----
-
-## 11. Glossary (plain English)
-
-- **Transcript** — the text of everything the instructor said (from the video captions).
-- **Worker / AI Brain** — the small program that fetches the transcript and runs the AI.
-- **Rubric** — the fixed checklist the AI grades against.
-- **Flag** — one specific issue the AI found, with a timestamp and a quote.
-- **Approval vote** — the learners' Yes/No answer to "would you want this instructor to take the class
-  again?", read from the ratings sheet. The bar is 80% Yes.
-- **Class Health Score** — the 0–100 number (60% rating, 25% approval, 15% track record) that ranks a
-  flagged class as Urgent / Needs a look / Borderline and picks video vs transcript.
-- **Re-class** — the AI's *private* opinion (for the PM only) on whether the class should be re-taught
-  to learners. Never shown to the instructor.
-- **Cohort** — one batch of learners (e.g. "US August 2025").
-- **ARS** — Assignment Review Session (a class where homework solutions are reviewed).
-- **RLS (Row-Level Security)** — the database's built-in locks that only let staff read data.
-- **Stateless** — the AI Brain keeps nothing after finishing a job.
-
----
-
-## 12. Have an idea? Suggest it!
-
-This tool is built **for the team**, so suggestions are very welcome. You don't need to be technical —
-just open an **Issue** on the GitHub repo (or tell the NP team) describing what you'd like. Every
-piece above can be improved: the checklists, the tone of the feedback, new class types, new reports,
-and more.
-
-*Last updated: keep this in step with the app as it grows.*
+*Last updated for v3, 7 September 2026. Keep this in step with the app as it grows.*

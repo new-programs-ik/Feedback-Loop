@@ -8,7 +8,7 @@ import type { CourseRow, MemberRow } from "@/lib/admin";
 import { setMemberSlack } from "@/app/(app)/c/[course]/settings/actions";
 
 /** Who gets Slack pings for this course. Routing (plan 5f): a flagged class → the cohort's
- *  handler, else the course handler, else the owner, else the admin channel. The toggle only
+ *  handler first, then every member with Slack on (one card in the team channel). The toggle only
  *  silences a person; it does not change who is next in line. */
 export function NotificationsTab({ course, members, canEdit, selfEmail }: { course: CourseRow; members: MemberRow[]; canEdit: boolean; selfEmail: string }) {
   const router = useRouter();
@@ -29,8 +29,9 @@ export function NotificationsTab({ course, members, canEdit, selfEmail }: { cour
   return (
     <div className="space-y-3">
       <p className="text-muted-foreground text-[12.5px]">
-        A flagged class pings the cohort&apos;s handler, else the course handler, else the owner, else the admin channel with “no handler set”.
-        Weekly digests go to everyone switched on.
+        A flagged class posts one card in the team channel and mentions everyone on this course who has Slack switched on — the
+        handler first; people scoped to a cohort only for that cohort&apos;s classes. With nobody on the course the card says
+        “no owner assigned”. Weekly digests are planned; the switch is kept for when they ship.
       </p>
       <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
         {members.length === 0 ? (

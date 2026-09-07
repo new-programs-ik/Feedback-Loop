@@ -12,11 +12,9 @@ import { Reveal, EASE_OUT } from "@/components/motion/reveal";
 import {
   Check, CircleDashed, Clapperboard, Eye, FileText, Loader2, Paperclip, Upload, type LucideIcon,
 } from "lucide-react";
-import {
-  APPROVAL_BAR, BORDERLINE, GOOD, MIN_VOICES, PARTICIPATION_BAR, URGENT, decide, decideV2, explain, explainV2,
-  voteLabel, type HealthBand,
-} from "@/lib/decision";
-import { PriorityChip } from "@/components/priority-chip";
+import { voteLabel } from "@/lib/decision";
+import { ACTION_LABEL, BAND_META, BAND_ORDER, explainClass, scoreClass, type Action, type Band, type ScoreInputs, type ScoringConfig } from "@/lib/sentiment";
+import { ScorePill } from "@/components/score/score-pill";
 import { cn } from "@/lib/utils";
 
 const label = "text-sm font-medium";
@@ -73,10 +71,19 @@ export type Prefill = {
   yesVotes: string;
   noVotes: string;
   trackAvg: number | null;
-  healthScore: number | null;
-  healthBand: HealthBand | null;
+  /** The stored Class Sentiment Score of the class this form was opened from. */
+  score: number | null;
+  band: Band | null;
+  action: Action | null;
   escalated: boolean;
   video: boolean;
+};
+
+const ACTION_TITLE: Record<Action, string> = {
+  video: "Video Analysis",
+  transcript: "Transcript Analysis",
+  none: "No analysis needed",
+  watch: "Watch only",
 };
 
 /** Drop zone for class materials. Files dropped on it are handed to the real <input type=file>
@@ -180,10 +187,13 @@ export function NewAnalysisForm({
   courses,
   instructorNames,
   prefill,
+  scoring,
 }: {
   courses: { id: string; name: string }[];
   instructorNames: string[];
   prefill?: Prefill;
+  /** The active scoring version — the helper scores what you type with the same rule as the queue. */
+  scoring: { version: number | null; config: ScoringConfig };
 }) {
   const reduce = useReducedMotion();
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
@@ -213,50 +223,33 @@ export function NewAnalysisForm({
   // Yes + No equals the number of ratings on every sheet row, so the vote can stand in for it.
   const typedRated = parseInt(hRated, 10);
   const rat = !Number.isNaN(typedRated) ? typedRated : hasVote ? yes + no : NaN;
-  const participation = att > 0 && rat >= 0 ? Math.round((rat / att) * 100) : null;
-  // The team rule lives in ONE place — src/lib/decision.ts (mirrored by the sync worker's
-  // decision.py). This helper only translates the verdict into form advice.
+  // The rule lives in ONE place — the scoring function in the database, mirrored by
+  // src/lib/sentiment.ts and pinned to the same fixtures. This helper only translates the
+  // verdict of the ACTIVE version into form advice, so it can never disagree with the queue.
   let advice: {
-    title: string; detail: string; video: boolean | null; band?: HealthBand | null; score?: number | null;
+    title: string; detail: string; video: boolean | null; band?: Band | null; score?: number | null; provisional?: boolean;
   } | null = null;
   if (hEscalation) {
     advice = { title: "Video Analysis", detail: "There is an escalation — always use video for escalated classes.", video: true };
   } else if (!Number.isNaN(r)) {
-    if (hasVote) {
-      const input = {
-        rating: r,
-        numRatings: Number.isNaN(rat) ? null : rat,
-        attended: att > 0 ? att : null,
-        yesVotes: yes,
-        noVotes: no,
-        trackAvg: prefill?.trackAvg ?? null,
-      };
-      const v = decideV2(input);
-      const title =
-        v.decision === "none" ? "No analysis needed"
-        : v.decision === "watch" ? "Watch only"
-        : v.decision === "video" ? "Video Analysis"
-        : "Transcript Analysis";
-      advice = {
-        title,
-        detail: explainV2(v, input),
-        video: v.decision === "none" ? false : v.decision === "watch" ? null : v.decision === "video",
-        band: v.healthBand,
-        score: v.healthScore,
-      };
-    } else if (r >= GOOD) {
-      advice = { title: "No analysis needed", detail: explain("none", participation, rat), video: false };
-    } else if (participation != null) {
-      const d = decide(r, rat, att);
-      advice =
-        d === "watch"
-          ? { title: "Watch only", detail: explain(d, participation, rat), video: null }
-          : d === "video"
-            ? { title: "Video Analysis", detail: explain(d, participation, rat), video: true }
-            : { title: "Transcript Analysis", detail: explain(d, participation, rat), video: false };
-    } else {
-      advice = { title: "Almost there", detail: "Fill in attended + rated counts to get the recommendation.", video: null };
-    }
+    const inputs: ScoreInputs = {
+      rating: r,
+      num_ratings: Number.isNaN(rat) ? null : rat,
+      attended: att > 0 ? att : null,
+      yes_votes: hasVote ? yes : null,
+      no_votes: hasVote ? no : null,
+      escalated: false,
+      track_avg: prefill?.trackAvg ?? null,
+    };
+    const res = scoreClass(inputs, scoring.config);
+    advice = {
+      title: ACTION_TITLE[res.action],
+      detail: explainClass(inputs, res, scoring.config),
+      video: res.action === "none" ? false : res.action === "watch" ? null : res.action === "video",
+      band: res.band,
+      score: res.score,
+      provisional: res.provisional,
+    };
   }
   const prefillVote = prefill ? voteLabel(parseInt(prefill.yesVotes, 10), parseInt(prefill.noVotes, 10)) : null;
   // The card re-animates only when the VERDICT changes — not on every keystroke that nudges
@@ -295,7 +288,7 @@ export function NewAnalysisForm({
                     <span className="text-muted-foreground">no vote recorded</span>
                   )}
                 </span>
-                <PriorityChip band={prefill.healthBand} score={prefill.healthScore} />
+                <ScorePill variant="sm" score={prefill.score} band={prefill.band} action={prefill.action ?? undefined} />
               </div>
             </Reveal>
           )}
@@ -359,7 +352,7 @@ export function NewAnalysisForm({
                       </span>
                       <div className="min-w-0">
                         <span className="font-semibold">{advice.title}</span>
-                        {advice.band && <PriorityChip band={advice.band} score={advice.score} className="ml-2 align-middle" />}
+                        {advice.band && <ScorePill variant="sm" score={advice.score} band={advice.band} provisional={advice.provisional} className="ml-2 align-middle" />}
                         <span className="text-muted-foreground"> — {advice.detail}</span>
                       </div>
                     </div>
@@ -374,10 +367,9 @@ export function NewAnalysisForm({
               </AnimatePresence>
             </div>
             <p className="text-muted-foreground text-xs">
-              Team rule: below {GOOD}, or under {APPROVAL_BAR}% would have the instructor back → needs a look ·
-              fewer than {MIN_VOICES} ratings → watch only · Health Score under {URGENT} → urgent, video ·{" "}
-              {BORDERLINE}+ → borderline, transcript first · in between, ≥ {PARTICIPATION_BAR}% of attendees rating → video,
-              under → transcript · any escalation → video.
+              Class Sentiment Score{scoring.version != null ? `, version ${scoring.version}` : ""}:{" "}
+              {BAND_ORDER.map((b) => `${BAND_META[b].label} → ${ACTION_LABEL[scoring.config.actions[b]]}`).join(" · ")} · fewer than{" "}
+              {scoring.config.min_votes.action} votes → {ACTION_LABEL[scoring.config.actions.no_data]} · any escalation → video.
             </p>
           </div>
 

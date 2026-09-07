@@ -7,7 +7,7 @@ migration - so a bad outcome can be put back row by row:
     python analysis/db_backup.py            # every public table
     python analysis/db_backup.py --tables class_ratings,cohorts
 
-Restoring is a manual, table-by-table step on purpose (see docs/DEPLOY.md).
+Restoring is a manual, table-by-table step on purpose (see DEPLOY.md at the repo root).
 """
 import argparse
 import datetime as dt

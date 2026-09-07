@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
-import type { HealthBand } from "@/lib/decision";
+import { getActiveConfig } from "@/lib/scoring";
+import type { Action, Band } from "@/lib/sentiment";
 
 // Give the analysis kick-off (Vimeo fetch + handing the job to the worker) the platform max.
 export const maxDuration = 60;
@@ -20,25 +21,26 @@ export default async function NewAnalysisPage({
 
   const supabase = await createClient();
   const { prefill: prefillId } = await searchParams;
-  const [{ data: courses }, { data: instructors }, prefillRes] = await Promise.all([
+  const [{ data: courses }, { data: instructors }, prefillRes, active] = await Promise.all([
     supabase.from("courses").select("id, name").order("name"),
     supabase.from("instructors").select("name").order("name"),
     prefillId
       ? supabase
           .from("class_ratings")
           .select(
-            "id, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, yes_votes, no_votes, track_avg, health_score, health_band, escalated, decision",
+            "id, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, yes_votes, no_votes, track_avg, sentiment_score, sentiment_band, sentiment_action, escalated, decision",
           )
           .eq("id", prefillId)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    getActiveConfig(),
   ]);
   const instructorNames = ((instructors ?? []) as Array<{ name: string }>).map((i) => i.name);
   const p = prefillRes.data as {
     id: string; course_id: string | null; topic: string; instructor: string; class_date: string;
     session_kind: string; rating: number; num_ratings: number | null; attended: number | null;
     yes_votes: number | null; no_votes: number | null; track_avg: number | string | null;
-    health_score: number | string | null; health_band: HealthBand | null;
+    sentiment_score: number | string | null; sentiment_band: Band | null; sentiment_action: Action | null;
     escalated: boolean; decision: string;
   } | null;
   // One click from the Needs-analysis queue lands here with everything filled in.
@@ -56,8 +58,9 @@ export default async function NewAnalysisPage({
         yesVotes: p.yes_votes != null ? String(p.yes_votes) : "",
         noVotes: p.no_votes != null ? String(p.no_votes) : "",
         trackAvg: p.track_avg != null ? Number(p.track_avg) : null,
-        healthScore: p.health_score != null ? Number(p.health_score) : null,
-        healthBand: p.health_band,
+        score: p.sentiment_score != null ? Number(p.sentiment_score) : null,
+        band: p.sentiment_band,
+        action: p.sentiment_action,
         escalated: p.escalated,
         video: p.decision === "video",
       }
@@ -78,7 +81,7 @@ export default async function NewAnalysisPage({
           </p>
         </div>
       </div>
-      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill} />
+      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill}  scoring={{ version: active.version, config: active.config }} />
     </div>
   );
 }

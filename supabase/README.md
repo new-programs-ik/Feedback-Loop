@@ -49,7 +49,7 @@ Idempotent: `create ... if not exists` + policies dropped-then-created, so it's 
 
 ## Roles & access (RLS)
 - **admin** — sees/does everything.
-- **pm** — sees only classes/analyses/feedback for courses assigned in `pm_course_assignments`.
+- **pm** — any @interviewkickstart.com sign-in; reads every course (one team), writes a course's settings only as a member of it (`course_members`, migration 0018). `pm_course_assignments` is legacy and unused.
 - **learner** — sees only their own rows (analytics tables); no feedback-module access.
 - Instructors do **not** log in — PMs view instructor analytics.
 

@@ -64,7 +64,7 @@ one of the required ones stops the sync with the column named.
 | `Session Date` | yes | the class date |
 | `Type` | yes | Live Class vs Test Review, and the course fallback |
 | `Cohorts` | yes | the course (mapped by the cohort text) |
-| `Topic` (or `Class`) | yes | the class topic |
+| `Class` (or `Topic` on tabs without a `Class` column) | yes | the class name — on the Agentic tab `Topic` holds the session kind, so `Class` always wins when both exist |
 | `Instructor` | yes | the instructor, and their track record |
 | `Overall Average` | yes | the rating |
 | `Responses` | yes | how many rated |
@@ -72,7 +72,7 @@ one of the required ones stops the sync with the column named.
 | `Yes` / `No` | **optional** | the approval vote — "would you want this instructor to take the class again?" |
 
 A tab without the `Yes` / `No` columns still syncs; those classes simply carry no vote, which is
-never a penalty in the rule (see `docs/HOW_IT_WORKS.md`, "The decision rule").
+never a penalty in the score (see `docs/HOW_IT_WORKS.md`, the Class Sentiment Score section).
 
 ## Troubleshooting
 

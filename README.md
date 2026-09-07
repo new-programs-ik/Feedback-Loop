@@ -1,63 +1,52 @@
 # 🔁 Feedback Loop — IK New Programs
 
-**Turn a low-rated class recording into clear, ready-to-send instructor feedback — written by AI in
-minutes, approved by a human before anyone sees it.**
+**Every class the New Programs team runs, scored the same way, with the ones that need attention
+turned into ready-to-send instructor feedback — drafted by AI, approved by a person.**
 
-Built for Interview Kickstart's New Programs team, now used across teams.
+Built for Interview Kickstart's New Programs team. Version 3 (September 2026) turns the
+single-PM tool into one platform for the whole team: live ratings data, one score for every class,
+a workspace per course, and a leadership view across all of them.
 
-> 🚀 **Using the tool? Start here → [docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — step-by-step, plain
-> English, from signing in to sending the feedback. (An illustrated version with real screenshots of
-> every screen is shared separately by the New Programs team.)
+> 🚀 **Using the tool? Start with [docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — task by task, in
+> plain English: finding this week's classes, running an analysis, reading a score, printing the
+> weekly report, changing a scoring setting.
 >
-> 🧭 **Executives / new stakeholders:** start with the **[Executive Summary](docs/EXECUTIVE_SUMMARY.md)**
-> (2-page overview with links).
+> 🧭 **Executives and new stakeholders:** [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md)
+> (two pages).
 >
-> 📖 **New here? Read [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)** — a deep, plain-English guide to
-> everything this system does (written for *anyone*, no tech background needed). Managers, start there.
+> 📖 **Want to understand how it all fits together?** [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)
+> — the data pipeline, the Class Sentiment Score, the queue, ownership, identity, the AI engine.
 >
 > 🧠 **Want to see exactly what the AI is told?** [docs/THE_AI_ANALYSIS_PROMPTS.md](docs/THE_AI_ANALYSIS_PROMPTS.md)
-> shows the **verbatim prompts** behind every analysis, with plain-English notes — so anyone can review
-> the "black box" and suggest changes.
+> shows the verbatim prompts behind every analysis.
 
-🔗 **Live app:** https://feedback-loop-ten.vercel.app · sign in with your **@interviewkickstart.com** Google account.
-
-> ⚙️ **Deploying the worker?** Step-by-step (non-technical) setup incl. `DATABASE_URL`:
-> [docs/RENDER_SETUP.md](docs/RENDER_SETUP.md).
->
-> 🎬 **Want the AI to watch the class video too** (camera / screen / slides checks)? One-time Vimeo
-> setup: [docs/VIMEO_VIDEO_ACCESS.md](docs/VIMEO_VIDEO_ACCESS.md).
+🔗 **Live app:** https://feedback-loop-ten.vercel.app · sign in with your **@interviewkickstart.com**
+Google account.
 
 ---
 
-## What it does (the short version)
+## What it does
 
-When a class is rated low, this app:
-1. **Tells you whether the class even needs analysing — and which kind.** A built-in helper applies the
-   team rule, validated against 8 months of real ratings data and the learners' "would you have this
-   instructor back?" vote (rated ≥ 4.55 *and* ≥ 80% approval → usually skip · fewer than 5 ratings →
-   watch only · under either bar, a Class Health Score — 60% rating, 25% approval, 15% track record —
-   sets the priority: urgent → video, borderline → transcript, in between ≥ 40% participation → video
-   · any escalation → always video) and can switch video on with one click,
-2. **Fetches the class transcript** (from Vimeo, or you upload it),
-3. **Optionally watches the class**, sampling a frame every 2–3 minutes to check camera on/off, screen
-   sharing, and whether the slides match the plan — problems a transcript can never reveal
-   (**+31% more real issues found** in our measured A/B study),
-4. **Reads any class materials** you attach — upload a file, paste text, or paste a **link**
-   (Google Drive / Docs / Slides, or an internal materials app), fetched automatically,
-5. **Runs an AI analysis** against a checklist tailored to the class type (Live class or Assignment
-   Review). It first reads the **whole conversation** to work out who's the instructor vs the
-   learners and which doubts get resolved later — so it judges the *instructor*, in context, and
-   never mistakes a learner's words (or a doubt answered later) for a problem. It produces: an
-   overall summary, specific issues (each with a **timestamp + exact quote**), a **short bulleted note to
-   send the instructor** (each bullet = one specific error + how to fix it), a **detailed
-   internal** feedback draft, and a **PM-only "re-teach this class?"** call,
-6. **Argues against its own findings.** A second, deliberately sceptical pass re-checks every serious
-   flag against the real transcript and can **drop or downgrade** it — never invent or escalate one.
-   The report shows exactly what it changed and why,
-7. Lets a PM **review, tweak (or tell the AI to rewrite it), approve, and mark as sent** — with a full
-   history.
-
-**The AI only reads and drafts. A human approves everything.**
+1. **Pulls every rated class from the team's ratings sheet, once an hour.** No typing classes in.
+   The sheet stays the source; the app keeps a scored copy.
+2. **Gives each class one number: the Class Sentiment Score (0–100).** It combines the star rating,
+   the "would you have this instructor back?" vote, how many learners responded and how much of
+   the room they represent. The score has four bands: **Excellent** (90 and up), **Good** (75–89),
+   **Average** (60–74), **Bad** (under 60).
+3. **Lets the band decide the work.** Bad → video analysis. Average → transcript analysis.
+   Good or Excellent → nothing, unless a PM asks. Too few votes → watch. That is the
+   *Needs analysis* queue, per course and across the team.
+4. **Tells the right people on Slack.** A flagged class posts a card that names the course's
+   people, says why in plain words, and links straight into the queue.
+5. **Runs the AI analysis** on the recording (transcript, or transcript plus video frames), checks
+   its own findings with a second sceptical pass, and drafts a short note for the instructor plus a
+   detailed internal version. A PM reviews, edits, approves and marks it sent. **Nothing is ever
+   sent automatically.**
+6. **Shows the picture** — a workspace per course (overview, classes, instructors, cohorts,
+   modules, reports) and a team level for leadership (all courses, movers, capacity, the loop).
+7. **Keeps the scoring rules as data, not code.** Every setting is a stored, numbered version.
+   An admin previews a change on a month of real classes, activates it (every class is re-scored
+   in one step), and can roll back. Any PM can try a what-if and propose it.
 
 ---
 
@@ -65,24 +54,41 @@ When a class is rated low, this app:
 
 ```mermaid
 flowchart LR
-  U["👤 IK staff"] --> W["🌐 Website (Vercel)"]
-  U -. Google login (IK only) .-> G["🔑 Google"]
-  W <--> DB[("🗄️ Database — Supabase")]
-  W --> AI["🧠 AI Brain — Render"]
-  AI --> V["🎬 Vimeo — transcript + video frames"]
-  AI --> C["🤖 Claude — analysis + self-check"]
-  AI -. saves the finished analysis .-> DB
+  GS["Google Sheet (ratings)"] -->|hourly| SY["Worker (Python, Render)<br/>read sheet · parse cohorts · resolve names · save"]
+  SY --> DB[("Supabase Postgres<br/>scores every row with the active scoring version")]
+  DB --> WEB["Website (Next.js, Vercel)<br/>/c/[course]/… · /team · /admin"]
+  SY --> SL["Slack card to the course's people"]
+  WEB -->|Analyze| AI["The AI engine (same worker)<br/>transcript / video → draft feedback"]
+  AI --> DB
 ```
 
-- **Website (Next.js on Vercel)** — the screens; owns all reads/writes to the database.
-- **Database (Supabase)** — Postgres + login + **Row-Level Security** (only signed-in IK staff can read).
-- **AI Brain / worker (Python + FastAPI on Render)** — fetches the Vimeo transcript (and, when asked,
-  samples video frames), reads materials, and runs the analysis engine (Claude) including the
-  self-check pass. It keeps **no state of its own** and stores no files — transcripts, materials and
-  frames are used for that one analysis and discarded; only the finished analysis is written to the
-  database.
+- **Website** — the screens. Reads and writes the database under row-level security.
+- **Database (Supabase)** — Postgres plus sign-in. Holds the classes, scores, scoring versions,
+  instructors and aliases, cohorts, modules, course members, analyses, and the audit log. The
+  scoring function lives here, so a rule change re-scores every class in one statement.
+- **Worker (Python on Render)** — two jobs in one service: the hourly ratings sync (and *Sync now*),
+  and the AI analysis engine (Vimeo transcript, optional video frames, Claude, the self-check).
 
-Full details, diagrams and a glossary: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)**.
+---
+
+## Where things are in the app
+
+| Where | What |
+|---|---|
+| `/c/<course>/overview` | The course in one screen: KPIs vs the previous period, the weekly score line, band mix, worst classes, instructors, cohorts, modules, reach vs score, a calendar. |
+| `/c/<course>/classes` | Every class, scored. Click a row for the drawer: the score's arithmetic, the vote, the instructor's recent classes, what the rule says and why, the actions. |
+| `/c/<course>/queue` | **Needs analysis**: Bad → video, Average → transcript, Watch. The reason under each row, the week's cost at the top, Confirm · Dismiss · Escalate · Analyze. |
+| `/c/<course>/instructors`, `/cohorts`, `/modules` | Leaderboard and portfolios; cohort journeys week by week; module hot-spots and the module × instructor matrix. |
+| `/c/<course>/feedback` | This course's AI analyses. The engine itself is unchanged at `/feedback/new` and `/feedback/<id>`. |
+| `/c/<course>/reports` | Weekly / monthly / custom report: print to PDF, CSV, a read-only share link. |
+| `/c/<course>/settings` | Team (owner · PM · viewer, the handler, hand-over), cohorts, modules, Slack notifications, share links. |
+| `/team` | Leadership level: course cards, small multiples, movers, course × month, queue capacity, loop health, housekeeping. Plus `/team/queue`, `/team/instructors`, `/team/reports`, `/team/insights`. |
+| `/admin/scoring` · `/identity` · `/people` · `/sync` · `/audit` | Scoring versions with live preview; duplicate instructor names; who owns which course; sync runs; the audit log. |
+| `/tools/what-if` | The scoring editor as a read-only simulator for any PM, with *Propose to admin*. |
+
+Old links (`/dashboard`, `/ratings`, `/course-analytics`, `/instructor-analytics`, `/reports`,
+`/insights`, `/feedback`, `/courses`, `/instructors`) redirect to the new places, so Slack messages
+already sent keep working. `⌘K` (Ctrl-K) jumps anywhere.
 
 ---
 
@@ -90,62 +96,79 @@ Full details, diagrams and a glossary: **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORK
 
 | Folder / file | What it is |
 |---|---|
-| [`web/`](web/) | The website — Next.js (App Router, TypeScript), Tailwind, shadcn-style UI. Deploys to Vercel (root dir = `web/`). |
-| [`ratings_module_build_kit/`](ratings_module_build_kit/) | The AI Brain — Python FastAPI worker + the analysis engine (`engine.py`), Vimeo fetch (`vimeo.py`). Ships as a Docker container (Render). |
-| [`supabase/`](supabase/) | The database schema — SQL migrations + security policies (`migrations/`), applied by `apply_migrations.py`. |
-| [`docs/`](docs/) | Plain-English documentation — [`USER_GUIDE.md`](docs/USER_GUIDE.md) to *use* it, [`HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) to *understand* it. |
-| [`DEPLOY.md`](DEPLOY.md) | How the website + worker are deployed. |
-| [`BUILD_SPEC.md`](BUILD_SPEC.md) | The original build brief. |
+| [`web/`](web/) | The website — Next.js (App Router, TypeScript), Tailwind. Deploys to Vercel (root dir `web/`). `npm test` runs the score mirror against the shared fixtures. |
+| [`ratings_module_build_kit/`](ratings_module_build_kit/) | The worker — FastAPI. `ratings_sync.py`, `sheet_source.py`, `cohort_parse.py`, `instructor_match.py`, `notify.py` (the sync); `engine.py`, `video.py`, `vimeo.py` (the AI engine). Ships as a Docker container (Render). Its own [README](ratings_module_build_kit/README.md) lists every file and endpoint. |
+| [`supabase/`](supabase/) | The database: `migrations/` (0001 → 0023, applied in order by `apply_migrations.py`), `fixtures/` (the scoring contract: six configurations, 94 cases), `test_scoring_sql.py`. |
+| [`analysis/`](analysis/) | The scoring reference (`sentiment_score.py`), the validation study (`sentiment_*.py`, `sentiment_run_all.py`), and local tools (`db_backup.py`, `resync_from_workbook.py`). Outputs go to `analysis/out/` (not committed). |
+| [`docs/`](docs/) | User guide, how it works, executive summary, run-local, Render setup, [Google Sheet setup](docs/GOOGLE_SHEET_SYNC_SETUP.md), [Vimeo video access](docs/VIMEO_VIDEO_ACCESS.md), [learner-data contract](docs/LEARNER_INGEST_CONTRACT.md), the AI prompts. |
+| [`DEPLOY.md`](DEPLOY.md) | How the three pieces are deployed, the v3 release steps, and how to roll back. |
+
+Confidential things never live here: the ratings workbook, the study PDFs and Word documents,
+key files and `.env` files are all gitignored.
 
 ---
 
-## Features (today)
+## Features in v3 (today)
 
-- ✅ **Feedback module** — end to end (analyze → review → revise-with-AI → approve → **mark as sent**),
-  for **Live** and **ARS** class types with separate rubrics.
-- ✅ **Which-analysis helper** — the team's selection rule built into the New-Analysis page: enter
-  rating / attended / rated (+ escalation) → it recommends skip, transcript or video, and applies it.
-- ✅ **Video analysis** *(optional per class)* — frames sampled straight from Vimeo, checked for camera,
-  screen share and slide/plan mismatch. Frames are analysed in memory and **never stored**.
-- ✅ **AI self-check** — an adversarial verification pass that drops or softens unproven findings, shown
-  transparently in the report (and a "✓ Self-checked" badge).
-- ✅ **Trust & verification in the UI** — "🎬 Video verified · N frames" / "Transcript only" badges with
-  the reason, and a **▶ Watch recording** link straight to the class video.
-- ✅ **New-Analysis form** — course (or add one inline), topic, instructor autocomplete, class type,
-  materials by upload/link/paste, Vimeo link or transcript upload, optional **video analysis**.
-- ✅ **Courses** — any staff member adds their team's courses (B2B, DSA…), instantly usable.
-- ✅ **Admin** — merge duplicate instructor names.
-- ✅ **Dashboard** — counts, AI spend (monthly + all-time), recent analyses, **live AI-engine status**
-  (which also pre-warms the worker); queue with course/month filters.
-- ✅ **Resilient by design** — failed analyses are recorded as `failed` with the reason, stalled runs are
-  detected, and both offer a one-click **Retry**.
-- ✅ **Security & privacy** — Google login (IK-only), database-level access control, materials and video
-  frames never stored, transcripts auto-purged after 20 days, no confidential data in this repo.
+- **Live data** — the ratings sheet synced hourly; columns read by name; the class name taken from
+  the `Class` column (the Agentic tab's `Topic` column is the session kind — fixed 3 Sep 2026).
+- **The Class Sentiment Score** on every class, with the arithmetic one hover away, four fixed band
+  colours, and averages drawn differently from class scores so they are never confused.
+- **The queue by band**, with the reason in plain words and the week's cost in dollars and hours.
+- **Course workspaces** and the **team level**, a course switcher, and the command palette.
+- **Instructor identity** — spellings resolved through aliases at sync time; suspected duplicates
+  suggested after every sync; a human accepts or rejects; merges undoable for 30 days.
+- **Cohorts and modules** parsed from the sheet's own text: journeys week by week, module
+  hot-spots, "content problem vs delivery problem" tags, the best-known SME per module.
+- **People and ownership** — course members (owner · PM · viewer), exactly one handler per course,
+  hand-over with a note, Slack routing to the course's people.
+- **Configurable scoring** — six stored versions; draft → preview on a month → activate → roll back;
+  what-if for PMs.
+- **Reports** per course and across the team: weekly / monthly / custom, print, CSV, share link.
+- **The AI feedback engine** — transcript and optional video analysis, the self-check pass, two
+  outputs (the note to send and the internal detail), a PM-only re-teach call. Unchanged in v3.
+- **Audit log** of every meaningful action, and a health check that names the live build and the
+  active scoring version.
 
-**Coming next:** pulling the Vimeo link (and low-rated classes) automatically from UpLevel, so the
-intake is end-to-end; plus Learner / Instructor / Course analytics and a Learner Health Score
-(placeholders already visible in the app).
+**Planned (designed, not built):** the weekly Slack digest, a server-rendered PDF, the learner-level
+pages (the tables and the [contract](docs/LEARNER_INGEST_CONTRACT.md) exist; the data does not yet),
+per-course scoring overrides, a TA-quality view, and the bump chart. See
+[HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#16-what-is-planned-not-built).
 
 ---
 
 ## 💡 Want to suggest something?
 
-You **don't need to be technical**. Open an **[Issue](../../issues)** describing what you'd like —
-a change to the feedback tone, a new class type, a new report, anything. The whole team can shape this.
+You do not need to be technical. Open an **[Issue](../../issues)** or message Bishal Roy
+(New Programs) — a change to the feedback tone, a scoring setting you would like to try, a new
+report, anything.
 
 ---
 
 ## For developers
 
-Local run:
+Run it locally (details in [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)):
 ```bash
-# AI Brain (needs ANTHROPIC_API_KEY, optionally VIMEO_ACCESS_TOKEN in ratings_module_build_kit/.env)
+# Worker (needs ratings_module_build_kit/.env — see .env.example for the variable names)
 cd ratings_module_build_kit && ./.venv/Scripts/python -m uvicorn service:app --port 8000
 
-# Website (needs Supabase keys in web/.env.local)
+# Website (needs web/.env.local)
 cd web && npm install && npm run dev
 ```
-Tests: `cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest` (248 tests) ·
-web typecheck: `cd web && npx tsc --noEmit`.
-Deploy: see **[DEPLOY.md](DEPLOY.md)**. Secrets live in `.env` / `.env.local` (gitignored) and in
-Vercel/Render settings — **never** in the code.
+
+Tests:
+```bash
+cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest      # 285 tests, offline
+cd web && npm test                                                     # 107 tests: the score mirror vs the fixtures, and the report window
+./ratings_module_build_kit/.venv/Scripts/python supabase/test_scoring_sql.py   # the SQL function vs the same fixtures (needs DATABASE_URL)
+cd web && npx tsc --noEmit                                             # type-check
+```
+
+Local tools (run with the worker's Python, `./ratings_module_build_kit/.venv/Scripts/python`):
+`analysis/db_backup.py` (full JSON backup), `analysis/resync_from_workbook.py --check|--run`
+(push the local workbook copy through the worker's sync path), and `node web/scripts/shots.mjs`
+(screenshots of every page, light and dark).
+
+Deploy: see **[DEPLOY.md](DEPLOY.md)** — only on Bishal's word, after his local review. Secrets live
+in `.env` / `.env.local` (gitignored) and in Vercel / Render / Supabase Vault settings, never in the
+code.
