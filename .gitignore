@@ -63,3 +63,8 @@ web/start.log
 
 # archived one-offs, confidential docs and recordings (never committed)
 _archive/
+
+# validation study outputs (regenerable, contain instructor names + ratings)
+analysis/out/
+Sentiment-Score-Validation.pdf
+Sentiment-Score-One-Pager.pdf
