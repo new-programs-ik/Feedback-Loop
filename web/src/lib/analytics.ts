@@ -6,6 +6,7 @@ import { coursePriors, courseKey, scoreRow } from "@/lib/class-score";
 import { getActiveConfig } from "@/lib/scoring";
 import { bandOf, DEFAULT_CONFIG, type Action, type Band, type ComponentRow, type ScoringConfig } from "@/lib/sentiment";
 import { hrefIn } from "@/lib/workspace-shared";
+import { buildCurriculumMap, type CurriculumMap, type CurriculumOptions } from "@/lib/curriculum";
 
 /** The drawer link for a class row: its course's classes page + `?class=`; unmapped rows fall
  *  back to the team queue, which opens the same drawer. */
@@ -230,6 +231,10 @@ export function scoreSummary(rows: ScoredRating[]) {
     approval: approvalOf(rows),
     reach: mean(rows.map((r) => r.participation_pct).filter((v): v is number => v != null)),
     avgRating: mean(rows.map((r) => r.rating)),
+    /** The typical room: learners attended per class. */
+    avgAttended: mean(rows.map((r) => r.attended).filter((v): v is number => v != null)),
+    /** Learners who rated, per class. */
+    avgRated: mean(rows.map((r) => r.num_ratings).filter((v): v is number => v != null)),
     bad: counts.bad,
     average: counts.average,
     badShare: scored ? counts.bad / scored : null,
@@ -918,3 +923,62 @@ export function beforeAfter(rows: ScoredRating[], date: string, k = 3) {
 export type ReportPeriod = "week" | "month" | "custom";
 
 export { reportPeriod, type ReportWindow } from "@/lib/report-period";
+
+// ── the curriculum map (pure core in ./curriculum.ts) ─────────────────────────
+export {
+  ALL_TRACKS,
+  LIFT,
+  RATING_LINE,
+  attendanceJourney,
+  fmtSigned,
+  initialsOf,
+  instructorModuleFit,
+  kindMix,
+  moduleFixers,
+  ratingBand,
+  ratioBand,
+  reachBand,
+  shortCohortName,
+  shortModuleName,
+  trackLabel,
+  trackOf,
+  verdictOf,
+  type CurriculumCell,
+  type CurriculumCohort,
+  type CurriculumLinks,
+  type CurriculumMap,
+  type CurriculumModule,
+  type FixerRow,
+  type Insight,
+  type InsightKind,
+  type Journey,
+  type JourneyAxis,
+  type ModuleFit,
+  type TrackOption,
+  type Verdict,
+} from "@/lib/curriculum";
+
+/** Cohorts with at least one class inside [from, to] — the scope decides WHICH cohorts a map
+ *  shows; the map itself is built from a wider window so a cohort's earlier modules are there. */
+export function activeCohortKeys(rows: ScoredRating[], from: string, to: string, names?: Map<string, CohortRef>): Set<string> {
+  const keys = new Set<string>();
+  for (const r of rows) {
+    if (r.class_date < from || r.class_date > to) continue;
+    for (const ref of cohortRefs(r, names)) keys.add(ref.key);
+  }
+  return keys;
+}
+
+/** How far back the map's rows reach: a year before the period's end, or the period's own
+ *  start when it is older than that. */
+export function mapWindowStart(from: string, to: string): string {
+  const back = addDays(to, -365);
+  return from < back ? from : back;
+}
+
+/** Every cohort of the course against every module, in curriculum order, with the sentences
+ *  a PM reads first. `rowsAll` should be the wide window (`mapWindowStart`); `cohortKeys`
+ *  (usually `activeCohortKeys` of the scope) picks the cohorts, `track` the audience. */
+export function curriculumMap(rowsAll: ScoredRating[], cohortNames?: Map<string, CohortRef>, opts: Omit<CurriculumOptions, "refsOf"> = {}): CurriculumMap {
+  return buildCurriculumMap(rowsAll, { refsOf: (r) => cohortRefs(r, cohortNames), ...opts });
+}

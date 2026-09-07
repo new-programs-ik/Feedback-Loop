@@ -5,11 +5,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { FilterBar, parseRange, rangeToDates, type FilterDef } from "@/components/filter-bar";
 import { BandChip, ScorePill } from "@/components/score/score-pill";
+import { RawStat } from "@/components/analytics/raw-stat";
 import { CourseChips, type CourseChipItem } from "@/components/queue/course-chips";
 import { QueueRow, WatchRow } from "@/components/queue/queue-row";
+import { QueueRows, QueueSort, QueueSortControl, type QueueSortRow } from "@/components/queue/sortable-queue";
 import { SyncNowButton } from "@/components/queue/sync-now-button";
 import { fetchQueue, instructorName, lastSyncRun, type ClassRating, type ReviewStatus } from "@/lib/ratings";
 import { byUrgency, coursePriors, courseKey, queueCost, scoreRow, type Scored } from "@/lib/class-score";
@@ -38,6 +40,15 @@ const pretty = (isoDate: string) =>
   new Date(isoDate + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" });
 /** The first cohort of a list, trimmed — the meta line has one slot for it. */
 const cohortShort = (t: string | null) => (t ? t.split(/[,;]/)[0].trim().slice(0, 48) : null);
+/** What a section sorts a row on; the row itself is rendered right here, on the server. */
+const sortValues = (row: ClassRating, scored: Scored) => ({
+  id: row.id,
+  score: scored.score,
+  date: row.class_date,
+  rating: row.rating,
+  reach: row.participation_pct ?? (row.num_ratings != null && row.attended ? Math.min(100, (row.num_ratings / row.attended) * 100) : null),
+  instructor: instructorName(row),
+});
 
 const OPEN = new Set<ReviewStatus>(["new", "notified", "confirmed"]);
 const isOpenStatus = (s: ReviewStatus) => OPEN.has(s);
@@ -203,46 +214,70 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
         </div>
       ) : (
         <div className="space-y-4">
-          <Section band="bad" title="Bad → video" count={video.length} note="Both lines missed, the score under 60, or escalated by a PM.">
-            {video.length === 0 ? (
-              <Quiet>No class needs a video analysis.</Quiet>
-            ) : (
-              <QueueTable entries={video} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
-            )}
-          </Section>
-          <Section band="average" title="Average → transcript" count={transcript.length} note="One line missed — a transcript read is enough.">
-            {transcript.length === 0 ? (
-              <Quiet>No class needs a transcript analysis.</Quiet>
-            ) : (
-              <QueueTable entries={transcript} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
-            )}
-          </Section>
-          {watch.length > 0 && (
-            <details className="bg-card shadow-soft rounded-xl border" open={watch.some((e) => e.row.id === focusId) || undefined}>
-              <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3 text-sm select-none sm:px-5">
-                <span className="inline-block size-2 rounded-full" style={{ background: "var(--band-none)" }} aria-hidden />
-                <span className="font-semibold">Watch</span>
-                <Badge variant="secondary" data-numeric>{watch.length}</Badge>
-                <span className="text-muted-foreground text-xs">
-                  fewer than {cfg.min_votes.action || 5} voices — not worth an analysis yet; escalate if you know something is wrong
-                </span>
-              </summary>
-              <Table>
-                <TableBody>
-                  {watch.slice(0, 40).map(({ row, scored }) => (
-                    <WatchRow key={row.id} id={row.id} focus={row.id === focusId}>
-                      <TableCell className="w-24 py-2">
-                        <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" emptyText="too few voices" breakdown={{ rows: scored.rows, version: active.version, reason: scored.reason }} action={scored.action} />
-                      </TableCell>
-                      <ClassCell row={row} scored={scored} slug={slug} isTeam={isTeam} />
-                    </WatchRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {watch.length > 40 && (
-                <div className="text-muted-foreground border-t px-4 py-2 text-xs">…and {watch.length - 40} more — narrow the filters to see them.</div>
+          {/* Each section sorts on its own: the control in the header, the rows in the body. */}
+          <QueueSort>
+            <Section
+              band="bad"
+              title="Bad → video"
+              count={video.length}
+              note="Both lines missed, the score under 60, or escalated by a PM."
+              actions={video.length > 0 && <QueueSortControl />}
+            >
+              {video.length === 0 ? (
+                <Quiet>No class needs a video analysis.</Quiet>
+              ) : (
+                <QueueTable entries={video} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
               )}
-            </details>
+            </Section>
+          </QueueSort>
+          <QueueSort>
+            <Section
+              band="average"
+              title="Average → transcript"
+              count={transcript.length}
+              note="One line missed — a transcript read is enough."
+              actions={transcript.length > 0 && <QueueSortControl />}
+            >
+              {transcript.length === 0 ? (
+                <Quiet>No class needs a transcript analysis.</Quiet>
+              ) : (
+                <QueueTable entries={transcript} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
+              )}
+            </Section>
+          </QueueSort>
+          {watch.length > 0 && (
+            <QueueSort>
+              <details className="bg-card shadow-soft overflow-hidden rounded-xl border" open={watch.some((e) => e.row.id === focusId) || undefined}>
+                <summary className="flex cursor-pointer flex-wrap items-center gap-2 px-4 py-3 text-sm select-none sm:px-5">
+                  <span className="inline-block size-2 rounded-full" style={{ background: "var(--band-none)" }} aria-hidden />
+                  <span className="font-semibold">Watch</span>
+                  <Badge variant="secondary" data-numeric>{watch.length}</Badge>
+                  <span className="text-muted-foreground text-xs">
+                    fewer than {cfg.min_votes.action || 5} voices — not worth an analysis yet; escalate if you know something is wrong
+                  </span>
+                </summary>
+                <div className="flex items-center justify-end border-t px-4 py-1.5 sm:px-5" data-print-hide>
+                  <QueueSortControl />
+                </div>
+                <QueueRows
+                  header={false}
+                  rows={watch.slice(0, 40).map(({ row, scored }) => ({
+                    ...sortValues(row, scored),
+                    row: (
+                      <WatchRow id={row.id} focus={row.id === focusId}>
+                        <TableCell className="w-24 py-2">
+                          <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" emptyText="too few voices" breakdown={{ rows: scored.rows, version: active.version, reason: scored.reason }} action={scored.action} />
+                        </TableCell>
+                        <ClassCell row={row} scored={scored} slug={slug} isTeam={isTeam} />
+                      </WatchRow>
+                    ),
+                  }))}
+                />
+                {watch.length > 40 && (
+                  <div className="text-muted-foreground border-t px-4 py-2 text-xs">…and {watch.length - 40} more — narrow the filters to see them.</div>
+                )}
+              </details>
+            </QueueSort>
           )}
         </div>
       )}
@@ -276,7 +311,22 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
   );
 }
 
-function Section({ band, title, count, note, children }: { band: Band; title: string; count: number; note: string; children: React.ReactNode }) {
+function Section({
+  band,
+  title,
+  count,
+  note,
+  actions,
+  children,
+}: {
+  band: Band;
+  title: string;
+  count: number;
+  note: string;
+  /** Right end of the header — the section's sort control. */
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="bg-card shadow-soft overflow-hidden rounded-xl border" aria-label={title}>
       <header className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
@@ -284,6 +334,11 @@ function Section({ band, title, count, note, children }: { band: Band; title: st
         <h2 className="text-sm font-semibold">{title}</h2>
         <Badge variant="secondary" data-numeric>{count}</Badge>
         <span className="text-muted-foreground text-xs">{note}</span>
+        {actions ? (
+          <span className="ml-auto" data-print-hide>
+            {actions}
+          </span>
+        ) : null}
       </header>
       {children}
     </section>
@@ -294,38 +349,30 @@ function Quiet({ children }: { children: React.ReactNode }) {
   return <p className="text-muted-foreground border-t px-4 py-3 text-sm sm:px-5">{children}</p>;
 }
 
+/** The first 60 rows of a section, rendered here and handed to `QueueRows` with the values the
+ *  section sorts on — worst first until the PM picks another order. */
 function QueueTable({ entries, slug, isTeam, focusId, version }: { entries: Entry[]; slug: string; isTeam: boolean; focusId?: string; version: number | null }) {
   const MAX = 60;
-  const shown = entries.slice(0, MAX);
+  const rows: QueueSortRow[] = entries.slice(0, MAX).map(({ row, scored }) => ({
+    ...sortValues(row, scored),
+    row: (
+      <QueueRow
+        id={row.id}
+        status={row.review_status === "notified" || row.review_status === "confirmed" ? row.review_status : "new"}
+        focus={row.id === focusId}
+        escalated={row.escalated}
+        analyzeHref={`/feedback/new?prefill=${row.id}`}
+      >
+        <TableCell className="w-24 py-2">
+          <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" breakdown={{ rows: scored.rows, version, reason: scored.reason }} action={scored.action} />
+        </TableCell>
+        <ClassCell row={row} scored={scored} slug={slug} isTeam={isTeam} />
+      </QueueRow>
+    ),
+  }));
   return (
     <>
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead className="w-24">Score</TableHead>
-            <TableHead>Class</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {shown.map(({ row, scored }) => (
-            <QueueRow
-              key={row.id}
-              id={row.id}
-              status={row.review_status === "notified" || row.review_status === "confirmed" ? row.review_status : "new"}
-              focus={row.id === focusId}
-              escalated={row.escalated}
-              analyzeHref={`/feedback/new?prefill=${row.id}`}
-            >
-              <TableCell className="w-24 py-2">
-                <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" breakdown={{ rows: scored.rows, version, reason: scored.reason }} action={scored.action} />
-              </TableCell>
-              <ClassCell row={row} scored={scored} slug={slug} isTeam={isTeam} />
-            </QueueRow>
-          ))}
-        </TableBody>
-      </Table>
+      <QueueRows rows={rows} />
       {entries.length > MAX && (
         <div className="text-muted-foreground border-t px-4 py-2 text-xs">…and {entries.length - MAX} more — narrow the filters to see them.</div>
       )}
@@ -334,7 +381,8 @@ function QueueTable({ entries, slug, isTeam, focusId, version }: { entries: Entr
 }
 
 /** Class name, then "cohort · instructor · date · kind" (and the course at the team level), then
- *  the plain reason. The name opens the class drawer in its course. */
+ *  the raw numbers — rating, rated / attended — beside the plain reason. The name opens the class
+ *  drawer in its course. */
 function ClassCell({ row, scored, slug, isTeam }: { row: ClassRating; scored: Scored; slug: string; isTeam: boolean }) {
   const courseSlug = isTeam ? row.course_slug : slug;
   const href = courseSlug && courseSlug !== TEAM_SLUG ? `${hrefIn(courseSlug, "/classes")}?class=${row.id}` : null;
@@ -350,9 +398,12 @@ function ClassCell({ row, scored, slug, isTeam }: { row: ClassRating; scored: Sc
         <div className="truncate font-medium">{name}</div>
       )}
       <div className="text-muted-foreground truncate text-xs">{meta}</div>
-      <div className="text-muted-foreground/90 mt-0.5 text-xs">
-        {scored.reason}
-        {row.escalated && <BandChip band={null} className="ml-1.5 align-middle" />}
+      <div className="text-muted-foreground/90 mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+        <RawStat rating={row.rating} rated={row.num_ratings} attended={row.attended} />
+        <span>
+          {scored.reason}
+          {row.escalated && <BandChip band={null} className="ml-1.5 align-middle" />}
+        </span>
       </div>
     </TableCell>
   );

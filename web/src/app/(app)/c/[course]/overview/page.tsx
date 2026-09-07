@@ -15,10 +15,13 @@ import { AvgScorePill, BandStripOf, CompareBullet } from "@/components/analytics
 import { Delta, Empty, Kpi, Section } from "@/components/analytics/ui";
 import { Leaderboard } from "@/components/analytics/leaderboard";
 import { WorstClasses } from "@/components/analytics/worst-classes";
+import { InsightsStrip } from "@/components/analytics/insights-strip";
 import { TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 import { DataTable } from "@/components/analytics/ui";
 import {
+  ALL_TRACKS,
   COHORT_WEEKS,
+  activeCohortKeys,
   applyScope,
   byCohort,
   byDay,
@@ -26,6 +29,7 @@ import {
   byTopic,
   byWeek,
   cohortFirstDates,
+  curriculumMap,
   fetchScored,
   fmtPct,
   fmtScore,
@@ -33,6 +37,7 @@ import {
   isLive,
   isReview,
   loadCohorts,
+  mapWindowStart,
   medianJourney,
   prettyDate,
   previousWindow,
@@ -57,11 +62,11 @@ export default async function OverviewPage({ params, searchParams }: { params: P
   const ws = await resolveWorkspace(slug);
   const scope = readScope(sp);
   const prev = previousWindow(scope.from, scope.to);
-  const [rowsAll, prevAll, cohortNames] = await Promise.all([
-    fetchScored({ from: scope.from, to: scope.to, courseId: ws.courseId }),
-    fetchScored({ from: prev.from, to: prev.to, courseId: ws.courseId }),
-    loadCohorts(ws.courseId),
-  ]);
+  // One read covers the period, the period before it and the year the curriculum map needs.
+  const wideFrom = mapWindowStart(prev.from, scope.to);
+  const [wide, cohortNames] = await Promise.all([fetchScored({ from: wideFrom, to: scope.to, courseId: ws.courseId }), loadCohorts(ws.courseId)]);
+  const rowsAll = wide.filter((r) => r.class_date >= scope.from);
+  const prevAll = wide.filter((r) => r.class_date >= prev.from && r.class_date <= prev.to);
   const rows = applyScope(rowsAll, scope, cohortNames);
   const prevRows = applyScope(prevAll, scope, cohortNames);
   const cur = scoreSummary(rows);
@@ -98,6 +103,19 @@ export default async function OverviewPage({ params, searchParams }: { params: P
   const topics = byTopic(rows, cohortFirstDates(rowsAll, cohortNames)).filter((t) => t.n >= 3 && t.avgScore != null);
   const hotspots = [...topics].sort((a, b) => a.avgScore! - b.avgScore!).slice(0, 8);
 
+  // ── this course, right now: the curriculum map's top sentences (cohorts active in the period, whole runs) ──
+  const wideRows = applyScope(wide, { ...scope, cohort: undefined }, cohortNames);
+  const activeKeys = scope.cohort ? new Set([scope.cohort]) : activeCohortKeys(wideRows, scope.from, scope.to, cohortNames);
+  const map = curriculumMap(wideRows, cohortNames, {
+    cohortKeys: activeKeys,
+    track: ALL_TRACKS,
+    links: {
+      module: (key) => hrefIn(ws.slug, `/modules/${encodeURIComponent(key)}`) + q,
+      instructor: (key) => hrefIn(ws.slug, `/instructors/${encodeURIComponent(key)}`) + q,
+      map: hrefIn(ws.slug, "/cohorts") + q,
+    },
+  });
+
   // ── live vs review ──
   const kinds = [
     { label: "Live classes", rows: rows.filter(isLive) },
@@ -132,7 +150,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
       ) : (
         <>
           {/* ── KPI row ── */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
             <Kpi label="Classes rated" value={cur.n} sub={<Delta value={cur.n - before.n} suffix={`vs prior ${prev.span}d`} />} />
             <Kpi label="Avg score" value={<AvgScorePill score={cur.avgScore} />} sub={<Delta value={cur.avgScore == null || before.avgScore == null ? null : cur.avgScore - before.avgScore} unit=" pts" />} />
             <Kpi
@@ -151,6 +169,11 @@ export default async function OverviewPage({ params, searchParams }: { params: P
             />
             <Kpi label="Reach" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || before.reach == null ? null : cur.reach - before.reach} unit=" pts" suffix="of the room rated" />} />
             <Kpi
+              label="Attended per class"
+              value={cur.avgAttended == null ? "—" : Math.round(cur.avgAttended)}
+              sub={<Delta value={cur.avgAttended == null || before.avgAttended == null ? null : cur.avgAttended - before.avgAttended} suffix="learners in the room" />}
+            />
+            <Kpi
               label="Open queue"
               value={
                 <Link href={hrefIn(ws.slug, "/queue")} className="hover:text-primary">
@@ -167,6 +190,11 @@ export default async function OverviewPage({ params, searchParams }: { params: P
               }
             />
           </div>
+
+          {/* ── this course, right now ── */}
+          {map.cohorts.length >= 2 && map.insights.length > 0 && (
+            <InsightsStrip title="This course, right now" subtitle="The three things the cohorts say first — where the room shrinks, where the rating dips, who lifts it. The map has the rest." insights={map.insights} limit={3} />
+          )}
 
           {/* ── weekly score + band mix ── */}
           <div className="grid gap-4 xl:grid-cols-2">

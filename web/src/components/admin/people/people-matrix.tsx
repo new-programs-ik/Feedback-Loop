@@ -6,6 +6,7 @@ import { Plus, Star, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { SortButton, useSortable, type SortSpec } from "@/components/ui/sortable";
 import { cn } from "@/lib/utils";
 import type { CohortRow, CourseRow, MemberRole, MemberRow } from "@/lib/admin";
 import { addCourseMember, removeCourseMember, setCourseHandler, updateCourseMember } from "@/app/(app)/admin/actions";
@@ -18,6 +19,9 @@ type Staff = { user_id: string; full_name: string | null; email: string | null }
 type Person = { email: string; name: string; user_id: string | null };
 
 const ROLE_LABEL: Record<MemberRole, string> = { owner: "Owner", pm: "PM", viewer: "Viewer" };
+
+/** The rows sort by person (A → Z first); the course columns keep their order. */
+const PERSON_SPEC: SortSpec<Person, "person"> = { person: { value: (p) => p.name, first: "asc" } };
 
 /** People × courses. Each cell is that person's membership on that course (role, handler star,
  *  cohort scope) or a "+" to add them. Editing happens in one dialog per cell; adding by IK
@@ -43,6 +47,7 @@ export function PeopleMatrix({
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [members]);
+  const { sorted: ordered, state: sort, toggle } = useSortable(people, PERSON_SPEC, { key: "person", dir: "asc" });
   const cell = (email: string, courseId: string) => members.find((m) => m.email.toLowerCase() === email && m.course_id === courseId);
   const noHandler = courses.filter((c) => !members.some((m) => m.course_id === c.id && m.is_handler));
 
@@ -73,7 +78,9 @@ export function PeopleMatrix({
         <table className="w-full text-[12.5px]">
           <thead>
             <tr className="surface-inset border-b">
-              <th className="sticky left-0 z-10 min-w-48 bg-inherit px-4 py-2 text-left text-[11px] font-medium">Person</th>
+              <SortButton sortKey="person" state={sort} onToggle={toggle} className="sticky left-0 z-10 min-w-48">
+                Person
+              </SortButton>
               {courses.map((c) => {
                 const missing = noHandler.some((n) => n.id === c.id);
                 return (
@@ -95,7 +102,7 @@ export function PeopleMatrix({
                 </td>
               </tr>
             ) : (
-              people.map((p) => (
+              ordered.map((p) => (
                 <tr key={p.email} className="border-b last:border-0">
                   <td className="bg-card sticky left-0 z-10 px-4 py-2 align-middle">
                     <div className="truncate font-medium">{p.name}</div>

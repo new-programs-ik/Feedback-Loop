@@ -412,18 +412,33 @@ module averages), *Monthly approval* against the 80% bar, *The four boxes* (fine
 polite rating / hard class, good teacher / fails both), *Best five* and *Worst five* classes, and
 *AI feedback* — every note sent, with the average of the next three classes.
 
-**Cohorts.** Every cohort with rated classes: region, start, *week n of 14* (counted from the
-cohort's first rated class), classes, average score, band mix, and the journey as a sparkline;
-then all cohorts *side by side* on one axis with the median of every cohort as a grey reference.
-A cohort opens its **journey**: *The journey* line (live and review series, band zones, the
-reference line from earlier cohorts of the same audience), *Week by week* (module, instructor,
-the live and review pills, reach), *Against the last three cohorts*, and *Reach by week*.
+**Cohorts.** The **curriculum map**: one row per cohort, one column per module in curriculum
+order (the median cohort week each module is taught in); every cell shows the raw rating over
+*rated / attended*, tinted by band (or by rating, attendance against the cohort's first class, or
+reach — a toggle). The period picks which cohorts appear; each cohort is then drawn over its
+whole run, so earlier modules are never blank. A course with parallel tracks (SWE, EM, PM …) is
+read one track at a time. The footer row carries each module's average rating and room and the
+fall in attendance against the module before it. An **Insights** strip turns the map into
+sentences (largest attendance drop, largest rating dip, modules low across several instructors,
+the instructor who teaches a weak module above its average), each a link. Then *Attendance along
+the course* and *Rating along the course* (one line per cohort, the median in bold) and the cohort
+table (avg score, avg rating, avg attended, reach, retention). A cohort opens its journey: avg
+attended and retention beside the score, *The journey* (live and review, band zones, the
+reference from earlier cohorts of the same audience), *Attendance and reach by week*, and every
+class as a sortable table.
 
-**Modules.** Every module with two or more classes, in curriculum order, with a tag —
-**content** (low across two or more instructors: the material) or **delivery** (low for one of
-several: the teaching) — the best-known SME, and the band mix; the **Module × instructor**
-matrix (band-tinted cells); and *The six weakest, over time*. A module opens its own page: *By
-instructor* ("who should teach this next time?"), *By cohort*, *Score by week*, *Every class*.
+**Modules.** Every module with two or more classes, in curriculum order, with the raw numbers,
+the change in attendance and rating against the previous module, a tag — **content** (low across
+two or more instructors: the material) or **delivery** (low for one of several: the teaching) —
+**Teaches it best** and **Struggles with it** (instructors against the module's average), and
+the band mix; the **Module × instructor** matrix switches between rating, attendance and score.
+A module opens its own page: *By instructor* (who lifts it, who needs coaching), *Rating by
+cohort* (a module that got fixed shows there), *Every class*.
+
+**Sorting and raw numbers.** Every table sorts by any column (a click on the heading; nulls
+last); card grids and the queue have a *Sort by* control. Wherever a class, instructor, cohort or
+course is listed, the score pill is followed by the raw numbers — rating, rated / attended — so
+the room behind a score is always in view.
 
 **Feedback.** This course's AI analyses — status, re-teach call, cost — and the *New analysis*
 button, which carries the course into the engine.
@@ -451,8 +466,13 @@ share of Bad classes; *Every course, one axis* (small multiples against all cour
 `/team/queue` is the same queue across every course with a chip per course. `/team/instructors`
 is the directory across courses (with the 3D galaxy as an optional *3D view* behind a toggle, off
 by default — the table is the product). `/team/reports` is the report across courses.
-`/team/insights` is the live version of the ratings study: participation, the vote, the trend,
-how ratings spread, by course, content problems vs instructor problems, and where this goes.
+`/team/insights` is the live study: the five numbers the validation put in front of leadership
+(band flips on one vote, Bad classes rated 4.55+, low classes shown Good/Excellent, analyses a
+week, next-class risk by band) recomputed from the database for the manager's original setting
+and the live setting, beside what the offline study measured; then how many voices make a band
+firm, the vote against the rating, the trend leadership should watch (rating, share under 4.55,
+class size by month), every course sortable, content vs delivery, fairness slices (live vs review,
+region, weekday), and where this goes.
 
 ## 10. People and ownership — and the Slack cards
 

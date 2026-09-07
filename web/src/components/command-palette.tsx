@@ -6,8 +6,8 @@ import { Command } from "cmdk";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import {
-  ArrowRightLeft, Building2, FileText, GraduationCap, LayoutDashboard, ListChecks, Moon, RefreshCw, Search, Sun, SunMoon,
-  CornerDownLeft, type LucideIcon,
+  ArrowRightLeft, BookOpen, Building2, FileText, GraduationCap, LayoutDashboard, ListChecks, Moon, RefreshCw, Search, Sun, SunMoon,
+  Users, CornerDownLeft, type LucideIcon,
 } from "lucide-react";
 import { navForRole } from "@/lib/nav";
 import { setWorkspace } from "@/lib/workspace-actions";
@@ -228,6 +228,12 @@ function PaletteBody({
               </Item>,
               <Item key={c.id + "-r"} icon={FileText} onSelect={() => switchTo(c.slug, "/reports")} value={`${c.name} reports`} hint="reports">
                 {c.name} → Reports
+              </Item>,
+              <Item key={c.id + "-c"} icon={Users} onSelect={() => switchTo(c.slug, "/cohorts")} value={`${c.name} cohorts`} hint="cohorts">
+                {c.name} → Cohorts
+              </Item>,
+              <Item key={c.id + "-m"} icon={BookOpen} onSelect={() => switchTo(c.slug, "/modules")} value={`${c.name} modules`} hint="modules">
+                {c.name} → Modules
               </Item>,
             ])}
           </Group>

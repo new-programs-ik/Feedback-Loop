@@ -7,7 +7,8 @@ import { AvgScorePill, BandStripOf } from "@/components/analytics/score";
 import { Delta, Kpi } from "@/components/analytics/ui";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtPct, plural, prettyDate, type Funnel, type ReportPeriod, type ScoreSummary } from "@/lib/analytics";
+import { GOOD } from "@/lib/decision";
+import { fmtAvg, fmtPct, plural, prettyDate, type Funnel, type ReportPeriod, type ScoreSummary } from "@/lib/analytics";
 
 /** Print rules for the report pages: A4, page breaks between sections, chrome hidden. */
 export function PrintStyles() {
@@ -112,12 +113,37 @@ export function PeriodTabs({
   );
 }
 
-/** The report's headline tiles: classes · avg score · band mix · approval · reach · flagged. */
-export function HeadlineTiles({ cur, prev, queue }: { cur: ScoreSummary; prev: ScoreSummary; queue: { video: number; transcript: number } }) {
+/** The report's headline tiles: classes · avg score · avg rating with the room size · band mix ·
+ *  approval · reach · flagged. `attended` is the average room size; pass it to get the rating tile. */
+export function HeadlineTiles({
+  cur,
+  prev,
+  queue,
+  attended,
+}: {
+  cur: ScoreSummary;
+  prev: ScoreSummary;
+  queue: { video: number; transcript: number };
+  attended?: number | null;
+}) {
+  const withRating = attended !== undefined;
+  const lowRating = cur.avgRating != null && cur.avgRating < GOOD;
   return (
-    <div className="report-section grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+    <div className={cn("report-section grid grid-cols-2 gap-3 sm:grid-cols-3", withRating ? "xl:grid-cols-7" : "xl:grid-cols-6")}>
       <Kpi label="Classes rated" value={cur.n} sub={<Delta value={cur.n - prev.n} suffix="vs previous period" />} />
       <Kpi label="Avg score" value={<AvgScorePill score={cur.avgScore} />} sub={<Delta value={cur.avgScore == null || prev.avgScore == null ? null : cur.avgScore - prev.avgScore} suffix="pts" />} />
+      {withRating && (
+        <Kpi
+          label="Avg rating"
+          value={<span className={lowRating ? "text-destructive" : undefined}>{fmtAvg(cur.avgRating)}</span>}
+          sub={
+            <>
+              <Delta value={cur.avgRating == null || prev.avgRating == null ? null : cur.avgRating - prev.avgRating} decimals={2} />
+              <span data-numeric>{attended == null ? "room size unknown" : `${Math.round(attended)} in the room`}</span>
+            </>
+          }
+        />
+      )}
       <Kpi label="Band mix" value={<BandStripOf counts={cur.counts} className="w-full" height="h-2" />} sub={`${cur.counts.excellent} · ${cur.counts.good} · ${cur.counts.average} · ${cur.counts.bad}`} />
       <Kpi label="Approval" value={<span className={cur.approval != null && cur.approval < 80 ? "text-destructive" : ""}>{fmtPct(cur.approval)}</span>} sub={<Delta value={cur.approval == null || prev.approval == null ? null : cur.approval - prev.approval} unit=" pts" />} />
       <Kpi label="Reach" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || prev.reach == null ? null : cur.reach - prev.reach} unit=" pts" />} />

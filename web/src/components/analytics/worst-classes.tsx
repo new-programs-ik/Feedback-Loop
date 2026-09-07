@@ -2,13 +2,15 @@ import * as React from "react";
 import Link from "next/link";
 import { TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 import { ClassScorePill } from "@/components/analytics/score";
+import { RawStat } from "@/components/analytics/raw-stat";
 import { DataTable, Empty, KindChip } from "@/components/analytics/ui";
 import { classReason, drawerHref, instructorName, prettyDate, type ScoredRating } from "@/lib/analytics";
 
 export type Outcome = { analysed: boolean; approved: boolean; sent: boolean; classId: string | null };
 
-/** The worst classes of a period: score pill, the class (opens the drawer), instructor, date,
- *  the reason in plain words and — on reports — what happened to it. */
+/** The worst classes of a period: score pill, the class (opens the drawer), the raw numbers
+ *  (rating · rated / attended), instructor, date, the reason in plain words and — on reports —
+ *  what happened to it. */
 export function WorstClasses({
   rows,
   classesHref = drawerHref,
@@ -37,6 +39,9 @@ export function WorstClasses({
           <TableHead>Score</TableHead>
           <TableHead>Class</TableHead>
           {showCourse && <TableHead>Course</TableHead>}
+          <TableHead className="text-right" title="Rating · rated / attended">
+            Rating
+          </TableHead>
           <TableHead>Instructor</TableHead>
           <TableHead className="text-right">Date</TableHead>
           <TableHead>Why</TableHead>
@@ -57,10 +62,12 @@ export function WorstClasses({
                 </Link>
                 <span className="text-muted-foreground flex items-center gap-1.5 text-[10.5px]">
                   <KindChip kind={r.session_kind} />
-                  {r.num_ratings != null && r.attended != null ? `${r.num_ratings} of ${r.attended} rated` : null}
                 </span>
               </TableCell>
               {showCourse && <TableCell className="text-muted-foreground max-w-40 truncate">{r.course_name ?? r.course_label}</TableCell>}
+              <TableNum>
+                <RawStat rating={r.rating} rated={r.num_ratings} attended={r.attended} />
+              </TableNum>
               <TableCell className="max-w-40 truncate">{instructorName(r)}</TableCell>
               <TableNum className="text-muted-foreground">{prettyDate(r.class_date)}</TableNum>
               <TableCell className="text-muted-foreground max-w-md min-w-56 text-[12px] leading-snug whitespace-normal">{classReason(r)}</TableCell>

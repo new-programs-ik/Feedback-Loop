@@ -7,8 +7,10 @@ import { LineChart } from "@/components/charts/line-chart";
 import { HBars } from "@/components/charts/h-bars";
 import { BAND_META } from "@/lib/sentiment";
 import { AvgScorePill, BandStripOf, ClassScorePill, CompareBullet } from "@/components/analytics/score";
+import { RawStat } from "@/components/analytics/raw-stat";
 import { DataTable, Delta, Empty, Kpi, KindChip, Section } from "@/components/analytics/ui";
 import {
+  LIFT,
   QUADRANT_META,
   beforeAfter,
   byMonth,
@@ -18,12 +20,15 @@ import {
   feedbackEventsFor,
   fmtPct,
   fmtScore,
+  instructorModuleFit,
   instructorName,
+  plural,
   prettyDate,
   quadrantOf,
   scoreSummary,
   weekStart,
   type LoopClass,
+  type ModuleFit,
   type Quadrant,
   type ScoredRating,
 } from "@/lib/analytics";
@@ -91,6 +96,9 @@ export function InstructorPortfolio({
     })
     .filter((tp) => tp.diff != null)
     .sort((a, b) => b.diff! - a.diff!);
+
+  // ── modules this instructor lifts / needs coaching on: their rating against the module's ──
+  const fit = instructorModuleFit(own, all, { href: modulesHrefFor });
 
   // ── monthly approval vs the 80% bar ──
   const months = byMonth(history);
@@ -215,6 +223,15 @@ export function InstructorPortfolio({
             </ChartCard>
           </div>
 
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Section title="Modules this instructor lifts" subtitle={`Rated at least ${LIFT} above the module's average, on two or more classes`} flush>
+              <FitList rows={fit.lifts} tone="lifts" empty="No module lifted yet — a lift needs two classes on a module and 0.15 above its average." />
+            </Section>
+            <Section title="Modules that need coaching" subtitle={`Rated at least ${LIFT} under the module's average, on two or more classes`} flush>
+              <FitList rows={fit.struggles} tone="struggles" empty="Nothing under the line — no module where this instructor sits 0.15 under its average." />
+            </Section>
+          </div>
+
           <Section title="The four boxes" subtitle={voted ? `${voted} classes with a vote · rating 4.55 line × 80% approval bar` : "No votes recorded"}>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {(Object.keys(QUADRANT_META) as Quadrant[]).map((q) => (
@@ -306,9 +323,59 @@ function ClassList({ rows }: { rows: ScoredRating[] }) {
             <TableCell>
               <KindChip kind={r.session_kind} />
             </TableCell>
-            <TableNum className="text-muted-foreground">{r.rating.toFixed(2)}</TableNum>
+            <TableNum>
+              <RawStat rating={r.rating} rated={r.num_ratings} attended={r.attended} />
+            </TableNum>
             <TableNum className="text-muted-foreground">{fmtPct(r.approval_pct)}</TableNum>
             <TableNum className="text-muted-foreground">{prettyDate(r.class_date)}</TableNum>
+          </TableRow>
+        ))}
+      </TableBody>
+    </DataTable>
+  );
+}
+
+/** The modules an instructor lifts (or struggles with): their rating against the module's
+ *  average across everyone, and how many classes each side rests on. */
+function FitList({ rows, tone, empty }: { rows: ModuleFit[]; tone: "lifts" | "struggles"; empty: string }) {
+  if (rows.length === 0) return <Empty>{empty}</Empty>;
+  return (
+    <DataTable>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          <TableHead>Module</TableHead>
+          <TableHead className="text-right" title="This instructor's average rating on the module">
+            Their rating
+          </TableHead>
+          <TableHead className="text-right" title="The module's average across every instructor">
+            Module avg
+          </TableHead>
+          <TableHead className="text-right">Gap</TableHead>
+          <TableHead className="text-right">Classes</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((m) => (
+          <TableRow key={m.key} className="relative">
+            <TableCell className="max-w-64">
+              {m.href ? (
+                <Link href={m.href} className="hover:text-primary block truncate font-medium after:absolute after:inset-0" title={m.name}>
+                  {m.name}
+                </Link>
+              ) : (
+                <span className="block truncate font-medium" title={m.name}>
+                  {m.name}
+                </span>
+              )}
+            </TableCell>
+            <TableNum className={tone === "lifts" ? "text-band-excellent-text font-num font-semibold" : "text-band-bad-text font-num font-semibold"}>{m.rating.toFixed(2)}</TableNum>
+            <TableNum className="text-muted-foreground">{m.moduleRating.toFixed(2)}</TableNum>
+            <TableNum>
+              <Delta value={m.delta} decimals={2} />
+            </TableNum>
+            <TableNum className="text-muted-foreground">
+              {m.n} <span className="text-[10.5px]">of {m.moduleN} {plural(m.moduleN, "class", "classes")}</span>
+            </TableNum>
           </TableRow>
         ))}
       </TableBody>

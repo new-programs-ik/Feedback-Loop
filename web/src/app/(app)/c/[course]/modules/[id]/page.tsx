@@ -6,26 +6,37 @@ import { ChartCard } from "@/components/charts/chart-card";
 import { LineChart } from "@/components/charts/line-chart";
 import { BAND_META } from "@/lib/sentiment";
 import { ScopeBar } from "@/components/analytics/scope-bar";
-import { AvgScorePill, BandStripOf, ClassScorePill, CompareBullet } from "@/components/analytics/score";
-import { DataTable, Delta, Empty, KindChip, Kpi, Section } from "@/components/analytics/ui";
-import { TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
+import { AvgScorePill, BandStripOf } from "@/components/analytics/score";
+import { ClassTable } from "@/components/analytics/class-table";
+import { ModuleInstructorTable, type ModuleInstructorRow } from "@/components/analytics/module-instructor-table";
+import { Delta, Empty, Kpi, Section } from "@/components/analytics/ui";
+import { classDrawerFor, classHrefPrefix } from "@/components/analytics/class-drawer-slot";
+import { axisLabels, classRowOf, firstCohortOf } from "@/components/analytics/curriculum-views";
+import { getActiveConfig } from "@/lib/scoring";
 import {
+  RATING_LINE,
   applyScope,
   byCohort,
   byInstructor,
   byWeek,
-  drawerHref,
+  cohortFirstDates,
   fetchScored,
   fmtPct,
   fmtScore,
-  instructorName,
+  instructorKey,
   loadCohorts,
+  mapWindowStart,
+  mean,
+  moduleFixers,
+  one,
   parseTopicId,
+  plural,
   prettyDate,
   readScope,
   rowsForTopic,
   scopeQuery,
   scoreSummary,
+  shortCohortName,
   type SearchParams,
 } from "@/lib/analytics";
 
@@ -43,23 +54,67 @@ const ZONES = [
   { from: 90, to: 100, color: BAND_META.excellent.color, label: "Excellent" },
 ];
 
+/** One module: who teaches it and how it goes for each of them, how it has gone cohort after
+ *  cohort (a fix over time shows as a rising line), and every class as a row that opens the
+ *  drawer. */
 export default async function ModulePage({ params, searchParams }: Props) {
   const [{ course: slug, id }, sp] = await Promise.all([params, searchParams]);
   const ws = await resolveWorkspace(slug);
   const scope = readScope(sp);
   const parsed = parseTopicId(id);
-  const [rowsAll, cohortNames] = await Promise.all([fetchScored({ from: scope.from, to: scope.to, courseId: ws.courseId }), loadCohorts(ws.courseId)]);
+  const classId = one(sp, "class") || undefined;
+  const wideFrom = mapWindowStart(scope.from, scope.to);
+  const [wide, cohortNames, active] = await Promise.all([fetchScored({ from: wideFrom, to: scope.to, courseId: ws.courseId }), loadCohorts(ws.courseId), getActiveConfig()]);
+  const rowsAll = wide.filter((r) => r.class_date >= scope.from);
   const scoped = applyScope(rowsAll, scope, cohortNames);
   const own = rowsForTopic(scoped, parsed);
   const name = own[0]?.topic.trim() ?? parsed.name ?? "Module";
   const t = scoreSummary(own);
   const course = scoreSummary(scoped);
-  const instructors = byInstructor(own).sort((a, b) => (b.avgScore ?? -1) - (a.avgScore ?? -1));
-  const cohorts = byCohort(own, cohortNames).sort((a, b) => b.lastDate.localeCompare(a.lastDate));
-  const weeks = byWeek(own, scope.from, scope.to);
   const base = hrefIn(ws.slug, `/modules/${encodeURIComponent(id)}`);
   const q = scopeQuery(scope);
-  const classes = [...own].sort((a, b) => b.class_date.localeCompare(a.class_date));
+  const instructorHref = (key: string) => hrefIn(ws.slug, `/instructors/${encodeURIComponent(key)}`) + q;
+  const cohortHref = (key: string) => hrefIn(ws.slug, `/cohorts/${encodeURIComponent(key)}`);
+
+  // ── by instructor: the fixers table ──
+  const fix = moduleFixers({ rows: own }, { instructor: instructorHref });
+  const aggs = new Map(byInstructor(own).map((i) => [i.key, i]));
+  const instructorRows: ModuleInstructorRow[] = fix.instructors.map((i) => ({
+    key: i.key,
+    name: i.name,
+    href: i.href ?? instructorHref(i.key),
+    n: i.n,
+    avgScore: aggs.get(i.key)?.avgScore ?? null,
+    rating: i.rating,
+    attended: i.attended,
+    reach: i.reach,
+    delta: i.delta,
+    verdict: i.verdict,
+    approval: aggs.get(i.key)?.approval ?? null,
+  }));
+
+  // ── by cohort, in the order the cohorts started: does the module get better over time? ──
+  const firstDates = cohortFirstDates(wide, cohortNames);
+  const cohorts = byCohort(own, cohortNames)
+    .map((c) => ({ c, start: firstDates.get(c.ref.key) ?? c.firstDate, rating: mean(c.rows.map((r) => r.rating).filter((v) => v > 0)) }))
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const cohortNamesShort = cohorts.map((x) => shortCohortName(x.c.ref, 40));
+  const cohortLabels = axisLabels(cohortNamesShort);
+  const weeks = byWeek(own, scope.from, scope.to);
+
+  // ── every class ──
+  const openPrefix = classHrefPrefix(base, q);
+  const classRows = own.map((r) => {
+    const ref = firstCohortOf(r, cohortNames);
+    return classRowOf(r, {
+      href: `${openPrefix}${encodeURIComponent(r.id)}`,
+      cohort: ref?.name,
+      cohortHref: ref ? cohortHref(ref.key) : undefined,
+      instructorHref: instructorHref(instructorKey(r)),
+      version: active.version,
+    });
+  });
+  const drawer = classId ? await classDrawerFor({ id: classId, closeHref: base + q, slug: ws.slug, rows: wide }) : null;
 
   return (
     <div className="space-y-4">
@@ -70,7 +125,7 @@ export default async function ModulePage({ params, searchParams }: Props) {
             <AvgScorePill score={t.avgScore} />
           </span>
         }
-        description={`${t.n} rated ${t.n === 1 ? "class" : "classes"} · ${instructors.length} ${instructors.length === 1 ? "instructor" : "instructors"} · ${cohorts.length} ${cohorts.length === 1 ? "cohort" : "cohorts"} · ${prettyDate(scope.from)} – ${prettyDate(scope.to)}`}
+        description={`${t.n} rated ${plural(t.n, "class", "classes")} · ${fix.instructors.length} ${plural(fix.instructors.length, "instructor")} · ${cohorts.length} ${plural(cohorts.length, "cohort")} · ${prettyDate(scope.from)} – ${prettyDate(scope.to)}`}
         actions={
           <Link href={hrefIn(ws.slug, "/modules") + q} className="text-muted-foreground hover:text-foreground text-[13px]">
             ← All modules
@@ -85,122 +140,59 @@ export default async function ModulePage({ params, searchParams }: Props) {
         </Section>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             <Kpi label="Avg score" value={<AvgScorePill score={t.avgScore} />} sub={<Delta value={t.avgScore == null || course.avgScore == null ? null : t.avgScore - course.avgScore} unit=" pts" suffix="vs course" />} />
-            <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
+            <Kpi
+              label="Avg rating"
+              value={<span className={fix.avgRating != null && fix.avgRating < RATING_LINE ? "text-destructive" : ""}>{fix.avgRating == null ? "—" : fix.avgRating.toFixed(2)}</span>}
+              sub={<Delta value={fix.avgRating == null || course.avgRating == null ? null : fix.avgRating - course.avgRating} decimals={2} suffix="vs course" />}
+            />
+            <Kpi label="Attended per class" value={t.avgAttended == null ? "—" : Math.round(t.avgAttended)} sub={<Delta value={t.avgAttended == null || course.avgAttended == null ? null : t.avgAttended - course.avgAttended} suffix="vs course" />} />
+            <Kpi label="Reach" value={fmtPct(t.reach)} sub={<Delta value={t.reach == null || course.reach == null ? null : t.reach - course.reach} unit=" pts" suffix="of the room rated" />} />
             <Kpi label="Approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes ? `${t.votes} votes` : "no votes"} />
-            <Kpi label="Reach" value={fmtPct(t.reach)} sub="share of the room that rated" />
+            <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
           </div>
+
+          <Section title="By instructor" subtitle="Who should teach this next time? Rating, room and reach for each · lifts = 0.15 above the module's average with two or more classes, struggles = 0.15 under" flush>
+            <ModuleInstructorTable rows={instructorRows} moduleAvg={fix.avgRating} />
+          </Section>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <Section title="By instructor" subtitle="Who should teach this next time?" flush>
-              <DataTable>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead>Instructor</TableHead>
-                    <TableHead className="text-right">Classes</TableHead>
-                    <TableHead>Avg score</TableHead>
-                    <TableHead>vs module</TableHead>
-                    <TableHead className="text-right">Approval</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {instructors.map((i) => (
-                    <TableRow key={i.key} className="relative">
-                      <TableCell className="max-w-48">
-                        <Link href={hrefIn(ws.slug, `/instructors/${encodeURIComponent(i.key)}`) + q} className="hover:text-primary block truncate font-medium after:absolute after:inset-0">
-                          {i.name}
-                        </Link>
-                      </TableCell>
-                      <TableNum className="text-muted-foreground">{i.n}</TableNum>
-                      <TableCell>
-                        <AvgScorePill score={i.avgScore} />
-                      </TableCell>
-                      <TableCell>
-                        <CompareBullet value={i.avgScore} reference={t.avgScore} referenceLabel="module avg" />
-                      </TableCell>
-                      <TableNum className={i.approval != null && i.approval < 80 ? "text-destructive font-semibold" : ""}>{fmtPct(i.approval)}</TableNum>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </DataTable>
-            </Section>
-            <Section title="By cohort" flush>
+            <ChartCard
+              title="Rating by cohort"
+              subtitle="Cohorts in the order they started — a module that got fixed climbs from left to right · the 4.55 line dashed"
+              table={{
+                headers: ["Cohort", "Started", "Avg rating", "Classes"],
+                rows: cohorts.map((x, i) => [cohortNamesShort[i], x.c.ref.start ?? prettyDate(x.start), x.rating == null ? "—" : x.rating.toFixed(2), x.c.n]),
+              }}
+            >
               {cohorts.length === 0 ? (
-                <Empty>No cohort could be read for these classes.</Empty>
+                <Empty className="px-2">No cohort could be read for these classes.</Empty>
               ) : (
-                <DataTable>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>Cohort</TableHead>
-                      <TableHead className="text-right">Classes</TableHead>
-                      <TableHead>Avg score</TableHead>
-                      <TableHead className="text-right">Last class</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cohorts.map((c) => (
-                      <TableRow key={c.ref.key} className="relative">
-                        <TableCell className="max-w-64">
-                          <Link href={hrefIn(ws.slug, `/cohorts/${encodeURIComponent(c.ref.key)}`)} className="hover:text-primary block truncate font-medium after:absolute after:inset-0" title={c.ref.name}>
-                            {c.ref.name}
-                          </Link>
-                        </TableCell>
-                        <TableNum className="text-muted-foreground">{c.n}</TableNum>
-                        <TableCell>
-                          <AvgScorePill score={c.avgScore} />
-                        </TableCell>
-                        <TableNum className="text-muted-foreground">{prettyDate(c.lastDate)}</TableNum>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </DataTable>
+                <LineChart
+                  labels={cohortLabels}
+                  series={[{ name: "Avg rating", values: cohorts.map((x) => x.rating) }]}
+                  xAnnotations={cohorts.map((x) => x.c.ref.start ?? prettyDate(x.start))}
+                  tooltipTitles={cohorts.map((x) => x.c.ref.name)}
+                  labelStep={cohorts.length <= 10 ? 1 : undefined}
+                  threshold={RATING_LINE}
+                  thresholdLabel="4.55 line"
+                  decimals={2}
+                  height={220}
+                />
               )}
-            </Section>
+            </ChartCard>
+            <ChartCard title="Score by week" subtitle="Average score of this module's classes" table={{ headers: ["Week", "Avg score", "Classes"], rows: weeks.map((w) => [w.label, fmtScore(w.avgScore), w.n]) }}>
+              <LineChart labels={weeks.map((w) => w.label)} series={[{ name: name, values: weeks.map((w) => w.avgScore) }]} yDomain={[40, 100]} bands={ZONES} decimals={0} height={220} />
+            </ChartCard>
           </div>
 
-          <ChartCard title="Score by week" subtitle="Average score of this module's classes" table={{ headers: ["Week", "Avg score", "Classes"], rows: weeks.map((w) => [w.label, fmtScore(w.avgScore), w.n]) }}>
-            <LineChart labels={weeks.map((w) => w.label)} series={[{ name: name, values: weeks.map((w) => w.avgScore) }]} yDomain={[40, 100]} bands={ZONES} decimals={0} height={200} />
-          </ChartCard>
-
-          <Section title="Every class" flush>
-            <DataTable>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Score</TableHead>
-                  <TableHead>Instructor</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead className="text-right">Rating</TableHead>
-                  <TableHead className="text-right">Approval</TableHead>
-                  <TableHead className="text-right">Rated</TableHead>
-                  <TableHead className="text-right">Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {classes.map((r) => (
-                  <TableRow key={r.id} className="relative">
-                    <TableCell>
-                      <ClassScorePill row={r} />
-                    </TableCell>
-                    <TableCell className="max-w-48 truncate">
-                      <Link href={drawerHref(r)} className="hover:text-primary after:absolute after:inset-0">
-                        {instructorName(r)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <KindChip kind={r.session_kind} />
-                    </TableCell>
-                    <TableNum>{r.rating.toFixed(2)}</TableNum>
-                    <TableNum className={r.approval_pct != null && r.approval_pct < 80 ? "text-destructive font-semibold" : "text-muted-foreground"}>{fmtPct(r.approval_pct)}</TableNum>
-                    <TableNum className="text-muted-foreground">{r.num_ratings != null && r.attended != null ? `${r.num_ratings} of ${r.attended}` : "—"}</TableNum>
-                    <TableNum className="text-muted-foreground">{prettyDate(r.class_date)}</TableNum>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </DataTable>
+          <Section title="Every class" subtitle="Cohort, date, instructor, the rating over who rated and who came, the score · a row opens the class · click a column to sort" flush>
+            <ClassTable rows={classRows} show={{ module: false, cohort: true, kind: true, approval: true }} initialSort={{ key: "date", dir: "desc" }} activeId={classId} />
           </Section>
         </>
       )}
+      {drawer}
     </div>
   );
 }

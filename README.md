@@ -78,7 +78,7 @@ flowchart LR
 | `/c/<course>/overview` | The course in one screen: KPIs vs the previous period, the weekly score line, band mix, worst classes, instructors, cohorts, modules, reach vs score, a calendar. |
 | `/c/<course>/classes` | Every class, scored. Click a row for the drawer: the score's arithmetic, the vote, the instructor's recent classes, what the rule says and why, the actions. |
 | `/c/<course>/queue` | **Needs analysis**: Bad → video, Average → transcript, Watch. The reason under each row, the week's cost at the top, Confirm · Dismiss · Escalate · Analyze. |
-| `/c/<course>/instructors`, `/cohorts`, `/modules` | Leaderboard and portfolios; cohort journeys week by week; module hot-spots and the module × instructor matrix. |
+| `/c/<course>/instructors`, `/cohorts`, `/modules` | Leaderboard and portfolios; the curriculum map (every cohort × every module: rating, rated/attended, attendance drops, who lifts a module) with journeys; module diagnostics and the module × instructor matrix. Every table sorts. |
 | `/c/<course>/feedback` | This course's AI analyses. The engine itself is unchanged at `/feedback/new` and `/feedback/<id>`. |
 | `/c/<course>/reports` | Weekly / monthly / custom report: print to PDF, CSV, a read-only share link. |
 | `/c/<course>/settings` | Team (owner · PM · viewer, the handler, hand-over), cohorts, modules, Slack notifications, share links. |

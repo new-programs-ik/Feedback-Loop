@@ -9,7 +9,15 @@ import { useSeriesHidden } from "./chart-legend";
 import { DRAW, POP, SNAP, leaveUnlessTouch, useChartPlay, useTapOutside } from "./chart-motion";
 import { ChartTooltip, type TooltipRow } from "./chart-tooltip";
 
-export type LineSeries = { name: string; values: (number | null)[] };
+export type LineSeries = {
+  name: string;
+  values: (number | null)[];
+  /** Per-series styling — a muted crowd of cohorts under one bold median, say. */
+  color?: string;
+  width?: number;
+  opacity?: number;
+  dash?: string;
+};
 /** A shaded horizontal zone (e.g. the Bad band, 0–60). */
 export type LineBand = { from: number; to: number; color: string; label?: string };
 /** A vertical event marker at an x index (e.g. the day AI feedback was sent). */
@@ -40,6 +48,8 @@ export function LineChart({
   reference,
   colors,
   decimals = 2,
+  labelStep,
+  tooltipTitles,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -57,6 +67,10 @@ export function LineChart({
   reference?: LineSeries;
   colors?: string[];
   decimals?: number;
+  /** Show every nth x label (default: enough to keep ~8 on the axis); 1 when labels are short. */
+  labelStep?: number;
+  /** The tooltip's title per point when the axis label is a cut-down version of it. */
+  tooltipTitles?: (string | null)[];
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [hover, setHover] = React.useState<number | null>(null);
@@ -68,7 +82,7 @@ export function LineChart({
   useTapOutside(wrapRef, hover != null, clear);
 
   const fmtVal = (v: number) => v.toFixed(decimals);
-  const color = (si: number) => colors?.[si] ?? SERIES[si % SERIES.length];
+  const color = (si: number) => series[si]?.color ?? colors?.[si] ?? SERIES[si % SERIES.length];
 
   // Geometry is pure, so it can sit above the hooks that depend on it.
   const W = 720;
@@ -191,7 +205,7 @@ export function LineChart({
   ];
 
   // Every ~nth x label so ticks never crowd (dataviz axis-readability).
-  const stepX = Math.max(1, Math.ceil(n / 8));
+  const stepX = Math.max(1, labelStep ?? Math.ceil(n / 8));
   const xLabelY = height - (xAnnotations ? 20 : 8);
 
   return (
@@ -339,12 +353,13 @@ export function LineChart({
               d={d}
               fill="none"
               stroke={color(si)}
-              strokeWidth={2}
+              strokeWidth={s.width ?? 2}
+              strokeDasharray={s.dash}
               strokeLinejoin="round"
               strokeLinecap="round"
               initial={false}
-              animate={{ pathLength: enter ? [0, 1] : 1, opacity: isHidden(s.name, si) ? 0 : 1 }}
-              transition={{ pathLength: { ...DRAW, delay: si * 0.12 }, opacity: { duration: 0.2 } }}
+              animate={{ pathLength: enter ? [0, 1] : 1, opacity: isHidden(s.name, si) ? 0 : (s.opacity ?? 1) }}
+              transition={{ pathLength: { ...DRAW, delay: Math.min(si, 6) * 0.08 }, opacity: { duration: 0.2 } }}
             />
           );
         })}
@@ -401,7 +416,7 @@ export function LineChart({
         y={tipY}
         viewBox={[W, height]}
         boundsRef={wrapRef}
-        title={hover == null ? undefined : labels[hover]}
+        title={hover == null ? undefined : (tooltipTitles?.[hover] ?? labels[hover])}
         rows={tipRows}
         live
       />

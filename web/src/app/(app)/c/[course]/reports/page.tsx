@@ -9,21 +9,21 @@ import { LineChart } from "@/components/charts/line-chart";
 import { RankedMovers } from "@/components/charts/ranked-movers";
 import { BAND_META } from "@/lib/sentiment";
 import { Download } from "lucide-react";
-import { AvgScorePill, BandStripOf } from "@/components/analytics/score";
-import { DataTable, Empty, Section } from "@/components/analytics/ui";
+import { Empty, Section } from "@/components/analytics/ui";
 import { Leaderboard } from "@/components/analytics/leaderboard";
-import { WorstClasses } from "@/components/analytics/worst-classes";
+import { CohortsTable, ModulesTable, WorstClassesTable } from "@/components/analytics/sortable-tables";
+import { avgAttended, classRow, cohortRow, moduleRow, worstOf } from "@/components/analytics/table-rows";
 import { HeadlineTiles, LoopFunnel, PeriodTabs, PrintStyles } from "@/components/analytics/report-blocks";
-import { TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
 import {
   byCohort,
   byDay,
   byInstructor,
   byTopic,
   byWeek,
+  classReason,
   daysBetween,
+  drawerHref,
   fetchScored,
-  fmtPct,
   fmtScore,
   instructorName,
   loadCohorts,
@@ -65,6 +65,7 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
   ]);
   const cur = scoreSummary(rows);
   const before = scoreSummary(prevRows);
+  const attended = avgAttended(rows);
   const queue = queueCounts(rows);
   const base = hrefIn(ws.slug, "/reports");
   const qs = new URLSearchParams({ period });
@@ -99,15 +100,20 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
   const instructorMovers = movers(prevRows, rows, instructorKey, instructorName, minClasses, (key) => hrefIn(ws.slug, `/instructors/${encodeURIComponent(key)}`));
   const moduleMovers = movers(prevRows.filter((r) => r.topic), rows, topicKey, (r) => r.topic.trim(), minClasses, (key) => hrefIn(ws.slug, `/modules/${encodeURIComponent(key)}`));
 
+  // ── the tables: aggregate here, hand the client tables slim rows (they sort on the spot) ──
   const instructors = byInstructor(rows).sort((a, b) => (b.avgScore ?? -1) - (a.avgScore ?? -1));
   const prevScores = new Map(byInstructor(prevRows).map((i) => [i.key, i.avgScore]));
-  const cohorts = byCohort(rows, cohortNames).sort((a, b) => b.n - a.n);
+  const cohorts = byCohort(rows, cohortNames)
+    .sort((a, b) => b.n - a.n)
+    .map((c) => cohortRow(c, hrefIn(ws.slug, `/cohorts/${encodeURIComponent(c.ref.key)}`)));
   const topics = byTopic(rows)
     .filter((t) => t.n >= 2)
     .sort((a, b) => (a.avgScore ?? 101) - (b.avgScore ?? 101))
-    .slice(0, 10);
+    .slice(0, 10)
+    .map((t) => moduleRow(t, hrefIn(ws.slug, `/modules/${encodeURIComponent(t.key)}`)));
   const funnel = loopFunnel(rows, loop);
   const outcomes = outcomesFor(rows, loop);
+  const worst = worstOf(rows, 10).map((r) => classRow(r, { href: drawerHref(r), reason: classReason(r), instructor: instructorName(r), outcome: outcomes.get(r.id) ?? null }));
 
   return (
     <div className="report-page space-y-4">
@@ -135,7 +141,7 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
         </Section>
       ) : (
         <>
-          <HeadlineTiles cur={cur} prev={before} queue={queue} />
+          <HeadlineTiles cur={cur} prev={before} queue={queue} attended={attended} />
 
           <ChartCard
             className="report-section"
@@ -157,79 +163,26 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
           </div>
 
           <Section className="report-break" title="Worst classes" subtitle="Lowest scores, why, and what happened to each" flush>
-            <WorstClasses rows={rows} limit={10} outcomes={outcomes} />
+            <WorstClassesTable rows={worst} withOutcome maxHeight="none" />
           </Section>
 
           <Section title="Instructors" subtitle={`Everyone with ${minClasses}+ classes · Δ vs the previous period`} flush>
-            <Leaderboard items={instructors} reference={cur.avgScore} previous={prevScores} hrefFor={(key) => hrefIn(ws.slug, `/instructors/${encodeURIComponent(key)}`)} minClasses={minClasses} />
+            <Leaderboard
+              items={instructors}
+              reference={cur.avgScore}
+              previous={prevScores}
+              hrefFor={(key) => hrefIn(ws.slug, `/instructors/${encodeURIComponent(key)}`)}
+              minClasses={minClasses}
+              maxHeight="none"
+            />
           </Section>
 
           <div className="report-section grid gap-4 xl:grid-cols-2">
-            <Section title="Cohorts" flush>
-              {cohorts.length === 0 ? (
-                <Empty>No cohort could be read for this period.</Empty>
-              ) : (
-                <DataTable>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>Cohort</TableHead>
-                      <TableHead className="text-right">Classes</TableHead>
-                      <TableHead>Avg score</TableHead>
-                      <TableHead>Band mix</TableHead>
-                      <TableHead className="text-right">Approval</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cohorts.map((c) => (
-                      <TableRow key={c.ref.key}>
-                        <TableCell className="max-w-56 truncate font-medium" title={c.ref.name}>
-                          {c.ref.name}
-                        </TableCell>
-                        <TableNum className="text-muted-foreground">{c.n}</TableNum>
-                        <TableCell>
-                          <AvgScorePill score={c.avgScore} />
-                        </TableCell>
-                        <TableCell>
-                          <BandStripOf counts={c.counts} className="w-16" />
-                        </TableCell>
-                        <TableNum className={c.approval != null && c.approval < 80 ? "text-destructive font-semibold" : ""}>{fmtPct(c.approval)}</TableNum>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </DataTable>
-              )}
+            <Section title="Cohorts" subtitle="Most classes first" flush>
+              {cohorts.length === 0 ? <Empty>No cohort could be read for this period.</Empty> : <CohortsTable rows={cohorts} maxHeight="none" />}
             </Section>
             <Section title="Modules" subtitle="Lowest first" flush>
-              {topics.length === 0 ? (
-                <Empty>No module has two rated classes in this period.</Empty>
-              ) : (
-                <DataTable>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead>Module</TableHead>
-                      <TableHead className="text-right">Classes</TableHead>
-                      <TableHead>Avg score</TableHead>
-                      <TableHead>Tag</TableHead>
-                      <TableHead className="text-right">Approval</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {topics.map((t) => (
-                      <TableRow key={t.key}>
-                        <TableCell className="max-w-56 truncate font-medium" title={t.name}>
-                          {t.name}
-                        </TableCell>
-                        <TableNum className="text-muted-foreground">{t.n}</TableNum>
-                        <TableCell>
-                          <AvgScorePill score={t.avgScore} />
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{t.tag ?? "—"}</TableCell>
-                        <TableNum className={t.approval != null && t.approval < 80 ? "text-destructive font-semibold" : ""}>{fmtPct(t.approval)}</TableNum>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </DataTable>
-              )}
+              {topics.length === 0 ? <Empty>No module has two rated classes in this period.</Empty> : <ModulesTable rows={topics} maxHeight="none" />}
             </Section>
           </div>
 

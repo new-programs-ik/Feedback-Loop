@@ -5,14 +5,23 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
+import { SortButton, useSortable, type SortSpec } from "@/components/ui/sortable";
 import type { UnresolvedName } from "@/lib/admin";
 import { addAliasToInstructor, createInstructorForName } from "@/app/(app)/admin/actions";
 import { Typeahead, type TypeaheadOption } from "../typeahead";
 
 const pretty = (iso: string | null) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : "—");
 
+type SortKey = "name" | "classes" | "last";
+const SPEC: SortSpec<UnresolvedName, SortKey> = {
+  name: { value: (n) => n.name, first: "asc" },
+  classes: { value: (n) => n.classes, first: "desc" },
+  last: { value: (n) => n.last, first: "desc" },
+};
+
 /** Raw instructor spellings no instructor row claims. Each row: link it to an existing
- *  instructor (typeahead → Add alias) or create the instructor from the spelling. */
+ *  instructor (typeahead → Add alias) or create the instructor from the spelling. The most
+ *  classes come first; any heading re-sorts. */
 export function UnresolvedPanel({ names, instructors }: { names: UnresolvedName[]; instructors: { id: string; name: string }[] }) {
   const router = useRouter();
   const [gone, setGone] = React.useOptimistic<Set<string>, string>(new Set(), (prev, n) => new Set(prev).add(n));
@@ -20,8 +29,9 @@ export function UnresolvedPanel({ names, instructors }: { names: UnresolvedName[
   const [picks, setPicks] = React.useState<Record<string, TypeaheadOption | null>>({});
   const [showAll, setShowAll] = React.useState(false);
   const options = React.useMemo(() => instructors.map((i) => ({ id: i.id, label: i.name })), [instructors]);
-  const visible = names.filter((n) => !gone.has(n.name));
-  const shown = showAll ? visible : visible.slice(0, 30);
+  const visible = React.useMemo(() => names.filter((n) => !gone.has(n.name)), [names, gone]);
+  const { sorted, state: sort, toggle } = useSortable(visible, SPEC, { key: "classes", dir: "desc" });
+  const shown = showAll ? sorted : sorted.slice(0, 30);
 
   const link = (raw: UnresolvedName) => {
     const pick = picks[raw.name];
@@ -65,9 +75,9 @@ export function UnresolvedPanel({ names, instructors }: { names: UnresolvedName[
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Recorded as</TableHead>
-                <TableHead className="text-right">Classes</TableHead>
-                <TableHead>Last seen</TableHead>
+                <SortButton sortKey="name" state={sort} onToggle={toggle}>Recorded as</SortButton>
+                <SortButton sortKey="classes" state={sort} onToggle={toggle} align="right">Classes</SortButton>
+                <SortButton sortKey="last" state={sort} onToggle={toggle}>Last seen</SortButton>
                 <TableHead className="min-w-64">Link to an existing instructor</TableHead>
                 <TableHead className="text-right">Or</TableHead>
               </TableRow>

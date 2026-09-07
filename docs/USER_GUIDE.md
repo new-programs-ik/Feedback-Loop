@@ -31,6 +31,10 @@ Written for anyone on the team — no technical background needed. Each section 
    voices"** means the class has not had enough votes for a band.
 5. **The filter bar** (period · cohort · live/review · instructor · band) sits on every data page
    and lives in the address bar, so a filtered view is a link you can send.
+6. **Every table sorts.** Click a column heading to sort by it; click again to flip the order. Lists
+   that are not tables (the course cards, the queue) have a **Sort by** control instead. Next to
+   every score you will also see the raw numbers — the star rating, then *who rated / who came*
+   (for example **4.62 · 12/26**). The rating turns red under the 4.55 line.
 
 ---
 
@@ -140,20 +144,42 @@ Written for anyone on the team — no technical background needed. Each section 
    **Best five** and **Worst five** classes, and **AI feedback** — every note sent, with the
    average of the next three classes.
 
-## To follow a cohort, or find a weak module
+## To see where attendance drops, where the rating dips, and who lifts a module
 
-**Cohorts.** Course → **Cohorts** lists every cohort with rated classes: region, start, *week n of
-14*, classes, average score, band mix and the journey as a sparkline; below, all cohorts side by
-side against the grey median. Click one for **The journey** (live and review lines, band zones, the
-reference line from earlier cohorts), **Week by week** (module, instructor, the live and review
-pills, reach), **Against the last three cohorts**, and **Reach by week**.
+Course → **Cohorts** opens the **curriculum map**: one row per cohort, one column per module in
+the order the course teaches them. Every cell shows the class's **rating** over **who rated / who
+came**, tinted by its band. Read it across a row to follow one cohort; read it down a column to
+see how one module goes for every cohort. The bottom row is the module's average line, with the
+fall in attendance against the module before it (red from −10%).
 
-**Modules.** Course → **Modules** lists every module with two or more classes in curriculum order.
-The **tag** tells you where the problem is: **content** = low across two or more instructors (the
-material), **delivery** = low for one of several (the teaching). The **best-known SME** is the
-instructor with the best record on that module. Below: the **Module × instructor** matrix and
-**The six weakest, over time**. Click a module for *By instructor* ("who should teach this next
-time?"), *By cohort*, *Score by week* and *Every class*.
+- **Insights** at the top say it in sentences — *attendance falls most at…*, *the rating dips
+  most at…*, *… is under the line in 4 of 6 cohorts, taught by 3 different instructors*, *… teaches
+  it above its average* — each one a link to the cohort or module.
+- **Tint** switches what the colour means: *Score* (the band), *Rating* alone, *Attendance*
+  against that cohort's first class, or *Reach* (the share that rated). The numbers never change.
+- **Show instructors** prints the instructor's initials in each cell; hover any cell for date,
+  instructor, kind and score. **Click a cell** (or press Enter on it) to open that class in place.
+- A course with several **tracks** (SWEs, EMs, PMs …) is read one track at a time — the biggest
+  first — or all together.
+- Below the map: **Attendance along the course** and **Rating along the course** (one line per
+  cohort, the median in bold; switch the axis between module and week), then the cohort table
+  (avg score, avg rating, avg attended, reach, retention — sortable).
+
+Click a cohort for its own page: avg attended and retention next to the score, **The journey**,
+**Attendance and reach by week**, and every class as a sortable table (week · module · date ·
+kind · instructor · rating · reach · score).
+
+Course → **Modules** lists every module in curriculum order with the raw numbers, the change in
+attendance and rating against the module before it, **Teaches it best** (the instructor whose
+rating on that module is highest, against the module's average) and **Struggles with it**. The
+**tag** tells you where the problem is: **content** = low across two or more instructors (the
+material), **delivery** = low for one of several (the teaching). The **Module × instructor**
+matrix switches between rating, attendance and score. Click a module for *By instructor* (who
+lifts it, who needs coaching), *Every class*, and *Rating by cohort* — a module that got fixed over
+time shows there.
+
+An instructor's page has the same idea from their side: **Modules this instructor lifts** and
+**Modules that need coaching**.
 
 ## To print the weekly report (or share it)
 
@@ -254,6 +280,17 @@ instructor autocomplete.
 3. Unresolved instructor names and waiting suggestions link to **Identity**.
 4. A failed run also posts a warning to the Slack channel with the reason (a renamed column in the
    sheet is the usual cause).
+
+## To check that the score can be trusted
+
+**All courses → Insights** is the live study. It recomputes, from the database, the five numbers
+the validation study put in front of leadership — band flips on one vote, "Bad" classes actually
+rated 4.55 or better, low-rated classes shown as Good or Excellent, analyses a week, and whether
+a worse band today means a worse next class — for the manager's original setting and for the
+setting that is live now, side by side with what the study measured. Below it: how many voices a
+band needs before it is firm, the vote against the rating, the trend leadership should watch,
+every course sortable, content vs delivery, and whether the score is fair to live classes,
+reviews, regions and weekdays.
 
 ## Questions people ask
 
