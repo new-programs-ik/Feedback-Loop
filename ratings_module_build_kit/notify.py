@@ -1,15 +1,18 @@
 """notify.py - Slack messages for flagged classes, via plain httpx (no slack-sdk dependency).
 
-The confirmation is a LINK, not Slack buttons: interactive buttons need a public webhook +
-signature verification; a URL button into the app's Needs-analysis queue needs nothing, and the
-Confirm/Dismiss actions live where the data lives. Failures never raise - a missed ping must
-not fail a sync (it retries next hour because review_status stays 'new').
+The card leads with the Class Sentiment Score - "Sentiment 58 · Bad → video" - and says why in
+plain words (under the 4.55 line / under the 80% bar / few votes), then mentions the course's
+people (course_members; the legacy handler when a course has none) and links into the course
+workspace's queue. The confirmation is a LINK, not Slack buttons: interactive buttons need a
+public webhook + signature verification; a URL button into the queue needs nothing, and the
+Confirm/Dismiss actions live where the data lives. Failures never raise - a missed ping must not
+fail a sync (it retries next hour because review_status stays 'new').
 """
 from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Optional, Union
 
 import httpx
 
@@ -18,6 +21,26 @@ import decision as D
 log = logging.getLogger("notify")
 
 SLACK_API = "https://slack.com/api"
+DEFAULT_UI = "https://feedback-loop-ten.vercel.app"
+NO_OWNER_TEXT = "No owner assigned — set one in Admin › People"
+
+# sentiment_flags (score_class_rating) -> the words a PM would say. None = internal, not shown.
+FLAG_WORDS = {
+    "under_rating_line": f"under the {D.GOOD} line",
+    "under_approval_bar": f"under the {D.APPROVAL_BAR:.0f}% bar",
+    "thin_provisional": "few votes",
+    "thin_no_band": "few votes",
+    "escalated": "escalated by a PM",
+    "rating_vote_disagree": "rating and vote disagree",
+    "no_vote": "no vote recorded",
+    "votes_ne_responses": "votes and responses differ",
+    "reach_clamped": "more raters than attendees",
+    "no_attendance": "attendance unknown",
+    "no_responses": "response count unknown",
+    "zero_responses": "nobody rated",
+    "guarded": None, "no_track": None, "no_rating": "no rating", "rating_zero": "rating is 0",
+}
+# Legacy rule-v2 reasons (rows synced before v3) - still readable.
 BAND_LABELS = {"urgent": "Urgent", "look": "Needs a look", "borderline": "Borderline"}
 REASON_TEXT = {"rating": f"rating below {D.GOOD}",
                "approval": f"approval under {D.APPROVAL_BAR:.0f}%",
@@ -55,51 +78,127 @@ def lookup_user_id(email: str, env: dict | None = None,
         return None
 
 
-def priority_line(row: dict) -> str:
-    """One mrkdwn line - the band, the vote, and why it was flagged, e.g.
-    '*Priority:* Urgent · *Vote:* 13 of 15 would have them back (87%) · *Why:* rating below 4.55'.
-    Tolerates rows without the v2 fields (a pending row synced before the vote existed)."""
-    parts = []
-    band = row.get("health_band")
-    if band:
-        parts.append(f"*Priority:* {BAND_LABELS.get(band, band)}")
+# ── the words ────────────────────────────────────────────────────────────────
+
+def format_score(score) -> str:
+    """58.0 -> '58', 89.6 -> '89.6', None -> '—'."""
+    if score is None:
+        return "—"
+    return f"{float(score):.1f}".rstrip("0").rstrip(".")
+
+
+def verdict_word(decision: str) -> str:
+    return "video" if decision == "video" else "transcript"
+
+
+def headline(row: dict) -> str:
+    """'Sentiment 58 · Bad → video'. A row without a score (escalated, or synced before v3) says so."""
+    verdict = verdict_word(row.get("decision") or "")
+    score, band = row.get("sentiment_score"), row.get("sentiment_band")
+    if score is None:
+        return f"Class flagged → {verdict}"
+    band_txt = band.capitalize() if band else "No band yet"
+    prov = " (provisional)" if row.get("sentiment_provisional") else ""
+    return f"Sentiment {format_score(score)} · {band_txt}{prov} → {verdict}"
+
+
+def reason_words(row: dict) -> str:
+    """Plain words for sentiment_flags; falls back to the legacy flag_reasons; '' when nothing applies."""
+    words: list[str] = []
+    for f in row.get("sentiment_flags") or ():
+        w = FLAG_WORDS.get(f, None if f in FLAG_WORDS else f.replace("_", " "))
+        if w and w not in words:
+            words.append(w)
+    if not words:
+        for r in row.get("flag_reasons") or ():
+            w = REASON_TEXT.get(r, r)
+            if w not in words:
+                words.append(w)
+    return ", ".join(words)
+
+
+def vote_text(row: dict) -> str:
     yes, no = row.get("yes_votes"), row.get("no_votes")
     if yes is not None and no is not None and (yes + no) > 0:
-        parts.append(f"*Vote:* {yes:.0f} of {yes + no:.0f} would have them back "
-                     f"({yes / (yes + no) * 100:.0f}%)")
-    else:
-        parts.append("*Vote:* no vote recorded")
-    reasons = [REASON_TEXT.get(r, r) for r in (row.get("flag_reasons") or ())]
-    if reasons:
-        parts.append("*Why:* " + ", ".join(reasons))
+        return f"{yes:.0f} of {yes + no:.0f} would have them back ({yes / (yes + no) * 100:.0f}%)"
+    return "no vote recorded"
+
+
+def priority_line(row: dict) -> str:
+    """One mrkdwn line: the band or legacy priority, the vote, and why. Tolerates any row shape."""
+    parts = []
+    if row.get("sentiment_score") is not None:
+        parts.append(f"*Score:* {format_score(row['sentiment_score'])}"
+                     + (f" · {row['sentiment_band'].capitalize()}" if row.get("sentiment_band") else ""))
+    elif row.get("health_band"):
+        parts.append(f"*Priority:* {BAND_LABELS.get(row['health_band'], row['health_band'])}")
+    parts.append(f"*Vote:* {vote_text(row)}")
+    why = reason_words(row)
+    if why:
+        parts.append(f"*Why:* {why}")
     return " · ".join(parts)
 
 
-def flag_blocks(row: dict, link: str, slack_user_id: Optional[str]) -> list[dict]:
-    """Block Kit card for one flagged class. `row` comes from rows_needing_notification."""
-    verdict = "Video analysis" if row["decision"] == "video" else "Transcript analysis"
+def mention_line(recipients: list[dict]) -> str:
+    if not recipients:
+        return NO_OWNER_TEXT
+    who = " ".join(f"<@{r['slack_user_id']}>" if r.get("slack_user_id") else f"*{r.get('name') or r.get('email')}*"
+                   for r in recipients)
+    return f"{who} — does this class need an analysis? Please confirm or dismiss."
+
+
+def class_link(row: dict, env: dict | None = None) -> str:
+    """${UI_URL}/c/<course slug>/queue?focus=<id>; /ratings?focus=<id> when the slug is unknown."""
+    env = env if env is not None else dict(os.environ)
+    ui = (env.get("UI_URL") or DEFAULT_UI).rstrip("/")
+    slug = row.get("course_slug")
+    return f"{ui}/c/{slug}/queue?focus={row['id']}" if slug else f"{ui}/ratings?focus={row['id']}"
+
+
+def _recipients_of(row: dict, who: Union[None, str, list]) -> list[dict]:
+    if isinstance(who, list):
+        return who
+    if isinstance(who, str) and who:
+        return [{"slack_user_id": who, "name": row.get("handler_name")}]
+    if row.get("recipients") is not None:
+        return list(row["recipients"])
+    if row.get("slack_user_id") or row.get("handler_name"):            # legacy handler row
+        return [{"slack_user_id": row.get("slack_user_id"), "name": row.get("handler_name"),
+                 "email": row.get("handler_email")}]
+    return []
+
+
+def flag_blocks(row: dict, link: str, recipients: Union[None, str, list] = None) -> list[dict]:
+    """Block Kit card for one flagged class. `row` comes from rows_needing_notification;
+    `recipients` is its list of people (a bare Slack user id is accepted for older callers)."""
+    people = _recipients_of(row, recipients)
+    verdict = verdict_word(row.get("decision") or "")
     pct = f"{row['participation_pct']:.0f}%" if row.get("participation_pct") is not None else "?"
     rated = (f"{row['num_ratings']:.0f} of {row['attended']:.0f} rated ({pct})"
              if row.get("num_ratings") is not None and row.get("attended") else "rating counts unknown")
-    who = f"<@{slack_user_id}>" if slack_user_id else f"*{row['handler_name']}*"
     date = row["class_date"].strftime("%d %b %Y") if hasattr(row["class_date"], "strftime") else str(row["class_date"])
+    who = row.get("instructor_canonical") or row.get("instructor") or "—"
+    if row.get("instructor_canonical") and row.get("instructor") and row["instructor_canonical"] != row["instructor"]:
+        who += f" (recorded as {row['instructor']})"
+    why = reason_words(row)
     return [
         {"type": "header",
-         "text": {"type": "plain_text", "text": f"🚩 Class flagged: {verdict} suggested", "emoji": True}},
+         "text": {"type": "plain_text", "text": headline(row), "emoji": True}},
         {"type": "section",
          "text": {"type": "mrkdwn",
                   "text": f"*{row['course_name']}* — {row['topic'] or row['session_kind']}"},
          "fields": [
              {"type": "mrkdwn", "text": f"*Date*\n{date}"},
-             {"type": "mrkdwn", "text": f"*Instructor*\n{row['instructor'] or '—'}"},
+             {"type": "mrkdwn", "text": f"*Instructor*\n{who}"},
              {"type": "mrkdwn", "text": f"*Rating*\n{row['rating']} ★ ({rated})"},
-             {"type": "mrkdwn", "text": f"*Rule says*\n{verdict}"},
+             {"type": "mrkdwn", "text": f"*Vote*\n{vote_text(row)}"},
          ]},
         {"type": "section",
-         "text": {"type": "mrkdwn", "text": priority_line(row)}},
-        {"type": "section",
          "text": {"type": "mrkdwn",
-                  "text": f"{who} — does this class need an analysis? Please confirm or dismiss."}},
+                  "text": (f"*Why:* {why}" if why else "*Why:* the score's band") +
+                          f" · *Rule says:* {'Video' if verdict == 'video' else 'Transcript'} analysis"}},
+        {"type": "section",
+         "text": {"type": "mrkdwn", "text": mention_line(people)}},
         {"type": "actions",
          "elements": [{"type": "button",
                        "text": {"type": "plain_text", "text": "Review in Feedback Loop"},
@@ -115,13 +214,12 @@ def post_flag_message(row: dict, env: dict | None = None,
     """Send one flag card to the PM channel. Returns (ok, slack_ts, error)."""
     env = env if env is not None else dict(os.environ)
     channel = env.get("SLACK_PM_CHANNEL_ID") or ""
-    ui = (env.get("UI_URL") or "").rstrip("/")
-    link = f"{ui}/ratings?focus={row['id']}" if ui else f"https://feedback-loop-ten.vercel.app/ratings?focus={row['id']}"
+    link = class_link(row, env)
     try:
         data = _post(env, "chat.postMessage", {
             "channel": channel,
-            "text": f"Class flagged for analysis: {row['course_name']} — {row['topic']}",
-            "blocks": flag_blocks(row, link, row.get("slack_user_id")),
+            "text": f"{headline(row)}: {row['course_name']} — {row['topic']}",
+            "blocks": flag_blocks(row, link, row.get("recipients")),
             "unfurl_links": False,
         }, transport)
         if not data.get("ok"):

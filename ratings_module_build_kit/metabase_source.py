@@ -78,6 +78,7 @@ class MetabaseRatingsSource:
                 "attended": int(att) if att not in (None, "") else None,
                 "yes_votes": int(yes) if yes not in (None, "") else None,
                 "no_votes": int(no) if no not in (None, "") else None,
+                "region": CR.region_of(type_),
             })
         log.info("metabase: %d canonical rows", len(out))
         return out

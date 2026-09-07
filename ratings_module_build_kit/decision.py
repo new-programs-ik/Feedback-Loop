@@ -1,4 +1,11 @@
-"""decision.py - the team's which-analysis rule, as pure functions.
+"""decision.py - LEGACY: the team's which-analysis rules v1 and v2, as pure functions.
+
+Status (Feedback Loop v3, Sep 2026): the queue decision now comes from the Class Sentiment Score,
+computed inside the database by score_class_rating() with the active scoring_configs row
+(analysis/sentiment_score.py is the reference). The sync still writes the v2 read-out below
+(approval_pct, track_avg, health_score, health_band, flag_reasons) for ONE release so the two
+rules can be compared side by side, and the web mirror still explains it - nothing else reads it.
+Do not extend this file; retire it with those columns.
 
 Rule v1 (validated against 8 months of ratings data, Sep 2026 - the Rating-Threshold study) - decide():
   - any escalation                          -> video, always
@@ -13,7 +20,8 @@ two bars decide IF, the weighted Class Health Score decides HOW URGENT and HOW D
   - rating < 4.55  or  approval < 80%               -> the class has a problem (reasons 'rating' / 'approval')
         neither bar fails                           -> none
         fewer than 5 ratings                        -> watch (either signal is too thin)
-  - Health = 0.6*R + 0.3*A + 0.1*T, each 0-100      -> band: urgent (<70) / look (70 to <90) / borderline (>=90)
+  - Health = 0.60*R + 0.25*A + 0.15*T, each 0-100   -> band: urgent (<70) / look (70 to <90) / borderline (>=90)
+    (weights W below - 60/25/15 from analysis/approval_weights.py; older notes saying 60/30/10 are stale)
   - depth: urgent -> video whatever the reach; borderline -> transcript whatever the reach;
            in between, >= 40% of attendees rated -> video, else transcript.
   An unknown approval (no vote) or an unknown track record (fewer than 3 earlier classes) scores

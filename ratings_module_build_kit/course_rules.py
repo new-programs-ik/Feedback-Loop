@@ -43,3 +43,9 @@ def kind_of(type_: str) -> str:
     if "live" in t:
         return "Live Class"
     return "Other"
+
+
+def region_of(type_: str) -> str:
+    """'IND' when the class type says India ("India ML Switchup Live Class"), else 'US' - the sheet
+    never says US explicitly. Mirrors analysis/ratings_data.region_of."""
+    return "IND" if "india" in (type_ or "").lower() else "US"

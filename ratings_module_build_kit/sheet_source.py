@@ -10,6 +10,11 @@ Design notes (why it looks like this):
   drop responses>attended data errors, dedupe across tabs.)
 - The approval vote (the "Yes" / "No" columns) is OPTIONAL: a tab without them yields None for
   both counts and the rule scores approval as no-penalty. Only REQUIRED_COLUMNS are loud.
+- The CLASS NAME comes from "Class" whenever that header exists. On the Agentic tab "Topic" holds
+  the session kind ("Live Class" / "Test Review Session") and "Class" the real name - reading
+  "Topic" there mislabelled two thirds of all classes (found 3 Sep 2026). "Topic" is used only on
+  tabs that have no "Class" column (the MLSU tab).
+- `region` is 'IND' when the Type says India ("India ML Switchup Live Class"), else 'US'.
 - The service-account key comes from GOOGLE_SA_JSON_FILE (a Render Secret File) or GOOGLE_SA_JSON
   (raw JSON in an env var). File wins.
 """
@@ -150,10 +155,12 @@ class SheetRatingsSource:
                 f"tab {tab_name!r} is missing required column(s) {missing} - "
                 "was a header renamed in the sheet?")
 
+        # The class name: "Class" wins whenever it exists (on the Agentic tab "Topic" is the session
+        # kind); "Topic" only on tabs without a "Class" column.
+        topic_col = TOPIC_FALLBACK if TOPIC_FALLBACK in idx else "Topic"
+
         def g(row: list, col: str):
             i = idx.get(col)
-            if i is None and col == "Topic":
-                i = idx.get(TOPIC_FALLBACK)
             return row[i] if i is not None and len(row) > i else None
 
         out: list[dict] = []
@@ -172,7 +179,7 @@ class SheetRatingsSource:
             out.append({
                 "course_label": CR.course_of(cohort, type_),
                 "cohort_text": cohort,
-                "topic": str(g(row, "Topic") or "").strip(),
+                "topic": str(g(row, topic_col) or "").strip(),
                 "instructor": str(g(row, "Instructor") or "").strip(),
                 "class_date": date,
                 "session_kind": CR.kind_of(type_),
@@ -181,6 +188,7 @@ class SheetRatingsSource:
                 "attended": int(attended),
                 "yes_votes": int(yes) if yes is not None else None,
                 "no_votes": int(no) if no is not None else None,
+                "region": CR.region_of(type_),
             })
         return out
 

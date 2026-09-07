@@ -16,6 +16,10 @@ Canonical row (plain dict):
     attended      int | None   - learners who attended
     yes_votes     int | None   - "would you have this instructor back?" Yes count; None = no vote data
     no_votes      int | None   - the No count; None = no vote data (never a penalty in the rule)
+    region        str   - "IND" when the class type says India, else "US" (course_rules.region_of)
+
+`topic` is the CLASS NAME. On tabs that carry both a "Topic" and a "Class" header (the Agentic
+tab), "Topic" holds the session kind and "Class" the real name - the source must read "Class".
 """
 from __future__ import annotations
 
@@ -24,7 +28,8 @@ from typing import Protocol
 
 
 CANONICAL_FIELDS = ["course_label", "cohort_text", "topic", "instructor", "class_date",
-                    "session_kind", "rating", "num_ratings", "attended", "yes_votes", "no_votes"]
+                    "session_kind", "rating", "num_ratings", "attended", "yes_votes", "no_votes",
+                    "region"]
 
 
 class RatingsSource(Protocol):

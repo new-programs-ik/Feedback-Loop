@@ -15,6 +15,18 @@ import service
 
 client = TestClient(service.app)
 
+# /health reports the active scoring-config version from the database; keep the suite offline.
+_version_patch = patch.object(service.RST, "cached_config_version", return_value=2)
+
+
+def setUpModule():
+    _version_patch.start()
+
+
+def tearDownModule():
+    _version_patch.stop()
+
+
 SRT = "1\n00:00:01,000 --> 00:00:03,000\nHello everyone.\n"
 RESULT = {
     "overall": "rushed the end",
@@ -39,6 +51,23 @@ class TestService(unittest.TestCase):
         self.assertIn("commit", body)                 # RENDER_GIT_COMMIT, or "local"
         self.assertTrue(body["anthropic_sdk"])        # the SDK version actually installed
         self.assertNotEqual(body["anthropic_sdk"], "missing")
+
+    def test_health_reports_the_scoring_version_and_rule_v3(self):
+        body = client.get("/health").json()
+        self.assertEqual(body["rule_version"], "v3")
+        self.assertEqual(body["scoring_config_version"], 2)      # patched: what active_scoring_config() says
+        with patch.object(service.RST, "cached_config_version", return_value=None):
+            self.assertIsNone(client.get("/health").json()["scoring_config_version"])   # none active / DB down
+
+    def test_sync_learners_is_501_until_a_source_exists(self):
+        with patch.dict(os.environ, {"LEARNER_SOURCE": ""}):
+            r = client.post("/sync-learners", json={})
+        self.assertEqual(r.status_code, 501)
+        self.assertIn("no learner-level data source", r.json()["detail"])
+        with patch.dict(os.environ, {"LEARNER_SOURCE": "csv"}):
+            r = client.post("/sync-learners")
+        self.assertEqual(r.status_code, 501)
+        self.assertIn("names no implementation", r.json()["detail"])
 
     def test_dry_run(self):
         r = client.post("/dry-run", json={"transcript": SRT})

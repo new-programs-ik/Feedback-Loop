@@ -9,10 +9,12 @@ Run locally:   uvicorn service:app --port 8000
 Deploy (free): Render / Cloud Run. Set ANTHROPIC_API_KEY (+ VIMEO_ACCESS_TOKEN) in the env.
 
 Endpoints:
-  GET  /health           -> liveness + which capabilities are configured
+  GET  /health           -> liveness + which capabilities are configured + the scoring version
   POST /dry-run          -> {cues, windows, est_tokens}         (transcript text; no Claude call)
   POST /transcript       -> {text, video_id, language, chars}   (fetch captions from a Vimeo URL)
   POST /analyze          -> {result, meta, transcript_source}   (needs ANTHROPIC_API_KEY)
+  POST /sync-ratings     -> {status: accepted}                   (one ratings sync, in the background)
+  POST /sync-learners    -> 501 until a learner-level source exists (learner_source.py)
 
 Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorization: Bearer <it>`.
 """
@@ -32,9 +34,9 @@ import config
 
 config.load_env()
 
-import decision as D  # noqa: E402
 import engine as E  # noqa: E402  (after load_env so config is present)
 import materials_fetch as MF  # noqa: E402
+import ratings_store as RST  # noqa: E402  (the scoring version for /health; the sync's store)
 import store as ST  # noqa: E402
 import video as VD  # noqa: E402
 import vimeo as V  # noqa: E402
@@ -234,7 +236,11 @@ def health() -> dict:
         "video_max_frames": VD.VCFG.max_frames,
         "review_enabled": E.CFG.review_enabled,
         "ratings_source": os.environ.get("RATINGS_SOURCE") or "sheet",
-        "rule_version": D.RULE_VERSION,
+        # v3: the queue decision is the Class Sentiment Score, computed in the database with the
+        # active scoring_configs row; this is the version it is scoring with (None = none active
+        # or the database could not be asked - cached, never blocks the health check for long).
+        "rule_version": RST.RULE_VERSION,
+        "scoring_config_version": RST.cached_config_version(),
         "sheet_configured": bool(os.environ.get("RATINGS_SHEET_ID")
                                  and (os.environ.get("GOOGLE_SA_JSON_FILE")
                                       or os.environ.get("GOOGLE_SA_JSON"))),
@@ -335,6 +341,22 @@ def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> di
     import ratings_sync as RSY
     background.add_task(RSY.run_sync, trigger)
     return {"status": "accepted", "trigger": trigger}
+
+
+@app.post("/sync-learners", dependencies=[Depends(require_worker_auth)])
+def sync_learners(body: Optional[dict] = None) -> dict:
+    """Learner-level ingestion (one row per learner per rated class, see learner_source.py).
+    There is no learner-level data source yet, so this answers 501 with the reason until
+    LEARNER_SOURCE names an implementation - the route exists so the web app and the cron can
+    already be wired to it."""
+    import learner_source as LS
+    try:
+        src = LS.build_learner_source(dict(os.environ))
+    except LS.LearnerSourceNotConfigured as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    raise HTTPException(status_code=501,
+                        detail=f"learner source {getattr(src, 'name', '?')!r} is configured, but learner "
+                               "ingestion ships in v1.1 - nothing was imported")
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])
