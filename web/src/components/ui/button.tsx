@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 
 /** Buttons press (a 2% scale over 120ms — felt, not seen), ring on keyboard focus only, and
  *  can carry their own busy state: `isLoading` swaps the leading icon for a spinner and disables
- *  the control while keeping the label so the button never changes width mid-action. */
+ *  the control while keeping the label so the button never changes width mid-action.
+ *  Indigo is the only interactive colour; `gradient` is kept as a name and renders as `default`. */
 const buttonVariants = cva(
   [
     "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap select-none",
@@ -25,9 +26,8 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        /** The brand gradient — reserved for the one primary CTA on a page. */
-        gradient:
-          "from-primary bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-white shadow-[inset_0_1px_0_0_rgb(255_255_255/0.18),0_1px_2px_rgb(16_24_40/0.2)] hover:brightness-[1.06] hover:shadow-[inset_0_1px_0_0_rgb(255_255_255/0.22),0_8px_18px_-8px_color-mix(in_oklch,var(--primary)_70%,transparent)]",
+        /** The one primary CTA on a page — solid indigo (the gradient was retired). */
+        gradient: "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
       },
       size: {
         default: "h-9 px-4 py-2",

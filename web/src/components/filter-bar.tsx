@@ -6,7 +6,21 @@ import { Button } from "@/components/ui/button";
 import { AutoSubmit } from "@/components/auto-submit";
 import { cn } from "@/lib/utils";
 
-export type RangePreset = "7d" | "30d" | "90d" | "month" | "custom";
+export type RangePreset = "7d" | "30d" | "45d" | "90d" | "month" | "custom";
+
+export const RANGE_LABEL: Record<RangePreset, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "45d": "Last 45 days",
+  "90d": "Last 90 days",
+  month: "This month",
+  custom: "Custom range…",
+};
+const PRESETS: RangePreset[] = ["7d", "30d", "45d", "90d", "month", "custom"];
+
+export function parseRange(v: string | undefined | null, fallback: RangePreset = "30d"): RangePreset {
+  return v && (PRESETS as string[]).includes(v) ? (v as RangePreset) : fallback;
+}
 
 export function rangeToDates(range: RangePreset, from?: string, to?: string) {
   const today = new Date();
@@ -21,6 +35,8 @@ export function rangeToDates(range: RangePreset, from?: string, to?: string) {
       return { from: iso(daysAgo(7)), to: iso(today) };
     case "30d":
       return { from: iso(daysAgo(30)), to: iso(today) };
+    case "45d":
+      return { from: iso(daysAgo(45)), to: iso(today) };
     case "90d":
       return { from: iso(daysAgo(90)), to: iso(today) };
     case "month":
@@ -30,34 +46,56 @@ export function rangeToDates(range: RangePreset, from?: string, to?: string) {
   }
 }
 
+export type FilterOption = { value: string; label: string };
+export type FilterDef = {
+  /** The query parameter. */
+  name: string;
+  label: string;
+  value?: string | null;
+  options: FilterOption[];
+  /** Label of the empty option (default "All <label>"). */
+  all?: string;
+  className?: string;
+};
+
 /** The one filter row used by every data page: GET form (URL = state, shareable, back-button
  *  safe), auto-submits on change. From `md` up it is a frosted strip that sticks just under the
  *  topbar, so the scope of what you're reading is always one glance away; on phones it scrolls
- *  with the page (a sticky row would eat too much of a 375px viewport). */
+ *  with the page. Period first, then any page-specific selects (`filters`), then a Clear link. */
 export function FilterBar({
   basePath,
   range,
   from,
   to,
+  presets = ["7d", "30d", "90d", "month", "custom"],
+  defaultRange = "30d",
   courseId,
   courses,
+  filters = [],
   extra,
   sticky = true,
   className,
+  children,
 }: {
   basePath: string;
   range: RangePreset;
   from?: string;
   to?: string;
+  presets?: RangePreset[];
+  /** The range the Clear link returns to (decides whether "Clear" shows). */
+  defaultRange?: RangePreset;
   courseId?: string;
   courses?: { id: string; name: string }[];
+  filters?: FilterDef[];
   /** Extra hidden inputs to preserve other query params (e.g. sort). */
   extra?: Record<string, string>;
   /** Pin under the topbar from `md` up (default). */
   sticky?: boolean;
   className?: string;
+  /** Trailing controls (a density toggle, a count). */
+  children?: React.ReactNode;
 }) {
-  const hasFilters = range !== "30d" || !!courseId;
+  const hasFilters = range !== defaultRange || !!courseId || filters.some((f) => !!f.value);
   return (
     <form
       method="get"
@@ -75,11 +113,11 @@ export function FilterBar({
       ))}
       <AutoSubmit>
         <Select name="range" defaultValue={range} aria-label="Date range" className="w-40">
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="month">This month</option>
-          <option value="custom">Custom range…</option>
+          {presets.map((p) => (
+            <option key={p} value={p}>
+              {RANGE_LABEL[p]}
+            </option>
+          ))}
         </Select>
       </AutoSubmit>
       {range === "custom" && (
@@ -102,6 +140,18 @@ export function FilterBar({
           </Select>
         </AutoSubmit>
       )}
+      {filters.map((f) => (
+        <AutoSubmit key={f.name}>
+          <Select name={f.name} defaultValue={f.value ?? ""} aria-label={f.label} className={cn("w-44", f.className)}>
+            <option value="">{f.all ?? `All ${f.label.toLowerCase()}`}</option>
+            {f.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </AutoSubmit>
+      ))}
       {hasFilters && (
         <Link
           href={basePath}
@@ -110,6 +160,7 @@ export function FilterBar({
           Clear
         </Link>
       )}
+      {children && <div className="ml-auto flex items-center gap-2">{children}</div>}
     </form>
   );
 }

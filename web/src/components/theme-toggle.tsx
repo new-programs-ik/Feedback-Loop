@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+const subscribeNoop = () => () => {};
 import { Moon, Sun, Monitor } from "lucide-react";
 
 type Theme = "light" | "dark" | "system";
@@ -40,8 +42,8 @@ const LABEL: Record<Theme, string> = {
 export function ThemeToggle() {
   // Lazy init from the same source as the inline script (per the Next preventing-flash guide).
   const [theme, setTheme] = useState<Theme>(readTheme);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // true only after hydration — server and first client render agree on the neutral icon.
+  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
 
   // Follow live OS changes while in "system" mode.
   useEffect(() => {

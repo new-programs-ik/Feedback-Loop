@@ -3,56 +3,63 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
-import { NAV } from "@/lib/nav";
+import { GLOBAL_LABELS, labelForPage } from "@/lib/nav";
+import { hrefIn, pageFromPath, slugFromPath, useWorkspace } from "@/lib/workspace-context";
 
-// Labels for path segments that aren't top-level nav entries.
-const EXTRA_LABELS: Record<string, string> = {
-  new: "New analysis",
-  admin: "Admin",
-  users: "Users & Roles",
-  "audit-log": "Audit Log",
-};
+const looksLikeId = (seg: string) => /^[0-9a-f-]{16,}$/i.test(seg);
 
-const NAV_LABELS: Record<string, string> = Object.fromEntries(
-  NAV.flatMap((s) => s.items).map((i) => [i.href.replace(/^\//, ""), i.label]),
-);
-
-/** Topbar breadcrumbs, shown only at depth >= 2 (drill-ins, detail pages). IDs render as a
- *  generic "Details" tail — pages show the real name in their own PageHeader. */
+/** Topbar breadcrumbs: the course name first, then the page, then "Details" for ids (the page
+ *  shows the real name in its own header). Hidden when there is only the workspace root. */
 export function Breadcrumbs() {
   const pathname = usePathname();
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length < 2) return null;
+  const ws = useWorkspace();
+  const inWorkspace = slugFromPath(pathname) !== null;
 
-  const crumbs = segments.map((seg, i) => {
-    const href = "/" + segments.slice(0, i + 1).join("/");
-    const label =
-      NAV_LABELS[segments.slice(0, i + 1).join("/")] ??
-      NAV_LABELS[seg] ??
-      EXTRA_LABELS[seg] ??
-      (/^[0-9a-f-]{16,}$/i.test(seg) ? "Details" : seg.replace(/-/g, " "));
-    return { href, label, last: i === segments.length - 1 };
-  });
+  const crumbs: { href: string; label: string }[] = [];
+  if (inWorkspace) {
+    crumbs.push({ href: hrefIn(ws.slug, "/overview"), label: ws.courseName });
+    const page = pageFromPath(pathname) ?? "/overview";
+    const segs = page.split("/").filter(Boolean);
+    segs.forEach((seg, i) => {
+      if (i === 0 && seg === "overview") return;
+      const href = hrefIn(ws.slug, "/" + segs.slice(0, i + 1).join("/"));
+      const label =
+        i === 0
+          ? (labelForPage("/" + seg, ws.isTeam) ?? GLOBAL_LABELS[seg] ?? seg.replace(/-/g, " "))
+          : looksLikeId(seg)
+            ? "Details"
+            : (GLOBAL_LABELS[seg] ?? seg.replace(/-/g, " "));
+      crumbs.push({ href, label });
+    });
+  } else {
+    const segs = pathname.split("/").filter(Boolean);
+    segs.forEach((seg, i) => {
+      const href = "/" + segs.slice(0, i + 1).join("/");
+      const label = looksLikeId(seg) ? "Details" : (GLOBAL_LABELS[seg] ?? seg.replace(/-/g, " "));
+      crumbs.push({ href, label });
+    });
+  }
+  if (crumbs.length < 2) return null;
 
   return (
     <nav aria-label="Breadcrumb" className="hidden min-w-0 items-center gap-1 text-sm sm:flex">
-      {crumbs.map((c) => (
-        <span key={c.href} className="flex min-w-0 items-center gap-1">
-          {c.last ? (
-            <span className="text-foreground truncate font-medium">{c.label}</span>
-          ) : (
-            <>
-              <Link
-                href={c.href}
-                className="text-muted-foreground hover:text-foreground truncate transition-colors"
-              >
-                {c.label}
-              </Link>
-              <ChevronRight className="text-muted-foreground/50 size-3.5 shrink-0" aria-hidden />
-            </>
-          )}
-        </span>
-      ))}
+      {crumbs.map((c, i) => {
+        const last = i === crumbs.length - 1;
+        return (
+          <span key={c.href + i} className="flex min-w-0 items-center gap-1">
+            {last ? (
+              <span className="text-foreground truncate font-medium">{c.label}</span>
+            ) : (
+              <>
+                <Link href={c.href} className="text-muted-foreground hover:text-foreground truncate transition-colors">
+                  {c.label}
+                </Link>
+                <ChevronRight className="text-muted-foreground/50 size-3.5 shrink-0" aria-hidden />
+              </>
+            )}
+          </span>
+        );
+      })}
     </nav>
   );
 }

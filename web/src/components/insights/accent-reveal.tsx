@@ -4,7 +4,6 @@ import * as React from "react";
 import { motion, useInView } from "motion/react";
 import { EASE_OUT, useReducedMotionSafe } from "@/components/motion/reveal";
 import { PRINT_SAFE } from "@/components/insights/print-safe";
-import { cn } from "@/lib/utils";
 
 const HIDDEN = { opacity: 0, x: -6, clipPath: "inset(-10% 100% -10% -2%)" };
 const SHOWN = { opacity: 1, x: 0, clipPath: "inset(-10% -2% -10% -2%)" };

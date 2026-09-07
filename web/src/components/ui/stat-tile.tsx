@@ -4,13 +4,15 @@ import { CountUp } from "@/components/motion/count-up";
 import { cn } from "@/lib/utils";
 
 /** KPI tile: quiet label row · a confident number · a tinted delta pill vs a named period ·
- *  an integrated sparkline. Numbers use tabular figures + tight tracking; the tile never shouts —
+ *  an integrated sparkline. Numbers use Geist Mono + tabular figures; the tile never shouts —
  *  tone colors the delta, not the whole value, unless the metric itself is a problem count.
- *  Pass `count` instead of `value` and the number counts up the first time it scrolls into view. */
+ *  `count` formats a number for you; it only counts up when `animate` is set (off by default —
+ *  a number that is still moving cannot be read). */
 function StatTile({
   label,
   value,
   count,
+  animate = false,
   note,
   delta,
   icon: Icon,
@@ -21,6 +23,8 @@ function StatTile({
   label: string;
   value?: React.ReactNode;
   count?: { value: number; decimals?: number; prefix?: string; suffix?: string };
+  /** Count the number up on first view. Default off. */
+  animate?: boolean;
   note?: string;
   /** e.g. { text: "0.04", suffix: "vs prior 90d", good: false, direction: "down" } */
   delta?: { text: string; suffix?: string; good?: boolean; direction?: "up" | "down" };
@@ -37,19 +41,28 @@ function StatTile({
     destructive: "text-destructive",
   }[tone];
   const DeltaArrow = delta?.direction === "down" ? ArrowDownRight : ArrowUpRight;
+  const formatted = count
+    ? count.prefix +
+      new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: count.decimals ?? 0,
+        maximumFractionDigits: count.decimals ?? 0,
+      }).format(count.value) +
+      (count.suffix ?? "")
+    : null;
   return (
-    <div data-slot="stat-tile" className={cn("bg-card shadow-soft hover-lift rounded-xl border p-4", className)}>
+    <div data-slot="stat-tile" className={cn("bg-card shadow-soft rounded-xl border p-4", className)}>
       <div className="flex items-center gap-1.5">
         {Icon && <Icon className="text-muted-foreground/70 size-3.5" aria-hidden />}
         <p className="text-muted-foreground text-xs font-medium">{label}</p>
       </div>
       <div className="mt-2 flex items-end justify-between gap-3">
-        <p
-          data-numeric
-          className={cn("text-[27px] leading-none font-semibold tracking-[-0.02em]", toneClass)}
-        >
+        <p data-numeric className={cn("font-num text-[24px] leading-none font-semibold tracking-[-0.02em]", toneClass)}>
           {count ? (
-            <CountUp value={count.value} decimals={count.decimals} prefix={count.prefix} suffix={count.suffix} />
+            animate ? (
+              <CountUp value={count.value} decimals={count.decimals} prefix={count.prefix} suffix={count.suffix} />
+            ) : (
+              formatted
+            )
           ) : (
             value
           )}

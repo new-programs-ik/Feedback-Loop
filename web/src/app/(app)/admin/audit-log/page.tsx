@@ -1,11 +1,6 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { redirect } from "next/navigation";
 
+/** Old placeholder URL — the audit log now lives at /admin/audit. */
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Audit Log"
-      description="Admin: an append-only trail of every meaningful action — analyzed, edited, approved — with actor, time, and detail."
-      cards={["Recent actions", "By actor", "By class"]}
-    />
-  );
+  redirect("/admin/audit");
 }

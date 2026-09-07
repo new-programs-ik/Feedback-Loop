@@ -10,14 +10,20 @@ import { DRAW, POP, SNAP, leaveUnlessTouch, useChartPlay, useTapOutside } from "
 import { ChartTooltip, type TooltipRow } from "./chart-tooltip";
 
 export type LineSeries = { name: string; values: (number | null)[] };
-
-const fmtVal = (v: number) => v.toFixed(2);
+/** A shaded horizontal zone (e.g. the Bad band, 0–60). */
+export type LineBand = { from: number; to: number; color: string; label?: string };
+/** A vertical event marker at an x index (e.g. the day AI feedback was sent). */
+export type LineMarker = { index: number; label?: string; color?: string };
 
 /** Trend lines (1-4 series) over shared categorical x labels.
  *  Dataviz spec: 2px monotone-cubic lines that draw in on first view (the area fill follows),
  *  ring-stroked end markers with direct labels, ONE crosshair snapped to the nearest x with ONE
  *  tooltip listing every series (spring-follow; arrow keys step it, Escape clears), hairline
- *  solid grid, one axis, optional threshold line (e.g. the 4.55 rating line). */
+ *  solid grid, one axis, optional threshold line (e.g. the 4.55 rating line).
+ *  Extensions: `bands` shade y zones, `markers` drop vertical event lines, `xAnnotations` add a
+ *  second row under the x labels (module names), `reference` draws a grey dashed comparison
+ *  line that is not a series, `colors` overrides the categorical order, `decimals` sets the
+ *  number format (2 for ratings, 0 for scores). */
 export function LineChart({
   labels,
   series,
@@ -28,6 +34,12 @@ export function LineChart({
   unit = "",
   area = false,
   endLabels = true,
+  bands,
+  markers,
+  xAnnotations,
+  reference,
+  colors,
+  decimals = 2,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -39,6 +51,12 @@ export function LineChart({
   area?: boolean;
   /** Direct labels at each line's end: the series name, or the last value for a single series. */
   endLabels?: boolean;
+  bands?: LineBand[];
+  markers?: LineMarker[];
+  xAnnotations?: (string | null)[];
+  reference?: LineSeries;
+  colors?: string[];
+  decimals?: number;
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [hover, setHover] = React.useState<number | null>(null);
@@ -49,11 +67,14 @@ export function LineChart({
   const clear = React.useCallback(() => setHover(null), []);
   useTapOutside(wrapRef, hover != null, clear);
 
+  const fmtVal = (v: number) => v.toFixed(decimals);
+  const color = (si: number) => colors?.[si] ?? SERIES[si % SERIES.length];
+
   // Geometry is pure, so it can sit above the hooks that depend on it.
   const W = 720;
   const ml = 40;
-  const mt = 12;
-  const mb = 28;
+  const mt = markers?.some((m) => m.label) ? 20 : 12;
+  const mb = xAnnotations ? 40 : 28;
   const n = labels.length;
   const ends = series.map((s) => {
     let idx = -1;
@@ -92,7 +113,7 @@ export function LineChart({
     setHover(i);
   };
 
-  const all = series.flatMap((s) => s.values).filter((v): v is number => v != null);
+  const all = [...series.flatMap((s) => s.values), ...(reference?.values ?? [])].filter((v): v is number => v != null);
   if (all.length === 0 || n === 0) return null;
   let lo = yDomain?.[0] ?? Math.min(...all, threshold ?? Infinity);
   let hi = yDomain?.[1] ?? Math.max(...all, threshold ?? -Infinity);
@@ -153,16 +174,25 @@ export function LineChart({
           const v = s.values[hover];
           return v == null || isHidden(s.name, si) ? [] : [{ si, v }];
         });
-  const tipY = hoverRows.length ? Math.min(...hoverRows.map((r) => y(r.v))) : mt;
-  const tipRows: TooltipRow[] = hoverRows.map(({ si, v }) => ({
-    value: fmtVal(v) + unit,
-    label: series.length > 1 ? series[si].name : undefined,
-    color: SERIES[si],
-    swatch: "line",
-  }));
+  const refAtHover = hover == null ? null : (reference?.values[hover] ?? null);
+  const tipY = hoverRows.length ? Math.min(...hoverRows.map((r) => y(r.v))) : refAtHover != null ? y(refAtHover) : mt;
+  const tipRows: TooltipRow[] = [
+    ...hoverRows.map(({ si, v }) => ({
+      value: fmtVal(v) + unit,
+      label: series.length > 1 ? series[si].name : undefined,
+      color: color(si),
+      swatch: "line" as const,
+    })),
+    ...(reference && refAtHover != null
+      ? [{ value: fmtVal(refAtHover) + unit, label: reference.name, color: "var(--muted-foreground)", swatch: "line" as const }]
+      : []),
+    ...(hover == null ? [] : (markers ?? []).filter((m) => m.index === hover && m.label).map((m) => ({ value: m.label!, color: m.color ?? "var(--muted-foreground)", swatch: "square" as const }))),
+    ...(hover != null && xAnnotations?.[hover] ? [{ value: xAnnotations[hover]! }] : []),
+  ];
 
   // Every ~nth x label so ticks never crowd (dataviz axis-readability).
   const stepX = Math.max(1, Math.ceil(n / 8));
+  const xLabelY = height - (xAnnotations ? 20 : 8);
 
   return (
     <div
@@ -181,6 +211,21 @@ export function LineChart({
       onBlur={clear}
     >
       <svg viewBox={`0 0 ${W} ${height}`} className="block w-full" aria-hidden>
+        {bands?.map((b, i) => {
+          const top = y(clamp(b.to, lo, hi));
+          const bottom = y(clamp(b.from, lo, hi));
+          if (bottom - top < 1) return null;
+          return (
+            <g key={i}>
+              <rect x={ml} y={top} width={pw} height={bottom - top} fill={b.color} fillOpacity={0.07} />
+              {b.label && (
+                <text x={ml + pw - 4} y={top + 10} textAnchor="end" fill={b.color} fillOpacity={0.85} className="text-[9px] font-medium">
+                  {b.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {ticks.map((t) => (
           <g key={t}>
             <line x1={ml} x2={W - mr} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" strokeWidth={1} />
@@ -191,8 +236,15 @@ export function LineChart({
         ))}
         {labels.map((l, i) =>
           i % stepX === 0 ? (
-            <text key={i} x={xs[i]} y={height - 8} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+            <text key={i} x={xs[i]} y={xLabelY} textAnchor="middle" className="fill-muted-foreground text-[10px]">
               {l}
+            </text>
+          ) : null,
+        )}
+        {xAnnotations?.map((a, i) =>
+          a && i % stepX === 0 ? (
+            <text key={`a${i}`} x={xs[i]} y={height - 7} textAnchor="middle" className="fill-muted-foreground/80 text-[9px]">
+              {a.length > 18 ? a.slice(0, 17) + "…" : a}
             </text>
           ) : null,
         )}
@@ -224,10 +276,40 @@ export function LineChart({
             )}
           </g>
         )}
+        {markers?.map((m, i) => {
+          const x = xs[m.index];
+          if (x == null) return null;
+          const c = m.color ?? "var(--muted-foreground)";
+          return (
+            <g key={`m${i}`}>
+              <line x1={x} x2={x} y1={mt} y2={mt + ph} stroke={c} strokeWidth={1} strokeDasharray="3 3" strokeOpacity={0.8} />
+              <path d={`M${x - 4},${mt}L${x + 4},${mt}L${x},${mt + 6}Z`} fill={c} />
+              {m.label && (
+                <text x={x} y={mt - 5} textAnchor="middle" fill={c} className="text-[9px] font-medium">
+                  {m.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {reference && (
+          <motion.path
+            d={linePath(reference.values)}
+            fill="none"
+            stroke="var(--muted-foreground)"
+            strokeOpacity={0.55}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            strokeLinejoin="round"
+            initial={false}
+            animate={{ pathLength: enter ? [0, 1] : 1 }}
+            transition={{ pathLength: DRAW }}
+          />
+        )}
         {area && series.length === 1 && (
           <motion.path
             d={areaPath(series[0].values)}
-            fill={SERIES[0]}
+            fill={color(0)}
             fillOpacity={0.08}
             initial={false}
             animate={{ opacity: isHidden(series[0].name, 0) ? 0 : enter ? [0, 1] : 1 }}
@@ -256,7 +338,7 @@ export function LineChart({
               key={s.name}
               d={d}
               fill="none"
-              stroke={SERIES[si]}
+              stroke={color(si)}
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -275,12 +357,12 @@ export function LineChart({
               animate={{ opacity: isHidden(series[si].name, si) ? 0 : enter ? [0, 1] : 1 }}
               transition={enter ? { duration: 0.35, delay: DRAW.duration - 0.2 + si * 0.12 } : { duration: 0.2 }}
             >
-              <circle cx={xs[li]} cy={y(val)} r={4} fill={SERIES[si]} stroke="var(--card)" strokeWidth={2} />
+              <circle cx={xs[li]} cy={y(val)} r={4} fill={color(si)} stroke="var(--card)" strokeWidth={2} />
               {endLabels && (
                 <text
                   x={xs[li] + 9}
                   y={(labelYs[si] ?? y(val)) + 3.5}
-                  fill={SERIES[si]}
+                  fill={color(si)}
                   className={cn("text-[10.5px] font-semibold", series.length === 1 && "font-mono")}
                 >
                   {endText(si)}
@@ -294,7 +376,7 @@ export function LineChart({
             <motion.circle
               cx={crossSpring}
               r={9}
-              fill={SERIES[si]}
+              fill={color(si)}
               fillOpacity={0.16}
               initial={{ cy: y(v), scale: 0 }}
               animate={{ cy: y(v), scale: 1 }}
@@ -303,7 +385,7 @@ export function LineChart({
             <motion.circle
               cx={crossSpring}
               r={4}
-              fill={SERIES[si]}
+              fill={color(si)}
               stroke="var(--card)"
               strokeWidth={2}
               initial={{ cy: y(v) }}
@@ -314,7 +396,7 @@ export function LineChart({
         ))}
       </svg>
       <ChartTooltip
-        open={hover != null && hoverRows.length > 0}
+        open={hover != null && tipRows.length > 0}
         x={hover == null ? 0 : xs[hover]}
         y={tipY}
         viewBox={[W, height]}

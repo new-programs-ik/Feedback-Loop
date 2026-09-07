@@ -2,26 +2,30 @@
 
 import * as React from "react";
 import { motion } from "motion/react";
-import { CountUp } from "@/components/motion/count-up";
 import { GROW, useChartPlay } from "./chart-motion";
 
 export type HBarRow = {
   label: string;
+  sub?: string;
   href?: string;
-  pct: number;
+  /** Left edge and width of the bar, in % of the track. */
+  start: number;
+  width: number;
+  /** Diverging mode: the bar sits left of the centre and grows leftwards. */
+  negative: boolean;
+  color: string;
   text: string;
-  numeric: { prefix: string; value: number; decimals: number; suffix: string } | null;
 };
 
-/** The client half of HBars: bars grow from the left 40ms apart, numeric labels count up, and
- *  hovering a row dims the others. */
-export function HBarRows({ rows, color }: { rows: HBarRow[]; color: string }) {
+/** The client half of HBars: bars grow from their baseline 40ms apart (once), and hovering a
+ *  row dims the others. Labels are static — a number that moves cannot be read. */
+export function HBarRows({ rows, centerPct }: { rows: HBarRow[]; centerPct?: number }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const { enter } = useChartPlay(ref, { amount: 0.2 });
   const [hover, setHover] = React.useState<number | null>(null);
 
   return (
-    <div ref={ref} className="space-y-2.5" onPointerLeave={() => setHover(null)}>
+    <div ref={ref} className="space-y-2" onPointerLeave={() => setHover(null)}>
       {rows.map((r, i) => {
         const dim = hover != null && hover !== i;
         const row = (
@@ -29,29 +33,30 @@ export function HBarRows({ rows, color }: { rows: HBarRow[]; color: string }) {
             className="grid grid-cols-[minmax(90px,160px)_1fr_auto] items-center gap-3 transition-opacity duration-150"
             style={{ opacity: dim ? 0.5 : 1 }}
           >
-            <span className="truncate text-[13px]" title={r.label}>
-              {r.label}
+            <span className="min-w-0">
+              <span className="block truncate text-[13px]" title={r.label}>
+                {r.label}
+              </span>
+              {r.sub && <span className="text-muted-foreground block truncate text-[10.5px]">{r.sub}</span>}
             </span>
             <span className="bg-muted relative h-3.5 overflow-hidden rounded-[4px]">
+              {centerPct != null && (
+                <span aria-hidden className="bg-foreground/50 absolute inset-y-0 w-px" style={{ left: `${centerPct}%` }} />
+              )}
               <motion.span
-                className="absolute inset-y-0 left-0 rounded-r-[4px]"
-                style={{ background: color }}
+                className={r.negative ? "absolute inset-y-0 rounded-l-[4px]" : "absolute inset-y-0 rounded-r-[4px]"}
+                style={
+                  r.negative
+                    ? { background: r.color, right: `${100 - (r.start + r.width)}%` }
+                    : { background: r.color, left: `${r.start}%` }
+                }
                 initial={false}
-                animate={{ width: enter ? ["0%", `${r.pct}%`] : `${r.pct}%` }}
+                animate={{ width: enter ? ["0%", `${r.width}%`] : `${r.width}%` }}
                 transition={{ ...GROW, delay: enter ? i * 0.04 : 0 }}
               />
             </span>
             <span className="text-[13px] font-semibold" data-numeric>
-              {r.numeric ? (
-                <CountUp
-                  value={r.numeric.value}
-                  decimals={r.numeric.decimals}
-                  prefix={r.numeric.prefix}
-                  suffix={r.numeric.suffix}
-                />
-              ) : (
-                r.text
-              )}
+              {r.text}
             </span>
           </div>
         );

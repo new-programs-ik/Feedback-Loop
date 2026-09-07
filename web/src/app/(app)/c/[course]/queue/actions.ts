@@ -4,6 +4,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/session";
 
+/** The queue lives at /c/<slug>/queue and /team/queue; the classes table shows the same rows. */
+function revalidateQueue() {
+  revalidatePath("/c/[course]/queue", "page");
+  revalidatePath("/c/[course]/classes", "page");
+  revalidatePath("/team/queue");
+}
+
 async function requirePm() {
   const user = await getCurrentUser();
   if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
@@ -27,7 +34,7 @@ export async function confirmRating(formData: FormData) {
     .in("review_status", ["new", "notified"]);
   if (error) throw new Error(error.message);
   await audit(supabase, user.id, "rating_confirmed", { class_rating_id: id });
-  revalidatePath("/ratings");
+  revalidateQueue();
 }
 
 /** Dismiss the flag: no analysis needed. The sync never re-opens a dismissed row. */
@@ -42,7 +49,7 @@ export async function dismissRating(formData: FormData) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   await audit(supabase, user.id, "rating_dismissed", { class_rating_id: id });
-  revalidatePath("/ratings");
+  revalidateQueue();
 }
 
 /** Escalate: force the video verdict, whatever the numbers say. */
@@ -62,7 +69,7 @@ export async function escalateRating(formData: FormData) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   await audit(supabase, user.id, "rating_escalated", { class_rating_id: id });
-  revalidatePath("/ratings");
+  revalidateQueue();
 }
 
 /** Map an unmapped course label to a course (inserts the alias + backfills existing rows). */
@@ -81,8 +88,7 @@ export async function mapCourseLabel(formData: FormData) {
     .is("course_id", null);
   if (upd.error) throw new Error(upd.error.message);
   await audit(supabase, user.id, "course_alias_added", { alias, course_id: courseId });
-  revalidatePath("/ratings");
-  revalidatePath("/course-analytics");
+  revalidateQueue();
 }
 
 const SYNC_ASLEEP = "Could not reach the sync service — it may be waking up; try again in a minute.";
@@ -112,7 +118,7 @@ export async function syncNow() {
   await requirePm();
   const err = await askWorkerToSync();
   if (err) throw new Error(err);
-  revalidatePath("/ratings");
+  revalidateQueue();
 }
 
 export type SyncResult = { ok: true } | { ok: false; error: string };
@@ -125,6 +131,6 @@ export async function requestSync(): Promise<SyncResult> {
   if (!user || (user.role !== "admin" && user.role !== "pm")) return { ok: false, error: "Not authorized." };
   const err = await askWorkerToSync();
   if (err) return { ok: false, error: err };
-  revalidatePath("/ratings");
+  revalidateQueue();
   return { ok: true };
 }

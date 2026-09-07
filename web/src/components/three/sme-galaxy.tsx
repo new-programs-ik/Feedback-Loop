@@ -17,6 +17,8 @@ export type GalaxyPoint = {
   approval: number | null;
   avgParticipation: number | null;
   bad: number;
+  /** Where a click goes; defaults to the legacy instructor-analytics query link. */
+  href?: string;
 };
 
 // The canvas (and three.js with it) only ever loads in the browser.
@@ -85,11 +87,13 @@ export function SmeGalaxy({ points, query }: { points: GalaxyPoint[]; query: str
 
   const href = React.useCallback(
     (name: string) => {
+      const own = points.find((pt) => pt.name === name)?.href;
+      if (own) return own;
       const p = new URLSearchParams(query);
       p.set("sme", name);
       return `/instructor-analytics?${p}`;
     },
-    [query],
+    [points, query],
   );
   const onSelect = React.useCallback((name: string) => router.push(href(name)), [router, href]);
 

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { motion } from "motion/react";
+import { niceTicks } from "./chart-kit";
 import { useSeriesHidden } from "./chart-legend";
 import { DRAW, POP, SNAP, leaveUnlessTouch, useChartPlay, useTapOutside } from "./chart-motion";
 import { ChartTooltip, type TooltipRow } from "./chart-tooltip";
@@ -13,13 +14,19 @@ const DOT_CSS = `@keyframes np-dot-pop{0%{transform:scale(0);opacity:0}55%{trans
 [data-play] .np-dot{transform-box:fill-box;transform-origin:center;animation:np-dot-pop .5s cubic-bezier(.22,1,.36,1) both;animation-delay:var(--d,0ms)}
 @media (prefers-reduced-motion:reduce){[data-play] .np-dot{animation:none}}`;
 
-/** The study's signature figure: every class as a dot, rating (y) against a percentage (x) —
- *  participation by default, or the approval vote — with the 4.55 decision line, the vertical
- *  bar, and a shaded corner. Built for a few thousand points: no per-dot handlers or titles —
- *  ONE pointer listener finds the nearest dot, which gets a halo and the tooltip. Dots pop in
- *  left→right in 8 batches on first view. */
+const DEFAULT_Y: [number, number] = [3, 5];
+const DEFAULT_Y_TICKS = [3, 3.5, 4, 4.5, 5];
+
+export type ScatterLine = { at: number; label?: string; color?: string };
+
+/** The study's signature figure: every class as a dot, a y measure (rating by default, or the
+ *  0–100 score with `yDomain`) against a percentage on x — participation by default, or the
+ *  approval vote — with a decision line, the vertical bar, and a shaded corner. Built for a few
+ *  thousand points: no per-dot handlers or titles — ONE pointer listener finds the nearest dot,
+ *  which gets a halo and the tooltip. Dots pop in left→right in 8 batches on first view.
+ *  `yLines` adds extra horizontal guides (the 75 / 90 band edges). */
 export function ScatterChart({
-  points, // [xPct, rating, isBad(0|1)][]
+  points, // [xPct, y, isBad(0|1)][]
   threshold = 4.55,
   bar = 40,
   height = 380,
@@ -31,6 +38,12 @@ export function ScatterChart({
   ariaLabel = "Every class plotted by rating against participation. The cloud is flat — participation does not predict the rating.",
   labels,
   xValueLabel,
+  yDomain = DEFAULT_Y,
+  yTicks,
+  yLines,
+  yLabel = "rating",
+  yFormat,
+  colors,
 }: {
   points: [number, number, number][];
   threshold?: number;
@@ -47,6 +60,13 @@ export function ScatterChart({
   labels?: string[];
   /** Short name for the x value in the tooltip ("participation"); defaults to `xLabel`. */
   xValueLabel?: string;
+  yDomain?: [number, number];
+  yTicks?: number[];
+  yLines?: ScatterLine[];
+  yLabel?: string;
+  yFormat?: (v: number) => string;
+  /** Dot colours for the two classes [fine, flagged]. */
+  colors?: [string, string];
 }) {
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [hover, setHover] = React.useState<number | null>(null);
@@ -62,8 +82,12 @@ export function ScatterChart({
   const mb = 40;
   const pw = W - ml - mr;
   const ph = height - mt - mb;
+  const [lo, hi] = yDomain;
+  const fmtY = yFormat ?? ((v: number) => (yDomain === DEFAULT_Y ? v.toFixed(2) : String(Math.round(v))));
   const x = (p: number) => ml + (Math.min(p, 100) / 100) * pw;
-  const y = (r: number) => mt + ((5 - Math.max(Math.min(r, 5), 3)) / 2) * ph;
+  const y = (r: number) => mt + ((hi - Math.max(Math.min(r, hi), lo)) / (hi - lo)) * ph;
+  const ticks = yTicks ?? (yDomain === DEFAULT_Y ? DEFAULT_Y_TICKS : niceTicks(lo, hi, 4).filter((t) => t >= lo && t <= hi));
+  const [cFine, cBad] = colors ?? ["var(--chart-1)", "var(--viz-bad)"];
   const cornerX0 = cornerSide === "right" ? x(bar) : x(0);
   const cornerX1 = cornerSide === "right" ? x(100) : x(bar);
   const cornerMid = cornerSide === "right" ? x(bar + (100 - bar) / 2) : x(bar / 2);
@@ -76,10 +100,10 @@ export function ScatterChart({
     const py = new Float64Array(points.length);
     points.forEach(([p, r], i) => {
       px[i] = ml + (Math.min(p, 100) / 100) * pw;
-      py[i] = mt + ((5 - Math.max(Math.min(r, 5), 3)) / 2) * ph;
+      py[i] = mt + ((hi - Math.max(Math.min(r, hi), lo)) / (hi - lo)) * ph;
     });
     return { px, py };
-  }, [points, ml, mt, pw, ph]);
+  }, [points, ml, mt, pw, ph, lo, hi]);
 
   // The dot layer is memoised so hovering re-renders only the halo and tooltip, not 2,000 dots.
   const dotLayers = React.useMemo(() => {
@@ -98,7 +122,7 @@ export function ScatterChart({
                 cx={px[i]}
                 cy={py[i]}
                 r={2.4}
-                fill={cls ? "var(--viz-bad)" : "var(--chart-1)"}
+                fill={cls ? cBad : cFine}
                 fillOpacity={cls ? 0.55 : 0.28}
               />
             ))}
@@ -106,7 +130,7 @@ export function ScatterChart({
         ))}
       </g>
     ));
-  }, [points, px, py]);
+  }, [points, px, py, cFine, cBad]);
 
   const nearestAt = (clientX: number, clientY: number) => {
     const rect = wrapRef.current?.getBoundingClientRect();
@@ -130,10 +154,10 @@ export function ScatterChart({
   };
 
   const hp = hover == null ? null : points[hover];
-  const hoverColor = hp?.[2] ? "var(--viz-bad)" : "var(--chart-1)";
+  const hoverColor = hp?.[2] ? cBad : cFine;
   const tipRows: TooltipRow[] = hp
     ? [
-        { value: hp[1].toFixed(2), label: "rating", color: hoverColor, swatch: "dot" },
+        { value: fmtY(hp[1]), label: yLabel, color: hoverColor, swatch: "dot" },
         { value: `${Math.round(hp[0])}%`, label: xValueLabel ?? xLabel },
       ]
     : [];
@@ -157,27 +181,39 @@ export function ScatterChart({
         data-play={play ? "" : undefined}
       >
         {/* grid */}
-        {[3, 3.5, 4, 4.5, 5].map((r) => (
+        {ticks.map((r) => (
           <g key={r}>
             <line x1={ml} x2={W - mr} y1={y(r)} y2={y(r)} stroke="var(--chart-grid)" strokeWidth={1} strokeDasharray="1 3" />
-            <text x={ml - 7} y={y(r) + 3} textAnchor="end" className="fill-muted-foreground/80 font-mono text-[9.5px]">{r.toFixed(1)}</text>
+            <text x={ml - 7} y={y(r) + 3} textAnchor="end" className="fill-muted-foreground/80 font-mono text-[9.5px]">
+              {yDomain === DEFAULT_Y ? r.toFixed(1) : fmtY(r)}
+            </text>
           </g>
         ))}
         {[0, 20, 40, 60, 80, 100].map((p) => (
           <text key={p} x={x(p)} y={height - 22} textAnchor="middle" className="fill-muted-foreground/80 font-mono text-[9.5px]">{p}%</text>
         ))}
-        {/* the shaded corner: bad rating AND the bar's bad side */}
+        {/* the shaded corner: bad y AND the bar's bad side */}
         <motion.rect
           x={cornerX0}
           y={y(threshold)}
           width={cornerX1 - cornerX0}
           height={mt + ph - y(threshold)}
-          fill="var(--viz-bad)"
+          fill={cBad}
           fillOpacity={0.06}
           initial={false}
           animate={{ opacity: enter ? [0, 1] : 1 }}
           transition={{ duration: 0.6, delay: enter ? 0.3 : 0 }}
         />
+        {yLines?.map((l, i) => (
+          <g key={`yl${i}`}>
+            <line x1={ml} x2={W - mr} y1={y(l.at)} y2={y(l.at)} stroke={l.color ?? "var(--muted-foreground)"} strokeOpacity={0.6} strokeWidth={1} strokeDasharray="2 3" />
+            {l.label && (
+              <text x={W - mr} y={y(l.at) - 3} textAnchor="end" fill={l.color ?? "var(--muted-foreground)"} className="text-[9px] font-medium">
+                {l.label}
+              </text>
+            )}
+          </g>
+        ))}
         {/* decision line + bar draw in; their labels follow */}
         <motion.line
           x1={ml}
@@ -197,7 +233,7 @@ export function ScatterChart({
           initial={false}
           animate={{ y1: enter ? [mt + ph, mt] : mt }}
           transition={{ ...DRAW, delay: enter ? 0.35 : 0 }}
-          stroke="var(--chart-1)"
+          stroke={cFine}
           strokeWidth={1.5}
         />
         <motion.g
@@ -208,10 +244,10 @@ export function ScatterChart({
           <text x={ml + 6} y={y(threshold) + 13} className="fill-muted-foreground text-[10px]">
             {lineLabel ?? `rating ${threshold} — below this we look`}
           </text>
-          <text x={x(bar)} y={mt - 8} textAnchor="middle" className="fill-[var(--chart-1)] text-[10px] font-semibold">
+          <text x={x(bar)} y={mt - 8} textAnchor="middle" fill={cFine} className="text-[10px] font-semibold">
             {barLabel ?? `${bar}% bar`}
           </text>
-          <text x={cornerMid} y={y(3.15)} textAnchor="middle" className="fill-[var(--viz-bad)] text-[10px] font-medium">
+          <text x={cornerMid} y={mt + ph - 10} textAnchor="middle" fill={cBad} className="text-[10px] font-medium">
             {cornerLabel ?? `below ${threshold} + representative sample → video`}
           </text>
         </motion.g>

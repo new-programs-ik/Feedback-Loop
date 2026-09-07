@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { confirmRating, dismissRating, escalateRating } from "@/app/(app)/ratings/actions";
+import { confirmRating, dismissRating, escalateRating } from "@/app/(app)/c/[course]/queue/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TableCell } from "@/components/ui/table";
@@ -43,7 +43,7 @@ export function StatusBadge({ s }: { s: ReviewStatus }) {
 
 /** Production strips the message off an error thrown by a Server Action; keep the real text
  *  when we have it, otherwise say something the PM can act on. */
-function friendlyError(e: unknown) {
+export function friendlyError(e: unknown) {
   const m = e instanceof Error ? e.message : String(e);
   return /server components render|server action|digest|unexpected response|failed to fetch/i.test(m)
     ? "The server could not complete that — refresh and try again."
@@ -51,9 +51,8 @@ function friendlyError(e: unknown) {
 }
 
 /** The row itself: a motion <tr> that can fade out (optimistic removal), and — for the `?focus=`
- *  row — scrolls into view and pulses its tint once. The tint is a CSS variable motion drives
- *  from 0 → 1 → rest, mixed with the primary token, so it is right in both themes and there is
- *  nothing to hydrate differently from the server. */
+ *  row — scrolls into view and tints once. The tint is a CSS variable motion drives from
+ *  0 → 1 → rest, mixed with the primary token, so it is right in both themes. */
 function RowShell({
   id,
   gone,
@@ -80,18 +79,18 @@ function RowShell({
           key={id}
           ref={ref}
           data-slot="table-row"
-          className="group border-b hover:bg-muted/40"
+          className="group border-b align-top hover:bg-muted/40"
           style={
             focus
               ? { backgroundColor: "color-mix(in oklch, var(--primary) calc(var(--glow, 0) * 22%), transparent)" }
               : undefined
           }
-          initial={reduce ? false : { opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1, x: 0, ...(focus ? { "--glow": reduce ? 0.3 : [0, 1, 0.3] } : {}) }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, x: -12 }}
           transition={{
-            opacity: { duration: 0.22 },
-            x: { duration: 0.22, ease: EASE_OUT },
+            opacity: { duration: 0.18 },
+            x: { duration: 0.18, ease: EASE_OUT },
             "--glow": { duration: 1.4, times: [0, 0.35, 1], ease: "easeOut", delay: 0.25 },
           }}
         >
@@ -103,48 +102,66 @@ function RowShell({
 }
 
 const ACTIONS =
-  "flex items-center justify-end gap-1.5 transition-opacity opacity-70 group-hover:opacity-100 focus-within:opacity-100";
+  "flex items-center justify-end gap-1 transition-opacity opacity-70 group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100";
 
-/** One queue row. The first five cells are rendered on the server and passed as children;
- *  this component owns the two that react: "Rule says" (status flips optimistically) and the
- *  actions. Dismiss fades the row out at once; Confirm flips the chip — confirmed rows STAY in
- *  the queue (that is the point of confirming), so they must not disappear. */
+type Kind = "confirm" | "dismiss" | "escalate";
+
+/** One queue row. The leading cells are rendered on the server and passed as children; this
+ *  component owns the two that react: the status (flips optimistically) and the actions —
+ *  Analyze · Confirm · Dismiss · Escalate. Dismiss fades the row out at once; Confirm flips the
+ *  chip — confirmed rows STAY in the queue (that is the point of confirming). */
 export function QueueRow({
   id,
   status,
   focus,
   analyzeHref,
-  decisionChip,
+  escalated = false,
   children,
 }: {
   id: string;
   status: ReviewStatus;
   focus: boolean;
   analyzeHref: string;
-  decisionChip: React.ReactNode;
+  escalated?: boolean;
   children: React.ReactNode;
 }) {
   const [pending, startTransition] = React.useTransition();
-  const [busy, setBusy] = React.useState<"confirm" | "dismiss" | null>(null);
-  const [view, setView] = React.useOptimistic<{ gone: boolean; status: ReviewStatus }>({ gone: false, status });
+  const [busy, setBusy] = React.useState<Kind | null>(null);
+  const [view, setView] = React.useOptimistic<{ gone: boolean; status: ReviewStatus; escalated: boolean }>({
+    gone: false,
+    status,
+    escalated,
+  });
 
-  const run = (kind: "confirm" | "dismiss") => {
+  const run = (kind: Kind) => {
     const fd = new FormData();
     fd.set("id", id);
     setBusy(kind);
     startTransition(async () => {
-      setView(kind === "dismiss" ? { gone: true, status } : { gone: false, status: "confirmed" });
+      setView(
+        kind === "dismiss"
+          ? { gone: true, status, escalated }
+          : kind === "confirm"
+            ? { gone: false, status: "confirmed", escalated }
+            : { gone: false, status: "new", escalated: true },
+      );
       try {
         if (kind === "dismiss") await dismissRating(fd);
-        else await confirmRating(fd);
-        toast.success(kind === "dismiss" ? "Dismissed" : "Confirmed", {
+        else if (kind === "confirm") await confirmRating(fd);
+        else await escalateRating(fd);
+        toast.success(kind === "dismiss" ? "Dismissed" : kind === "confirm" ? "Confirmed" : "Escalated to video", {
           description:
             kind === "dismiss"
               ? "No analysis for this class — the hourly sync won't re-flag it."
-              : "Marked for analysis — hit Analyze when you're ready.",
+              : kind === "confirm"
+                ? "Marked for analysis — hit Analyze when you're ready."
+                : "It moves to the video section, whatever the numbers say.",
         });
       } catch (e) {
-        toast.error(kind === "dismiss" ? "Couldn't dismiss" : "Couldn't confirm", { description: friendlyError(e) });
+        toast.error(
+          kind === "dismiss" ? "Couldn't dismiss" : kind === "confirm" ? "Couldn't confirm" : "Couldn't escalate",
+          { description: friendlyError(e) },
+        );
       } finally {
         setBusy(null);
       }
@@ -154,11 +171,8 @@ export function QueueRow({
   return (
     <RowShell id={id} gone={view.gone} focus={focus}>
       {children}
-      <TableCell>
-        {decisionChip}
-        <div className="mt-1 min-h-5">
-          <StatusBadge s={view.status} />
-        </div>
+      <TableCell className="whitespace-nowrap">
+        <StatusBadge s={view.status} />
       </TableCell>
       <TableCell>
         <div className={cn(ACTIONS, busy && "opacity-100")}>
@@ -166,31 +180,21 @@ export function QueueRow({
             <Link href={analyzeHref}>Analyze</Link>
           </Button>
           {view.status !== "confirmed" && (
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              disabled={pending}
-              aria-busy={busy === "confirm"}
-              onClick={() => run("confirm")}
-              className="min-w-[4.75rem]"
-            >
+            <Button variant="outline" size="sm" type="button" disabled={pending} aria-busy={busy === "confirm"} onClick={() => run("confirm")}>
               {busy === "confirm" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
               Confirm
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            disabled={pending}
-            aria-busy={busy === "dismiss"}
-            onClick={() => run("dismiss")}
-            className="min-w-[4.5rem]"
-          >
+          <Button variant="ghost" size="sm" type="button" disabled={pending} aria-busy={busy === "dismiss"} onClick={() => run("dismiss")}>
             {busy === "dismiss" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
             Dismiss
           </Button>
+          {!view.escalated && (
+            <Button variant="ghost" size="sm" type="button" disabled={pending} aria-busy={busy === "escalate"} onClick={() => run("escalate")} className="text-muted-foreground">
+              {busy === "escalate" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+              Escalate
+            </Button>
+          )}
         </div>
       </TableCell>
     </RowShell>
@@ -198,8 +202,8 @@ export function QueueRow({
 }
 
 /** Watch-list row: Escalate → video. The row fades out at once; after the server revalidates
- *  it reappears at the top of the main table with the video verdict. */
-export function WatchRow({ id, children }: { id: string; children: React.ReactNode }) {
+ *  it reappears in the video section. */
+export function WatchRow({ id, focus = false, children }: { id: string; focus?: boolean; children: React.ReactNode }) {
   const [pending, startTransition] = React.useTransition();
   const [gone, setGone] = React.useOptimistic(false);
 
@@ -211,7 +215,7 @@ export function WatchRow({ id, children }: { id: string; children: React.ReactNo
       try {
         await escalateRating(fd);
         toast.success("Escalated to video", {
-          description: "It's now at the top of the queue, whatever the numbers say.",
+          description: "It's now in the video section, whatever the numbers say.",
         });
       } catch (e) {
         toast.error("Couldn't escalate", { description: friendlyError(e) });
@@ -220,7 +224,7 @@ export function WatchRow({ id, children }: { id: string; children: React.ReactNo
   };
 
   return (
-    <RowShell id={id} gone={gone} focus={false}>
+    <RowShell id={id} gone={gone} focus={focus}>
       {children}
       <TableCell className="text-right">
         <Button
@@ -230,7 +234,7 @@ export function WatchRow({ id, children }: { id: string; children: React.ReactNo
           disabled={pending}
           aria-busy={pending}
           onClick={run}
-          className={cn("transition-opacity", pending ? "opacity-100 disabled:opacity-100" : "opacity-70 group-hover:opacity-100 focus-visible:opacity-100")}
+          className={cn("transition-opacity", pending ? "opacity-100 disabled:opacity-100" : "opacity-70 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100")}
         >
           {pending && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
           Escalate → video

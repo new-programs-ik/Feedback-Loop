@@ -1,38 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, RefreshCw } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { NavList } from "@/components/nav-list";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import type { Role } from "@/lib/session";
 
-/** Hamburger + drawer for < md screens — the sidebar is hidden there. Same NavList as desktop. */
+/** Hamburger + drawer for < md screens — the sidebar is hidden there. Same switcher and NavList
+ *  as the desktop rail. The drawer remembers the path it was opened on, so a navigation (a link
+ *  tapped inside it) closes it on its own. */
 export function MobileNav({ role }: { role: Role }) {
-  const [open, setOpen] = useState(false);
   const pathname = usePathname();
-
-  // Route change (link tapped inside the drawer) closes it.
-  useEffect(() => setOpen(false), [pathname]);
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
+  const open = openedAt === pathname;
+  const close = () => setOpenedAt(null);
 
   return (
     <div className="md:hidden">
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpenedAt(pathname)}
         aria-label="Open navigation menu"
         className="text-muted-foreground hover:bg-accent hover:text-accent-foreground flex size-9 cursor-pointer items-center justify-center rounded-lg transition-colors"
       >
         <Menu className="size-5" aria-hidden />
       </button>
-      <Sheet open={open} onClose={() => setOpen(false)} ariaLabel="Navigation menu">
-        <div className="flex items-center gap-2.5 px-5 pb-2">
-          <div className="from-primary flex size-8 items-center justify-center rounded-lg bg-gradient-to-br to-[oklch(0.62_0.2_300)] text-white shadow-sm">
-            <RefreshCw className="size-4" strokeWidth={2.5} />
-          </div>
-          <div className="text-[15px] font-semibold tracking-tight">Feedback Loop</div>
+      <Sheet open={open} onClose={close} ariaLabel="Navigation menu" side="left">
+        <div className="px-3 pb-1">
+          <WorkspaceSwitcher />
         </div>
-        <NavList id="mobile" role={role} onNavigate={() => setOpen(false)} />
+        <NavList id="mobile" role={role} onNavigate={close} />
       </Sheet>
     </div>
   );

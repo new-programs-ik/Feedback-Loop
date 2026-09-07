@@ -3,7 +3,7 @@
 import * as React from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { requestSync } from "@/app/(app)/ratings/actions";
+import { requestSync } from "@/app/(app)/c/[course]/queue/actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 

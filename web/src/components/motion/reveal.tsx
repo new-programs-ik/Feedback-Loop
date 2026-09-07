@@ -10,10 +10,11 @@ export const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 /** `useReducedMotion()` is null on the server and true/false on the client, so branching the
  *  tree on it breaks hydration. This returns false until mounted (server and first client render
  *  agree), then the real preference — animations simply collapse to zero duration for those users. */
+const subscribeNoop = () => () => {};
 export function useReducedMotionSafe(): boolean {
   const reduce = useReducedMotion();
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => setMounted(true), []);
+  // true only after hydration — the server snapshot is false, so both renders agree.
+  const mounted = React.useSyncExternalStore(subscribeNoop, () => true, () => false);
   return mounted && !!reduce;
 }
 

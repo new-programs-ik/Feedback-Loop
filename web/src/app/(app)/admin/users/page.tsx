@@ -1,11 +1,6 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { redirect } from "next/navigation";
 
+/** Old placeholder URL — users, roles and course ownership now live at /admin/people. */
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Users & Roles"
-      description="Admin: invite users, assign roles (Admin / PM / Learner), and map PMs to the courses they own."
-      cards={["Users", "Role assignments", "PM ↔ course mapping"]}
-    />
-  );
+  redirect("/admin/people");
 }

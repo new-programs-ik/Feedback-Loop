@@ -6,14 +6,33 @@ import { cn } from "@/lib/utils";
 /** Data-table primitives. Server-safe (no client state) — sorting is done with `?sort=` links
  *  in the page, so tables stay fully server-rendered. Digits align via the global tabular-nums.
  *
+ *  Dense and scannable: hairline rows, 40px (or 32px compact) rows, numbers right-aligned.
+ *  `sticky` keeps the header under the topbar / filter bar while the page scrolls (from `md` up,
+ *  where the table no longer needs its own horizontal scroll container).
+ *
  *  Row pattern: every TableRow is a `group/row` and carries `data-row-hover`; a TableActions cell
  *  sits at 70% and comes up to full on row hover / focus — actions are always discoverable, never
  *  hidden (touch devices see them at full strength). */
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  sticky = false,
+  density = "normal",
+  ...props
+}: React.ComponentProps<"table"> & { sticky?: boolean; density?: "normal" | "compact" }) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
-      <table data-slot="table" className={cn("w-full caption-bottom text-sm", className)} {...props} />
+    <div data-slot="table-container" className={cn("relative w-full overflow-x-auto", sticky && "md:overflow-visible")}>
+      <table
+        data-slot="table"
+        data-density={density}
+        className={cn(
+          "w-full caption-bottom text-sm",
+          sticky && "md:[&_thead_th]:sticky md:[&_thead_th]:top-(--sticky-top) md:[&_thead_th]:z-10",
+          density === "compact" && "[&_td]:h-8 [&_td]:py-1 [&_td]:text-[12.5px]",
+          className,
+        )}
+        {...props}
+      />
     </div>
   );
 }
@@ -56,8 +75,8 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 }
 
 /** A sortable column header: a link that carries the sort key in the URL. The active column reads
- *  darker with a chevron that rises in (and flips for ascending); inactive columns show a ghost
- *  chevron on hover so the affordance is discoverable. `aria-sort` goes on the <th>. */
+ *  darker with a chevron (flipped for ascending); inactive columns show a ghost chevron on hover so
+ *  the affordance is discoverable. `aria-sort` goes on the <th>. */
 function SortHead({
   href,
   active,
@@ -94,7 +113,7 @@ function SortHead({
           className={cn(
             "size-3 shrink-0 transition-[opacity,transform] duration-200 ease-out",
             active
-              ? cn("animate-in-up text-primary opacity-100", dir === "asc" && "rotate-180")
+              ? cn("text-primary opacity-100", dir === "asc" && "rotate-180")
               : "opacity-0 group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60",
           )}
         />
@@ -107,7 +126,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("h-11 px-3 py-2 align-middle text-[13px] first:pl-4 last:pr-4", className)}
+      className={cn("h-10 px-3 py-1.5 align-middle text-[13px] first:pl-4 last:pr-4", className)}
       {...props}
     />
   );
@@ -115,7 +134,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
 
 /** Right-aligned numeric cell — use for every number column. */
 function TableNum({ className, ...props }: React.ComponentProps<"td">) {
-  return <TableCell className={cn("text-right whitespace-nowrap", className)} {...props} />;
+  return <TableCell className={cn("text-right whitespace-nowrap", className)} data-numeric {...props} />;
 }
 
 /** The row's action slot: right-aligned, 70% until the row is hovered or focused within. */
@@ -164,6 +183,48 @@ function BandDot({ tone }: { tone: "good" | "warn" | "bad" }) {
   return <span aria-hidden className="mr-1.5 inline-block size-1.5 rounded-full align-middle" style={{ background: bg }} />;
 }
 
+/** "Showing 1–50 of 312" + Prev / Next, driven by URL links. */
+function Pagination({
+  page,
+  pageSize,
+  total,
+  hrefFor,
+  className,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  hrefFor: (page: number) => string;
+  className?: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  const linkClass = (disabled: boolean) =>
+    cn(
+      "inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium transition-colors",
+      disabled ? "text-muted-foreground/50 pointer-events-none" : "hover:bg-accent",
+    );
+  return (
+    <nav aria-label="Pagination" className={cn("flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5 text-xs", className)}>
+      <span className="text-muted-foreground" data-numeric>
+        Showing {from}–{to} of {total}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Link href={hrefFor(page - 1)} aria-disabled={page <= 1} className={linkClass(page <= 1)}>
+          Previous
+        </Link>
+        <span className="text-muted-foreground px-1" data-numeric>
+          {page} / {pages}
+        </span>
+        <Link href={hrefFor(page + 1)} aria-disabled={page >= pages} className={linkClass(page >= pages)}>
+          Next
+        </Link>
+      </span>
+    </nav>
+  );
+}
+
 export {
-  Table, TableHeader, TableBody, TableRow, TableHead, SortHead, TableCell, TableNum, TableActions, Meter, BandDot,
+  Table, TableHeader, TableBody, TableRow, TableHead, SortHead, TableCell, TableNum, TableActions, Meter, BandDot, Pagination,
 };

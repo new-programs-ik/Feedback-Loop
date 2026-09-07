@@ -5,7 +5,7 @@
 :root {
   --radius: 0.625rem;
   /* Modern console palette: cool-tinted neutrals + a confident deep-indigo accent.
-     Every neutral carries a slight blue hue bias so the UI reads considered, not default. */
+     Indigo is for INTERACTIVE things only; data carries the band and chart colours. */
   --background: oklch(0.985 0.003 260);
   --foreground: oklch(0.21 0.02 262);
   --card: oklch(1 0 0);
@@ -34,6 +34,32 @@
   --sidebar-accent-foreground: oklch(0.32 0.1 272);
   --sidebar-border: oklch(0.9 0.008 262);
 
+  /* The four Class Sentiment bands — teal / steel blue / amber / brick. Fixed, never used for
+     anything else. `-soft` is the tint behind a chip, `-text` the ink that passes contrast on it. */
+  --band-excellent: oklch(0.6 0.11 185);
+  --band-excellent-soft: oklch(0.6 0.11 185 / 14%);
+  --band-excellent-text: oklch(0.4 0.1 185);
+  --band-good: oklch(0.58 0.09 245);
+  --band-good-soft: oklch(0.58 0.09 245 / 14%);
+  --band-good-text: oklch(0.4 0.09 245);
+  --band-average: oklch(0.74 0.15 75);
+  --band-average-soft: oklch(0.74 0.15 75 / 18%);
+  --band-average-text: oklch(0.48 0.13 70);
+  --band-bad: oklch(0.55 0.17 30);
+  --band-bad-soft: oklch(0.55 0.17 30 / 14%);
+  --band-bad-text: oklch(0.44 0.16 30);
+  --band-none: oklch(0.7 0.01 262);
+
+  /* Eight fixed course colours — used only for the course identity square. */
+  --course-1: oklch(0.55 0.16 250);
+  --course-2: oklch(0.55 0.17 300);
+  --course-3: oklch(0.58 0.12 180);
+  --course-4: oklch(0.7 0.15 70);
+  --course-5: oklch(0.58 0.18 15);
+  --course-6: oklch(0.56 0.14 145);
+  --course-7: oklch(0.55 0.15 330);
+  --course-8: oklch(0.56 0.12 215);
+
   /* Pass/fail data colors for the fine-vs-below stacks: deliberately DESATURATED so a wall of
      "fine" classes reads calm and only the problem share carries weight. */
   --viz-good: oklch(0.62 0.07 165);
@@ -57,6 +83,10 @@
   --chart-seq-5: #104281;
   /* Chart chrome */
   --chart-grid: oklch(0.93 0.006 262);
+
+  /* Sticky offsets: the topbar, and topbar + filter bar. Table headers stick under them. */
+  --topbar-h: 4rem;
+  --sticky-top: var(--topbar-h);
 }
 
 .dark {
@@ -90,6 +120,29 @@
   --sidebar-accent-foreground: oklch(0.92 0.03 272);
   --sidebar-border: oklch(1 0 0 / 10%);
 
+  --band-excellent: oklch(0.72 0.11 185);
+  --band-excellent-soft: oklch(0.72 0.11 185 / 18%);
+  --band-excellent-text: oklch(0.82 0.1 185);
+  --band-good: oklch(0.7 0.09 245);
+  --band-good-soft: oklch(0.7 0.09 245 / 18%);
+  --band-good-text: oklch(0.82 0.08 245);
+  --band-average: oklch(0.78 0.14 78);
+  --band-average-soft: oklch(0.78 0.14 78 / 18%);
+  --band-average-text: oklch(0.86 0.13 82);
+  --band-bad: oklch(0.66 0.16 30);
+  --band-bad-soft: oklch(0.66 0.16 30 / 18%);
+  --band-bad-text: oklch(0.8 0.13 30);
+  --band-none: oklch(0.5 0.01 262);
+
+  --course-1: oklch(0.7 0.14 250);
+  --course-2: oklch(0.7 0.15 300);
+  --course-3: oklch(0.72 0.11 180);
+  --course-4: oklch(0.78 0.14 75);
+  --course-5: oklch(0.7 0.16 15);
+  --course-6: oklch(0.7 0.13 145);
+  --course-7: oklch(0.7 0.14 330);
+  --course-8: oklch(0.7 0.11 215);
+
   --viz-good: oklch(0.66 0.07 165);
   --viz-bad: oklch(0.64 0.16 25);
 
@@ -108,6 +161,29 @@
   --chart-seq-4: #256abf;
   --chart-seq-5: #184f95;
   --chart-grid: oklch(0.27 0.015 262);
+}
+
+/* One typographic scale, 11 → 40 px, and weights 400 / 500 / 600 only (`font-bold` = 600). */
+@theme {
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 40px;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 44px;
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 600;
+  --font-weight-black: 600;
 }
 
 @theme inline {
@@ -138,6 +214,27 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-band-excellent: var(--band-excellent);
+  --color-band-excellent-soft: var(--band-excellent-soft);
+  --color-band-excellent-text: var(--band-excellent-text);
+  --color-band-good: var(--band-good);
+  --color-band-good-soft: var(--band-good-soft);
+  --color-band-good-text: var(--band-good-text);
+  --color-band-average: var(--band-average);
+  --color-band-average-soft: var(--band-average-soft);
+  --color-band-average-text: var(--band-average-text);
+  --color-band-bad: var(--band-bad);
+  --color-band-bad-soft: var(--band-bad-soft);
+  --color-band-bad-text: var(--band-bad-text);
+  --color-band-none: var(--band-none);
+  --color-course-1: var(--course-1);
+  --color-course-2: var(--course-2);
+  --color-course-3: var(--course-3);
+  --color-course-4: var(--course-4);
+  --color-course-5: var(--course-5);
+  --color-course-6: var(--course-6);
+  --color-course-7: var(--course-7);
+  --color-course-8: var(--course-8);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -195,6 +292,12 @@
 }
 
 @layer utilities {
+  /* Numbers: Geist Mono, tabular, slightly tightened — the score, the stat values. */
+  .font-num {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
   /* Soft elevation used by cards + popovers — quiet, Stripe-ish: a crisp 1px definition line
      with the faintest lift, never a glow. */
   .shadow-soft {
@@ -230,7 +333,7 @@
     backdrop-filter: saturate(160%) blur(12px);
     -webkit-backdrop-filter: saturate(160%) blur(12px);
   }
-  /* A faint two-tone colour wash behind page tops — depth without decoration. */
+  /* The sign-in scene's backdrop — the one brand moment; never behind a working screen. */
   .bg-mesh {
     background:
       radial-gradient(60% 55% at 12% 0%, color-mix(in oklch, var(--primary) 9%, transparent), transparent 70%),
@@ -241,22 +344,12 @@
       radial-gradient(60% 55% at 12% 0%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 70%),
       radial-gradient(45% 45% at 88% 10%, color-mix(in oklch, oklch(0.62 0.2 300) 9%, transparent), transparent 70%);
   }
-  /* Brand gradient text for hero numbers. */
+  /* Gradient text — sign-in headline only. */
   .text-gradient {
     background-image: linear-gradient(120deg, var(--primary), oklch(0.62 0.2 300));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-  }
-  /* A pulsing halo for the urgent state — status is still carried by the icon + label. */
-  .halo-urgent {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--destructive) 45%, transparent);
-    animation: halo 2.4s ease-out infinite;
-  }
-  @keyframes halo {
-    0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--destructive) 40%, transparent); }
-    70% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--destructive) 0%, transparent); }
-    100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--destructive) 0%, transparent); }
   }
   /* Shimmer for loading skeletons. */
   .shimmer {
@@ -270,7 +363,6 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .hover-lift, .hover-lift:hover { transition: none; transform: none; }
-    .halo-urgent { animation: none; }
     .shimmer { animation: none; }
   }
   /* One step BELOW the card: chart wells, table header bands, sub-panels. Depth comes from
@@ -282,29 +374,39 @@
   .dark .shadow-soft {
     box-shadow: inset 0 0 0 1px oklch(1 0 0 / 6%), 0 6px 20px -8px rgb(0 0 0 / 0.5);
   }
+  /* Page enter: a 120 ms fade, nothing moves. */
   .animate-in-up {
-    animation: in-up 0.25s ease-out both;
+    animation: fade-in 0.12s ease-out both;
   }
-  /* Children of a [data-stagger] container enter one after another (40ms steps, first 8). */
-  [data-stagger] > * { animation: in-up 0.3s ease-out both; }
-  [data-stagger] > :nth-child(2) { animation-delay: 40ms; }
-  [data-stagger] > :nth-child(3) { animation-delay: 80ms; }
-  [data-stagger] > :nth-child(4) { animation-delay: 120ms; }
-  [data-stagger] > :nth-child(5) { animation-delay: 160ms; }
-  [data-stagger] > :nth-child(6) { animation-delay: 200ms; }
-  [data-stagger] > :nth-child(7) { animation-delay: 240ms; }
-  [data-stagger] > :nth-child(n + 8) { animation-delay: 280ms; }
-  @keyframes in-up {
-    from { opacity: 0; transform: translateY(4px); }
+  /* The drawer slides in from the right once; the mobile menu from the left. */
+  .animate-in-right {
+    animation: in-right 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-in-left {
+    animation: in-left 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes in-right {
+    from { opacity: 0; transform: translateX(24px); }
     to { opacity: 1; transform: none; }
   }
+  @keyframes in-left {
+    from { opacity: 0; transform: translateX(-24px); }
+    to { opacity: 1; transform: none; }
+  }
+  /* A page with a sticky filter bar: table headers stick under it. */
+  .with-filter-bar {
+    --sticky-top: calc(var(--topbar-h) + 57px);
+  }
   @media (prefers-reduced-motion: reduce) {
-    .animate-in-up { animation: none; }
-    [data-stagger] > * { animation: none; }
+    .animate-in-up, .animate-in-right, .animate-in-left { animation: none; }
   }
 }
 
-/* The Reports page is the print surface: chrome disappears, data keeps its ink. */
+/* Reports and the class page are print surfaces: chrome disappears, data keeps its ink. */
 @media print {
   [data-print-hide] { display: none !important; }
   body { background: #fff; }
