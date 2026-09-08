@@ -98,6 +98,25 @@ def one(rating, rated, att, yes, no):
     return score(inp, OLD), score(inp, NEW)
 
 
+def save_doc(document, path):
+    """Word locks a file while it is open, so fall back to a numbered name rather than failing."""
+    import os as _os
+    try:
+        document.save(path)
+        return path
+    except PermissionError:
+        stem, ext = _os.path.splitext(path)
+        for i in range(2, 20):
+            alt = f"{stem} ({i}){ext}"
+            try:
+                document.save(alt)
+                print(f"  (the original was open in Word, so this went to: {_os.path.basename(alt)})")
+                return alt
+            except PermissionError:
+                continue
+        raise
+
+
 # ── document ─────────────────────────────────────────────────────────────────
 doc = Document()
 sec = doc.sections[0]
@@ -309,21 +328,32 @@ doc.add_page_break()
 doc.add_heading("7. Examples", level=1)
 para("Real classes from our own data. “Before” is the score the old formula gave.", color=MUTED, after=6)
 rows_ = []
-for label, rating, rated, att, yes, no in [
-    ("A weak class the room still liked", 3.92, 8, 12, 7, 1),
-    ("A weak class, bigger room", 4.27, 23, 32, 19, 4),
-    ("A borderline class", 4.50, 27, 33, 27, 0),
-    ("A strong class", 4.87, 18, 24, 17, 1),
-    ("A strong class, three answers, one no", 4.87, 3, 20, 2, 1),
-    ("One learner out of thirty-eight rated it", 5.00, 1, 38, 1, 0),
+for label, rating, rated, att, yes, no, why in [
+    ("A weak class the room still liked", 3.92, 8, 12, 7, 1,
+     "The rating is what changed. Before, 3.92 earned 78 of 100 rating marks. Now it earns 26, "
+     "because 3.92 is far below 4.6. Approval earned full marks both times."),
+    ("A weak class, bigger room", 4.27, 23, 32, 19, 4,
+     "Same reason: 4.27 earned 85 rating marks before, 51 now. The old formula also handed it 9 more "
+     "points for having enough raters and a good rating %."),
+    ("A borderline class", 4.50, 27, 33, 27, 0,
+     "Everybody wanted the instructor back, so the score is high either way. But 4.50 is under 4.6, "
+     "so it can no longer be called Good or Excellent, whatever the number says."),
+    ("A strong class", 4.87, 18, 24, 17, 1,
+     "Nothing changed. A strong class clears both standards and stays Excellent under both formulas."),
+    ("A strong class, three answers, one no", 4.87, 3, 20, 2, 1,
+     "67% approval lost all 30 points before, because it was all or nothing at 80%. Now it earns 20 "
+     "of the 30. And with only 3 answers we watch the class instead of spending a video on it."),
+    ("One learner out of thirty-eight rated it", 5.00, 1, 38, 1, 0,
+     "One answer is below 3, so no label is issued at all. Before, one person's 5.0 earned the full "
+     "60 rating points and the class was called Excellent."),
 ]:
     o, n = one(rating, rated, att, yes, no)
     ap = 100 * yes / (yes + no)
     rows_.append([label, f"{rating:.2f}", f"{yes} of {yes + no} ({ap:.0f}%)",
                   f"{o['score']:.0f} · {str(o['band']).title()}",
-                  f"{n['score']:.0f} · {str(n['band'] or 'no label').title()}"])
-table(["Class", "Rating", "Instructor approval", "Before", "Now"], rows_,
-      widths=[5.8, 1.8, 3.4, 3.0, 3.4], bold_first=True, size=10)
+                  f"{n['score']:.0f} · {str(n['band'] or 'no label').title()}", why])
+table(["Class", "Rating", "Instructor approval", "Before", "Now", "Why the answer changed"], rows_,
+      widths=[3.3, 1.1, 2.2, 1.8, 1.8, 6.4], bold_first=True, size=9)
 para("Reading the table. The first two are the classes the old formula let through: rated below 4.6, "
      "but the room still liked the instructor, so they scored well and nobody looked. The last two are "
      "the opposite: a strong class judged by three people, and a class where one learner out of "
@@ -374,5 +404,4 @@ para("")
 para("Every number here was calculated from the ratings sheet on the day this was written. "
      "Nothing was entered by hand.", size=9, color=MUTED, italic=True)
 
-doc.save(OUT)
-print("wrote", OUT)
+print("wrote", save_doc(doc, OUT))

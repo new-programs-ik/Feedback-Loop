@@ -104,6 +104,25 @@ NEW_ACTS, NEW_WEAK, NEW_PUNISHED = tally(NEW_CFG)
 TOTAL = len(ROWS)
 
 
+def save_doc(document, path):
+    """Word locks a file while it is open, so fall back to a numbered name rather than failing."""
+    import os as _os
+    try:
+        document.save(path)
+        return path
+    except PermissionError:
+        stem, ext = _os.path.splitext(path)
+        for i in range(2, 20):
+            alt = f"{stem} ({i}){ext}"
+            try:
+                document.save(alt)
+                print(f"  (the original was open in Word, so this went to: {_os.path.basename(alt)})")
+                return alt
+            except PermissionError:
+                continue
+        raise
+
+
 # ── document plumbing ────────────────────────────────────────────────────────
 class Doc:
     def __init__(self, margin=1.9):
@@ -343,7 +362,7 @@ def build_case():
             "If it says yes for classes the old formula called Good, the old formula was hiding real "
             "problems. If it says no for all five, we keep the old one and I was wrong.",
             "Either way we will know from our own recordings rather than from an argument."])
-    d.save(CASE_OUT)
+    save_doc(d.d, CASE_OUT)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -505,7 +524,7 @@ def build_how():
              ["Provisional", "a label based on 3 to 5 approval responses. It is shown, but no work is triggered by it"],
              ["Video analysis", "the AI watches the recording and reports what went wrong, and whether the class should be re-taught"]],
             widths=[5.0, 12.2], bold_first=True, size=10)
-    d.save(HOW_OUT)
+    save_doc(d.d, HOW_OUT)
 
 
 build_how()

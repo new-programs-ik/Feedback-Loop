@@ -101,6 +101,25 @@ for c in (A, B):
     c["approval"] = 100 * c["yes"] / c["votes"]
 
 
+def save_doc(document, path):
+    """Word locks a file while it is open, so fall back to a numbered name rather than failing."""
+    import os as _os
+    try:
+        document.save(path)
+        return path
+    except PermissionError:
+        stem, ext = _os.path.splitext(path)
+        for i in range(2, 20):
+            alt = f"{stem} ({i}){ext}"
+            try:
+                document.save(alt)
+                print(f"  (the original was open in Word, so this went to: {_os.path.basename(alt)})")
+                return alt
+            except PermissionError:
+                continue
+        raise
+
+
 # ── document ─────────────────────────────────────────────────────────────────
 doc = Document()
 sec = doc.sections[0]
@@ -425,5 +444,4 @@ p("Every number in this report was calculated from the ratings sheet on the day 
   "The calculation can be re-run in a few seconds whenever the data changes.",
   size=9, color=W_MUTED, italic=True)
 
-doc.save(OUT)
-print("wrote", OUT)
+print("wrote", save_doc(doc, OUT))
