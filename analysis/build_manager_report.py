@@ -346,7 +346,46 @@ note("The one thing that needs a decision",
       "or move the standards themselves."])
 
 # ── 6 ────────────────────────────────────────────────────────────────────────
-doc.add_heading("6. How to settle this with evidence, not opinion", level=1)
+doc.add_heading("6. Why we took “enough responses” and “turnout” out of the points", level=1)
+p("This is a fair question, so we tested it rather than assuming. We built five versions of the new "
+  "formula: one with only the rating and the vote, and four that put “enough responses” and “turnout” "
+  "back in as scored parts, with different weights, including Karthika's own 60 / 30 / 6 / 4 split.",
+  after=6)
+table(["Version of the new formula", "Recordings watched per week", "Reviews per week",
+       "Weak classes still called Good", "Classes whose outcome differs"],
+      [["The rating and the vote only", "4.8", "14.5", "0", "—"],
+       ["+ enough responses, worth 7", "4.8", "14.5", "0", "2 out of 2,779"],
+       ["+ enough responses 6, turnout 4", "4.8", "14.5", "0", "1 out of 2,779"],
+       ["Karthika's 60 / 30 / 6 / 4 split", "4.8", "14.5", "0", "2 out of 2,779"],
+       ["+ enough responses 10, turnout 5", "4.8", "14.5", "0", "2 out of 2,779"]],
+      widths=[5.4, 3.2, 2.6, 3.0, 3.0], bold_first=True, size=9.5)
+p("Every version gives the same answer. The reason is simple: the two standards are absolute. A class "
+  "below 4.6, or below 80% approval, can never be called Good or Excellent, and six or ten points "
+  "cannot overturn that. And a class that clears both standards is already Good or Excellent, so a few "
+  "points either way change nothing. Those ten points were decoration.", after=8)
+note("But the information itself is not useless — we use it where it belongs",
+     ["How many learners rated decides whether we act at all: under three voices there is no verdict, "
+      "three to five puts the class on a watch list, six or more and we act.",
+      "Turnout stays on screen for the PM to see, because it is useful context when reading a class.",
+      "This is the difference: the same facts now decide whether to spend money, instead of quietly "
+      "adding or removing points from a class's quality."])
+p("One real class shows why this matters more than any weighting.", after=6)
+step(1, "RAG Powered Knowledge Agents, 4 July. Thirty-eight learners attended. One of them rated it, "
+        "and gave it 5.0.", "")
+step(2, "Karthika's formula: the rating earns 60, the vote earns 30, “enough responses” earns 0 and "
+        "turnout earns 0.1. Total", "90.1 → Excellent → nobody looks")
+step(3, "The new formula: only one learner voted, which is below three, so no verdict is issued at all",
+     "watch list")
+p("")
+note("The point",
+     ["Karthika's formula called this class Excellent on the strength of one person's opinion out of "
+      "thirty-eight. The ten points for responses and turnout were not enough to say “we have barely "
+      "heard from this room”.",
+      "Turning that same fact into a decision, rather than a few points, is what fixes it."], fill=GOOD_FILL)
+
+doc.add_page_break()
+
+doc.add_heading("7. How to settle this with evidence, not opinion", level=1)
 p("These are the classes where the two formulas disagree most: Karthika's says nobody needs to look, "
   "the new one says watch the recording. We will run the video analysis on each one. If the analysis "
   "says the class should be re-taught, the old formula was hiding real problems.", after=6)
@@ -360,12 +399,13 @@ p("The full list of all 389 disagreements is in Disputed-Classes.csv, with two e
   "analysis result and whether a re-class was needed.", size=10, color=W_MUTED, after=10)
 
 # ── 7 ────────────────────────────────────────────────────────────────────────
-doc.add_heading("7. What we are recommending", level=1)
+doc.add_heading("8. What we are recommending", level=1)
 p("1.  Score the rating out of 100 first, then apply its weight of 70%. A class below 4.6 should lose "
   "real marks, not a few.", after=4)
 p("2.  Score the vote out of 100 the same way, then apply its weight of 30%. 79% should be almost as "
   "good as 80%, and 50% should be much worse.", after=4)
-p("3.  Stop giving points for how many people rated and for turnout. Use the number of voters to "
+p("3.  Stop giving points for how many people rated and for turnout — we tested it and it changes "
+  "1 or 2 classes out of 2,779. Use the number of voters to "
   "decide whether we act instead: under three voters no label at all, three to five a watch list, six "
   "or more we act.", after=4)
 p("4.  Keep both standards absolute: a class below 4.6, or below 80% approval, can never be labelled "

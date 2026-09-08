@@ -434,7 +434,35 @@ def build_how():
             "The score is about the class. The record stays on the instructor's own page for coaching.",
             "Recommendation: drop it. Rating 70, the vote 30."], fill=GOOD_FILL)
 
-    d.h("5. How I chose those numbers, honestly", level=1)
+    d.h("5. Why “enough responses” and “turnout” earn no points any more", level=1)
+    d.p("Karthika's formula gave 6 points for having enough raters and 4 points for turnout — ten of "
+        "her hundred. The obvious question is whether we should keep them. We tested it instead of "
+        "assuming.", after=6)
+    d.table(["Version tested", "Videos/week", "Reviews/week", "Weak classes hidden", "Outcomes that differ"],
+            [["The rating and the vote only", "4.8", "14.5", "0", "—"],
+             ["+ responses, worth 7", "4.8", "14.5", "0", "2 of 2,779"],
+             ["+ responses 6, turnout 4", "4.8", "14.5", "0", "1 of 2,779"],
+             ["Karthika's 60 / 30 / 6 / 4", "4.8", "14.5", "0", "2 of 2,779"],
+             ["+ responses 10, turnout 5", "4.8", "14.5", "0", "2 of 2,779"]],
+            widths=[5.0, 2.6, 2.6, 3.4, 3.6], bold_first=True, size=9.5)
+    d.p("All five give the same answer, and the reason is worth understanding: the two standards are "
+        "absolute. Below 4.6, or below 80% with enough voters, a class can never be Good or Excellent, "
+        "and ten points cannot overturn that. Above both standards a class is already Good or Excellent, "
+        "so a few points do not change what we do. The ten points never had anything left to decide.",
+        after=8)
+    d.note("Where those two facts are used instead",
+           ["How many rated: decides whether we act. Under 3 voices no verdict; 3 to 5 a watch list; "
+            "6 or more we act.",
+            "Turnout: shown on the class page for the PM, never scored.",
+            "So nothing is thrown away. The same facts moved from adding points to deciding whether to "
+            "spend money — which is what they were really telling us all along."], fill=GOOD_FILL)
+    d.p("The class that makes this obvious: RAG Powered Knowledge Agents, 4 July. Thirty-eight learners "
+        "attended and exactly one rated it, giving 5.0. Karthika's formula scores it 90.1 and calls it "
+        "Excellent, because the rating earns 60, the vote earns 30, and the ten points for responses and "
+        "turnout are far too small to say “we have barely heard from this room”. The new formula issues "
+        "no verdict at all and puts it on the watch list.", after=10)
+
+    d.h("6. How I chose those numbers, honestly", level=1)
     d.p("Two different things were used, and it is worth being clear about which is which.", after=6)
     d.bullet("Every candidate formula was replayed over all 2,779 real classes, and I counted concrete "
              "things: how many weak classes it hides, how many good classes it condemns, how many videos "
@@ -447,7 +475,7 @@ def build_how():
         "two formulas disagree about, and see whether it calls for a re-class. That is not a prediction. "
         "That is our own analysis on our own recordings.", after=8)
 
-    d.h("6. What is still open", level=1)
+    d.h("7. What is still open", level=1)
     d.table(["Question", "Where it stands"],
             [["Does the instructor's record stay?", "Recommendation: no. It changes 2 classes out of 2,779."],
              ["How many analyses can we do a week?",
@@ -461,7 +489,7 @@ def build_how():
               "for a re-class."]],
             widths=[6.0, 11.2], bold_first=True)
 
-    d.h("7. Words used in this document", level=1)
+    d.h("8. Words used in this document", level=1)
     d.table(["Word", "What it means"],
             [["The rating", "the average stars learners gave the class, out of 5"],
              ["Wanting the instructor again", "the share of voters who answered yes to “would you want this instructor to take the class again?”"],
@@ -475,7 +503,5 @@ def build_how():
     d.save(HOW_OUT)
 
 
-build_case()
-print("wrote", CASE_OUT)
 build_how()
 print("wrote", HOW_OUT)
