@@ -78,7 +78,8 @@ def load():
 
 
 LIVE, ROWS = load()
-OLD_CFG = FIXTURES["C0"]
+OLD_CFG = copy.deepcopy(FIXTURES["C0"])
+OLD_CFG["sample"]["target"] = 5
 NEW_CFG = at(LIVE, 70, 30, 0)          # the simple two-part version, at 4.6
 
 
@@ -215,7 +216,7 @@ class Doc:
         lines = [
             f"{d['course']} · {d['kind']} · {d['learners_who_rated']} of the {d['learners_who_attended']} "
             f"learners who attended rated it {d['rating']:.2f} · instructor approval "
-            f"{d['instructor_approval']} = {d['instructor_approval_pct']}%",
+            f"{d['want_instructor_again']} = {d['want_instructor_again_pct']}%",
             f"Karthika's formula: {d['karthika_score']:.0f} → {d['karthika_says']} → {d['karthika_action']}",
             f"The new formula: {d['new_score']:.0f} → {d['new_says']} → {d['new_action']}",
         ]
@@ -376,10 +377,10 @@ def build_how():
     ex = TIER1[0]
     d.p(f"On a real class: {ex['module']}, rated {ex['rating']:.2f} by {ex['learners_who_rated']} of the "
         f"{ex['learners_who_attended']} learners who attended, with instructor approval "
-        f"{ex['instructor_approval']}.", after=4)
+        f"{ex['want_instructor_again']}.", after=4)
     d.note("The arithmetic",
            [f"{ex['rating']:.2f} ÷ 5 × 60 = {ex['rating'] / 5 * 60:.1f} points for the rating",
-            f"plus 30, because instructor approval of {ex['instructor_approval_pct']}% is above 80%",
+            f"plus 30, because instructor approval of {ex['want_instructor_again_pct']}% is above 80%",
             f"plus a little for the head-count and for learners who rated ÷ learners who attended",
             f"= {ex['karthika_score']:.0f} out of 100 → “{ex['karthika_says']}” → nobody looks."])
 

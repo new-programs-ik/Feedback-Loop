@@ -72,7 +72,8 @@ def main():
     rows = [dict(zip(cols, r)) for r in cur.fetchall()]
     conn.close()
 
-    old_cfg = FIXTURES["C0"]
+    old_cfg = copy.deepcopy(FIXTURES["C0"])
+    old_cfg["sample"]["target"] = 5          # her document's own table: "at least 5 learners"
     new_cfg = at_line(live, LINE)
     disputed = []
     counts = {"new_video": 0, "old_looks": 0, "agree_video": 0}
@@ -114,8 +115,8 @@ def main():
             "rating": round(float(r["rating"]), 2),
             "learners_who_rated": r["num_ratings"],
             "learners_who_attended": r["attended"],
-            "instructor_approval": f"{yes} of {votes}" if votes else "no approval responses",
-            "instructor_approval_pct": round(100 * yes / votes, 1) if votes else "",
+            "want_instructor_again": f"{yes} of {votes}" if votes else "no approval responses",
+            "want_instructor_again_pct": round(100 * yes / votes, 1) if votes else "",
             "karthika_score": old["score"],
             "karthika_says": (old["band"] or "").title(),
             "karthika_action": ACTION[old["action"]],
@@ -146,7 +147,7 @@ def main():
     print("wrote", OUT)
     print("\nthe five to test first:")
     for d in [x for x in disputed if x["test_first"].startswith("1.")][:10]:
-        print(f"   {d['date']}  {d['rating']:.2f}  approval {d['instructor_approval']:>9s}  "
+        print(f"   {d['date']}  {d['rating']:.2f}  approval {d['want_instructor_again']:>9s}  "
               f"| Karthika {d['karthika_score']:.0f} {d['karthika_says']:9s} | new {d['new_score']:.0f} {d['new_says']}"
               f"  | {d['module'][:38]} · {d['instructor']}")
 

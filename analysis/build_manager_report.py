@@ -51,7 +51,9 @@ def load():
     new["caps"]["rating_line"] = LINE
     new["weights"].update({"rating": 70, "approval": 30, "track": 0})
     new["track"]["mode"] = "off"
-    return FIXTURES["C0"], new, rows
+    old = copy.deepcopy(FIXTURES["C0"])
+    old["sample"]["target"] = 5      # her own table: "at least 5 learners"
+    return old, new, rows
 
 
 OLD, NEW, ROWS = load()
@@ -397,7 +399,7 @@ p("These are the classes where the two formulas disagree most. Karthika's says n
   "says the class should be re-taught, the old formula was hiding real problems.", after=6)
 table(["Class", "Instructor", "Date", "Rating", "Instructor approval", "Karthika", "New"],
       [[d["module"][:30], d["instructor"][:16], d["date"], f"{d['rating']:.2f}",
-        f"{d['instructor_approval']} ({d['instructor_approval_pct']}%)",
+        f"{d['want_instructor_again']} ({d['want_instructor_again_pct']}%)",
         f"{d['karthika_score']:.0f} {d['karthika_says']}", f"{d['new_score']:.0f} {d['new_says']}"]
        for d in TIER1],
       widths=[4.2, 2.6, 1.9, 1.2, 3.4, 2.0, 1.7], size=9)
