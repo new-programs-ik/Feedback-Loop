@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import Link from "next/link";
 import { Select } from "@/components/ui/select";
@@ -36,6 +38,7 @@ export function ScopeBar({
   className?: string;
 }) {
   const active = scope.range !== defaultRange || !!scope.cohort || !!scope.kind || !!scope.instructor || !!scope.band || !!courseId;
+  const [showCustom, setShowCustom] = React.useState(scope.range === "custom");
   return (
     <form
       method="get"
@@ -48,24 +51,56 @@ export function ScopeBar({
       )}
     >
       {Object.entries(extra ?? {}).map(([k, v]) => (v ? <input key={k} type="hidden" name={k} value={v} /> : null))}
-      <AutoSubmit>
-        <Select name="range" defaultValue={scope.range} aria-label="Period" className="w-36">
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
-          <option value="month">This month</option>
-          <option value="custom">Custom…</option>
-        </Select>
-      </AutoSubmit>
-      {scope.range === "custom" && (
+      {/* Every preset applies itself. "Custom" does not: submitting it with no dates yet just
+          reloaded the same data, which read as the control being broken. It reveals the two date
+          boxes instead, and the page changes when a date is actually chosen. */}
+      <Select
+        name="range"
+        defaultValue={scope.range}
+        aria-label="Period"
+        className="w-36"
+        onChange={(e) => {
+          const form = e.currentTarget.form;
+          if (e.currentTarget.value !== "custom") form?.requestSubmit();
+          else setShowCustom(true);
+        }}
+      >
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+        <option value="90d">Last 90 days</option>
+        <option value="month">This month</option>
+        <option value="custom">Custom…</option>
+      </Select>
+      {showCustom && (
         <>
-          <Input type="date" name="from" defaultValue={scope.from} aria-label="From" className="w-[9.5rem]" />
+          {/* No min/max tying these two together. They used to carry max={to} and min={from}, so to
+              look at January you had to move "to" back first and the browser would not let you -
+              the pair locked you inside the window you were trying to leave. The server already
+              swaps them if they arrive the wrong way round. */}
+          <Input
+            type="date"
+            name="from"
+            defaultValue={scope.range === "custom" ? scope.from : ""}
+            aria-label="From"
+            className="w-[9.5rem]"
+          />
           <span className="text-muted-foreground text-xs">to</span>
-          <Input type="date" name="to" defaultValue={scope.to} aria-label="To" className="w-[9.5rem]" />
+          <Input
+            type="date"
+            name="to"
+            defaultValue={scope.range === "custom" ? scope.to : ""}
+            aria-label="To"
+            className="w-[9.5rem]"
+          />
           <Button type="submit" size="sm" variant="outline">
-            Apply
+            Show these dates
           </Button>
         </>
+      )}
+      {scope.anchor && scope.range !== "custom" && (
+        <span className="text-muted-foreground text-xs" title="The sheet has nothing newer yet; presets count back from the last rated class">
+          to the last rated class ({new Date(scope.anchor + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" })})
+        </span>
       )}
       {courses && courses.length > 0 && (
         <AutoSubmit>
