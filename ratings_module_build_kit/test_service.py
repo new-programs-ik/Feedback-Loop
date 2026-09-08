@@ -288,5 +288,24 @@ class TestTheWorkerIsNotOpenToEveryone(unittest.TestCase):
             self.assertNotIn(r.status_code, (401, 503))
 
 
+
+class TestOneAnalysisPerClass(unittest.TestCase):
+    """The Retry button appears while a job may still be running. Each press used to start another
+    full analysis: both paid for, both saved, and the review page could mix the two."""
+
+    def test_a_second_request_while_one_is_running_is_refused(self):
+        with patch.object(service.ST, "claim_for_analysis", return_value=False) as claim,              patch.object(service, "_run_analysis_job") as job:
+            r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["status"], "already running")
+            claim.assert_called_once_with("c1")
+            job.assert_not_called()
+
+    def test_the_first_request_is_accepted(self):
+        with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"):
+            r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            self.assertEqual(r.json()["status"], "accepted")
+
+
 if __name__ == "__main__":
     unittest.main()

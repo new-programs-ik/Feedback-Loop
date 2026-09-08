@@ -342,6 +342,11 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict
     out). The worker writes the result straight to the DB when done; the UI polls for it."""
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured for async persistence")
+    # One analysis per class at a time. The UI offers Retry while a job may still be running, and
+    # each press used to start another full analysis: both were paid for, both wrote a row, and the
+    # review page could then show one run's findings above the other run's draft.
+    if not ST.claim_for_analysis(req.class_id):
+        return {"status": "already running", "class_id": req.class_id}
     background.add_task(_run_analysis_job, req)
     return {"status": "accepted", "class_id": req.class_id}
 

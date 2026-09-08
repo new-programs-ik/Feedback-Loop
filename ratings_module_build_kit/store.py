@@ -55,6 +55,33 @@ def persist_analysis(class_id: str, result: dict, meta: dict, transcript_text: s
         conn.close()
 
 
+def claim_for_analysis(class_id: str) -> bool:
+    """Take the class for analysis, or return False because someone else already has it.
+
+    There was no lock at all: the Retry button appears while a job may still be running, and each
+    click started another full analysis. Both paid, both wrote a row, and the review page picked
+    one run's findings and the other run's draft with nothing joining them.
+    """
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("update classes set status='analyzing', updated_at=now() "
+                    " where id=%s and status is distinct from 'analyzing' returning id", (class_id,))
+        won = cur.fetchone() is not None
+        conn.commit()
+        return won
+    except Exception:
+        log.exception("could not claim class %s for analysis", class_id)
+        return True          # never block the work over a bookkeeping failure
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                log.exception("could not close the connection after claiming class %s", class_id)
+
+
 def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> None:
     """Flag a class whose background analysis failed, so the UI can show it (recoverable — retry).
 

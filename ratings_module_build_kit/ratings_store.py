@@ -561,8 +561,12 @@ def rows_needing_notification(cur, max_age_days: Optional[int] = None,
         left join course_handlers h on h.course_id = cr.course_id
         left join rating_notifications n
                on n.class_rating_id = cr.id and n.channel = 'slack'
+              and n.status is distinct from 'failed'
         where cr.decision in ('video','transcript')
           and cr.review_status = 'new'
+          -- A row that says the send FAILED is not a record that the class was handled; it is a
+          -- record that it was not. Excluding every row regardless of status meant one rate-limit
+          -- reply from Slack buried a flagged class permanently, with nobody told.
           and n.id is null
           and (%(max_age_days)s::int is null or cr.class_date >= current_date - %(max_age_days)s::int)
         order by cr.class_date desc, cr.sentiment_score asc nulls last
@@ -592,13 +596,44 @@ def rows_needing_notification(cur, max_age_days: Optional[int] = None,
 def record_notification(cur, class_rating_id: str, *, channel: str = "slack",
                         recipient: str = "", status: str = "sent",
                         slack_ts: str = "", error: str = "") -> bool:
-    """The dedupe gate: only the caller whose INSERT wins may actually send/mark. Returns won."""
+    """The dedupe gate: only the caller whose INSERT wins may actually send/mark. Returns won.
+
+    A row left over from a FAILED send is claimed rather than blocking: the class still needs
+    telling somebody, and the previous attempt is what proves it.
+    """
     cur.execute(
         "insert into rating_notifications(class_rating_id, channel, recipient, status, slack_ts, error) "
         "values (%s,%s,%s,%s,nullif(%s,''),nullif(%s,'')) "
-        "on conflict (class_rating_id, channel) do nothing returning id",
+        "on conflict (class_rating_id, channel) do update "
+        "   set status = excluded.status, recipient = excluded.recipient, "
+        "       slack_ts = excluded.slack_ts, error = excluded.error "
+        " where rating_notifications.status = 'failed' "
+        "returning id",
         (class_rating_id, channel, recipient, status, slack_ts, error))
     return cur.fetchone() is not None
+
+
+def reset_stuck_analyses(cur, older_than_minutes: int = 90) -> int:
+    """Classes whose analysis started and never finished, released so a PM can retry them.
+
+    A background job lives inside the worker process. If that process is restarted, redeployed or
+    killed for memory, no exception is ever raised, so nothing marks the class failed - it simply
+    sits on "analyzing" forever and the Retry button is the only way out. Nothing swept them.
+    """
+    cur.execute(
+        "update classes set status='failed', updated_at=now() "
+        " where status='analyzing' and updated_at < now() - make_interval(mins => %s) "
+        "returning id", (older_than_minutes,))
+    stuck = cur.fetchall()
+    for (class_id,) in stuck:
+        cur.execute(
+            "insert into audit_log(class_id, actor_label, action, detail) "
+            "values (%s,'worker','error',%s)",
+            (class_id, json.dumps({"where": "analyze",
+                                   "message": f"no result after {older_than_minutes} minutes - the "
+                                              "worker was probably restarted mid-analysis; "
+                                              "released for retry"})))
+    return len(stuck)
 
 
 def mark_notified(cur, class_rating_id: str) -> None:

@@ -82,6 +82,18 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
         log.info("sync skipped - another run is in progress")
         return {"status": "skipped", "reason": "another sync is already running"}
 
+    # An analysis runs inside the worker process. If that process is restarted or killed mid-job no
+    # exception is ever raised, so the class sits on "analyzing" forever and only a manual Retry
+    # gets it back. The hourly sync is the one thing that reliably runs, so it does the sweeping.
+    try:
+        released = ST.reset_stuck_analyses(cur)
+        if released:
+            log.warning("released %d class(es) stuck mid-analysis", released)
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        log.exception("could not sweep classes stuck mid-analysis; continuing with the sync")
+
     src_name = source.name if source else (env.get("RATINGS_SOURCE") or "sheet")
     run_id = ST.start_run(cur, src_name, trigger)
     conn.commit()                                   # make the guard row visible immediately
