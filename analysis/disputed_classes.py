@@ -4,8 +4,9 @@ Karthika's formula says Good or Excellent, so nobody looks. The new formula says
 a video analysis. If the video analysis then says the class should be re-taught, the new formula
 was right. If it says the class was fine, Karthika's formula was right.
 
-Everything is computed with the quality line at 4.6 (the VP's final number, 8 Sep 2026), not the
-4.55 the app is running today, so the list matches the policy we are moving to.
+Everything is computed with 4.6 as the acceptable rating (the VP's final number, 8 Sep 2026) and
+with the recommended two-part formula: the rating out of 70, whether learners want the instructor
+again out of 30, and no instructor record. The app is still running the older settings.
 
     python analysis/disputed_classes.py
 
@@ -48,10 +49,16 @@ select cr.class_date, coalesce(c.name, cr.course_label) as course, co.name as co
 
 
 def at_line(cfg, line):
-    """The same settings with the team's quality line moved to `line`."""
+    """The recommended formula: two parts only (the rating out of 70, the vote out of 30), with
+    the team's acceptable rating moved to `line`. The instructor's past record is switched off -
+    it changed what we do for 2 classes out of 2,779, so it is not worth the argument it costs."""
     out = copy.deepcopy(cfg)
     out["rating"]["line"] = line
     out["caps"]["rating_line"] = line
+    out["weights"]["rating"] = 70
+    out["weights"]["approval"] = 30
+    out["weights"]["track"] = 0
+    out["track"]["mode"] = "off"
     return out
 
 
@@ -105,10 +112,10 @@ def main():
             "instructor": r["instructor"],
             "kind": r["session_kind"],
             "rating": round(float(r["rating"]), 2),
-            "rated_by": r["num_ratings"],
-            "attended": r["attended"],
-            "want_instructor_again": f"{yes} of {votes}" if votes else "no vote",
-            "approval_pct": round(100 * yes / votes, 1) if votes else "",
+            "learners_who_rated": r["num_ratings"],
+            "learners_who_attended": r["attended"],
+            "instructor_approval": f"{yes} of {votes}" if votes else "no approval responses",
+            "instructor_approval_pct": round(100 * yes / votes, 1) if votes else "",
             "karthika_score": old["score"],
             "karthika_says": (old["band"] or "").title(),
             "karthika_action": ACTION[old["action"]],
@@ -121,7 +128,7 @@ def main():
             "class_id": r["id"],
         })
 
-    disputed.sort(key=lambda d: (d["test_first"], d["rating"], -(d["rated_by"] or 0)))
+    disputed.sort(key=lambda d: (d["test_first"], d["rating"], -(d["learners_who_rated"] or 0)))
     with open(OUT, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.DictWriter(fh, fieldnames=list(disputed[0].keys()))
         w.writeheader()
@@ -139,16 +146,16 @@ def main():
     print("wrote", OUT)
     print("\nthe five to test first:")
     for d in [x for x in disputed if x["test_first"].startswith("1.")][:10]:
-        print(f"   {d['date']}  {d['rating']:.2f}  {d['want_instructor_again']:>9s} want the instructor  "
+        print(f"   {d['date']}  {d['rating']:.2f}  approval {d['instructor_approval']:>9s}  "
               f"| Karthika {d['karthika_score']:.0f} {d['karthika_says']:9s} | new {d['new_score']:.0f} {d['new_says']}"
               f"  | {d['module'][:38]} · {d['instructor']}")
 
 
 def why(rating, yes, votes, rated, attended):
     approval = 100 * yes / votes if votes else None
-    bits = [f"{rated or 0} of {attended or 0} learners rated it {rating:.2f}"]
+    bits = [f"{rated or 0} of the {attended or 0} learners who attended rated it {rating:.2f}"]
     if approval is not None:
-        bits.append(f"{yes} of {votes} still wanted the instructor again ({approval:.0f}%)")
+        bits.append(f"instructor approval {yes} of {votes} = {approval:.0f}%")
     bits.append(f"Karthika's formula gave {rating / 5 * 60:.1f} of 60 for that rating"
                 + (" and all 30 approval points" if approval is not None and approval >= 80 else ""))
     return " · ".join(bits)

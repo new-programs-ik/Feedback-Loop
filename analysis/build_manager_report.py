@@ -216,31 +216,34 @@ p("The old calculation, the new calculation, both worked out on the same real cl
 p("What the score is for", bold=True, after=3)
 p("Every class gets a number out of 100 and a label. The label decides the work: Bad means someone "
   "watches the recording and the analysis says whether the class should be re-taught, Average means "
-  "someone reads the transcript, Good and Excellent mean nobody looks. Two numbers the team has "
-  "agreed: a class should be rated 4.6 or better, and 80% or more of the learners who vote should "
-  "want the instructor again.", after=10)
+  "someone reads the transcript, Good and Excellent mean nobody looks.", after=6)
+p("Two words are used throughout. The class rating is the average number of stars learners gave the "
+  "class, out of 5. Instructor approval is the share of learners who answered “would you want this "
+  "instructor to take the class again?” with yes. The team has agreed two standards: a class should "
+  "be rated 4.6 or better, and instructor approval should be 80% or more.", after=10)
 
 # ── 1 ────────────────────────────────────────────────────────────────────────
 doc.add_heading("1. How Karthika's formula scores a class", level=1)
 p("Four parts, added together to make 100.", after=6)
 table(["Part", "Points", "How they are earned"],
-      [["The rating", "60", "the rating divided by 5, then multiplied by 60"],
-       ["The vote", "30", "all 30 if 80% or more want the instructor again, otherwise nothing"],
+      [["The class rating", "60", "the rating divided by 5, then multiplied by 60"],
+       ["Instructor approval", "30", "all 30 if approval is 80% or more, otherwise nothing"],
        ["How many rated", "6", "all 6 if ten or more learners rated, otherwise nothing"],
-       ["Turnout", "4", "learners who rated divided by learners who attended, multiplied by 4"]],
+       ["Learners who rated ÷ learners who attended", "4", "that fraction multiplied by 4"]],
       widths=[4.4, 1.6, 11.0], bold_first=True)
 
 p(f"Worked out on a real class: {A['name']}, {A['who']}, {A['when']}. "
-  f"{A['rated']} of the {A['attended']} learners rated it {A['rating']}, and {A['yes']} of the "
-  f"{A['votes']} who voted wanted the instructor again ({A['approval']:.1f}%).", after=6)
+  f"{A['rated']} of the {A['attended']} learners who attended rated it {A['rating']}. "
+  f"Instructor approval was {A['yes']} of {A['votes']} = {A['approval']:.1f}%.", after=6)
 step(1, f"The rating. {A['rating']} ÷ 5 = {A['rating'] / 5 * 100:.1f}%, and {A['rating'] / 5 * 100:.1f}% of 60 is",
      f"{A['rating'] / 5 * 60:.1f} points")
-step(2, f"The vote. {A['approval']:.1f}% is above 80%, so the class receives all 30",
+step(2, f"Instructor approval. {A['approval']:.1f}% is above 80%, so the class receives all 30",
      "30.0 points")
 step(3, f"How many rated. {A['rated']} learners rated it, which is fewer than ten, so nothing",
      "0 points")
-step(4, f"Turnout. {A['rated']} of {A['attended']} is {100 * A['rated'] / A['attended']:.0f}%, and "
-        f"{100 * A['rated'] / A['attended']:.0f}% of 4 is", f"{4 * A['rated'] / A['attended']:.1f} points")
+step(4, f"Learners who rated ÷ learners who attended. {A['rated']} ÷ {A['attended']} = "
+        f"{100 * A['rated'] / A['attended']:.0f}%, and {100 * A['rated'] / A['attended']:.0f}% of 4 is",
+     f"{4 * A['rated'] / A['attended']:.1f} points")
 p("")
 note("Karthika's answer for this class",
      [f"{A['rating'] / 5 * 60:.1f} + 30.0 + 0 + {4 * A['rated'] / A['attended']:.1f} = "
@@ -254,10 +257,10 @@ doc.add_heading("2. How the new formula scores the same class", level=1)
 p("Two parts. Each part is first marked out of 100 on its own, and only then given its weight. "
   "That is the main structural change.", after=6)
 table(["Part", "Weight", "How it is marked out of 100"],
-      [["The rating", "70%", "0 marks at 3.55 and below · 75 marks at 4.6 · 100 marks at 5.0, "
-                             "with a straight line between those points"],
-       ["The vote", "30%", "0 marks at 40% and below · 100 marks at 80% and above, "
-                           "with a straight line between them"]],
+      [["The class rating", "70%", "0 marks at 3.55 and below · 75 marks at 4.6 · 100 marks at 5.0, "
+                                   "with a straight line between those points"],
+       ["Instructor approval", "30%", "0 marks at 40% and below · 100 marks at 80% and above, "
+                                      "with a straight line between them"]],
       widths=[3.4, 1.8, 11.8], bold_first=True)
 p("The same class, worked out step by step.", after=6)
 gap = LINE - 3.55
@@ -268,9 +271,9 @@ step(2, f"So the rating earns {frac * 100:.1f}% of 75 marks",
      f"{A['new']['components']['rating']:.1f} marks out of 100")
 step(3, f"Apply the rating's weight: {A['new']['components']['rating']:.1f} × 0.70 =",
      f"{0.70 * A['new']['components']['rating']:.1f} points")
-step(4, f"The vote. {A['approval']:.1f}% is above 80%, so it earns full marks",
+step(4, f"Instructor approval. {A['approval']:.1f}% is above 80%, so it earns full marks",
      "100 marks out of 100")
-step(5, "Apply the vote's weight: 100 × 0.30 =", "30.0 points")
+step(5, "Apply the approval weight: 100 × 0.30 =", "30.0 points")
 p("")
 note("The new answer for the same class",
      [f"{0.70 * A['new']['components']['rating']:.1f} + 30.0 = {A['new']['score']:.1f} out of 100",
@@ -282,7 +285,8 @@ doc.add_page_break()
 
 # ── 3 ────────────────────────────────────────────────────────────────────────
 doc.add_heading("3. Where the difference comes from", level=1)
-p("Both formulas gave this class full marks for the vote. The whole difference is in the rating.", after=6)
+p("Both formulas gave this class full marks for instructor approval. The whole difference is in "
+  "the class rating.", after=6)
 table(["", "Karthika's formula", "The new formula"],
       [["What the rating 3.92 earns", f"{A['rating'] / 5 * 60:.1f} out of 60",
         f"{0.70 * A['new']['components']['rating']:.1f} out of 70"],
@@ -300,20 +304,21 @@ p("Karthika's formula divides the rating by 5. On that scale a class rated 3.92 
 # ── 4 ────────────────────────────────────────────────────────────────────────
 doc.add_heading("4. The same comparison the other way round", level=1)
 p(f"{B['name']}, {B['who']}, {B['when']}. Rated {B['rating']} — a very good class — but only "
-  f"{B['rated']} of the {B['attended']} learners rated it, and {B['yes']} of the {B['votes']} who "
-  f"voted wanted the instructor again ({B['approval']:.0f}%).", after=6)
-step(1, f"Karthika: the rating earns {B['rating'] / 5 * 60:.1f} of 60. The vote is {B['approval']:.0f}%, "
-        f"which is below 80%, so it earns nothing at all. Total", f"{B['old']['score']:.1f} → Bad → watch the recording")
-step(2, f"New: the rating earns {0.70 * B['new']['components']['rating']:.1f} of 70. The vote is "
-        f"{B['approval']:.0f}%, which is between 40% and 80%, so it earns "
+  f"only {B['rated']} of the {B['attended']} learners who attended rated it, and instructor approval "
+  f"was {B['yes']} of {B['votes']} = {B['approval']:.0f}%.", after=6)
+step(1, f"Karthika: the rating earns {B['rating'] / 5 * 60:.1f} of 60. Instructor approval is "
+        f"{B['approval']:.0f}%, which is below 80%, so it earns nothing at all. Total",
+     f"{B['old']['score']:.1f} → Bad → watch the recording")
+step(2, f"New: the rating earns {0.70 * B['new']['components']['rating']:.1f} of 70. Instructor approval "
+        f"is {B['approval']:.0f}%, which is between 40% and 80%, so it earns "
         f"{B['new']['components']['approval']:.0f} marks, worth {0.30 * B['new']['components']['approval']:.1f} points. Total",
      f"{B['new']['score']:.1f} → Good")
-step(3, f"But only {B['votes']} learners voted, which is fewer than six, so the new formula does not act on it",
-     "watch list only")
+step(3, f"But only {B['votes']} learners answered the approval question, which is fewer than six, so "
+        f"the new formula does not act on it", "watch list only")
 p("")
 note("What this shows",
      [f"Karthika's formula spends a full video analysis on a class rated {B['rating']} because one "
-      f"person out of three voted no.",
+      f"person out of three answered no to the approval question.",
       "It does that for 63 classes, and 17 of those were rated 4.6 or better.",
       "The new formula puts them on a watch list instead. A handful of learners cannot condemn a class."],
      fill=GOOD_FILL)
@@ -323,9 +328,9 @@ doc.add_page_break()
 # ── 5 ────────────────────────────────────────────────────────────────────────
 doc.add_heading("5. What changes across all 2,779 classes", level=1)
 table(["", "Karthika's formula", "The new formula"],
-      [["Classes rated below 4.6, or below 80% approval with six or more voters, "
+      [["Classes rated below 4.6, or below 80% approval with six or more approval responses, "
         "that were still called Good or Excellent", f"{OLD_WEAK}", f"{NEW_WEAK}"],
-       ["Good classes (4.6 or better) sent for a video analysis on five votes or fewer",
+       ["Good classes (4.6 or better) sent for a video analysis on five approval responses or fewer",
         f"{OLD_SMALL}", f"{NEW_SMALL}"],
        ["Recordings watched per week", f"{OLD_A['video'] / WEEKS:.1f}", f"{NEW_A['video'] / WEEKS:.1f}"],
        ["Transcripts read per week", f"{OLD_A['transcript'] / WEEKS:.1f}", f"{NEW_A['transcript'] / WEEKS:.1f}"],
@@ -346,52 +351,53 @@ note("The one thing that needs a decision",
       "or move the standards themselves."])
 
 # ── 6 ────────────────────────────────────────────────────────────────────────
-doc.add_heading("6. Why we took “enough responses” and “turnout” out of the points", level=1)
+doc.add_heading("6. Why “how many rated” and “learners who rated ÷ learners who attended” "
+                "no longer earn points", level=1)
 p("This is a fair question, so we tested it rather than assuming. We built five versions of the new "
-  "formula: one with only the rating and the vote, and four that put “enough responses” and “turnout” "
-  "back in as scored parts, with different weights, including Karthika's own 60 / 30 / 6 / 4 split.",
-  after=6)
+  "formula: one with only the class rating and instructor approval, and four that put the other two "
+  "parts back in as scored parts, with different weights, including Karthika's own 60 / 30 / 6 / 4 "
+  "split.", after=6)
 table(["Version of the new formula", "Recordings watched per week", "Reviews per week",
        "Weak classes still called Good", "Classes whose outcome differs"],
-      [["The rating and the vote only", "4.8", "14.5", "0", "—"],
-       ["+ enough responses, worth 7", "4.8", "14.5", "0", "2 out of 2,779"],
-       ["+ enough responses 6, turnout 4", "4.8", "14.5", "0", "1 out of 2,779"],
+      [["The class rating and instructor approval only", "4.8", "14.5", "0", "—"],
+       ["+ how many rated, worth 7", "4.8", "14.5", "0", "2 out of 2,779"],
+       ["+ how many rated 6, rated ÷ attended 4", "4.8", "14.5", "0", "1 out of 2,779"],
        ["Karthika's 60 / 30 / 6 / 4 split", "4.8", "14.5", "0", "2 out of 2,779"],
-       ["+ enough responses 10, turnout 5", "4.8", "14.5", "0", "2 out of 2,779"]],
+       ["+ how many rated 10, rated ÷ attended 5", "4.8", "14.5", "0", "2 out of 2,779"]],
       widths=[5.4, 3.2, 2.6, 3.0, 3.0], bold_first=True, size=9.5)
 p("Every version gives the same answer. The reason is simple: the two standards are absolute. A class "
   "below 4.6, or below 80% approval, can never be called Good or Excellent, and six or ten points "
   "cannot overturn that. And a class that clears both standards is already Good or Excellent, so a few "
   "points either way change nothing. Those ten points were decoration.", after=8)
 note("But the information itself is not useless — we use it where it belongs",
-     ["How many learners rated decides whether we act at all: under three voices there is no verdict, "
-      "three to five puts the class on a watch list, six or more and we act.",
-      "Turnout stays on screen for the PM to see, because it is useful context when reading a class.",
+     ["How many learners rated decides whether we act at all: under three approval responses there is "
+      "no verdict, three to five puts the class on a watch list, six or more and we act.",
+      "Learners who rated ÷ learners who attended stays on screen for the PM, because it is useful "
+      "context when reading a class, but it earns nothing.",
       "This is the difference: the same facts now decide whether to spend money, instead of quietly "
       "adding or removing points from a class's quality."])
 p("One real class shows why this matters more than any weighting.", after=6)
 step(1, "RAG Powered Knowledge Agents, 4 July. Thirty-eight learners attended. One of them rated it, "
         "and gave it 5.0.", "")
-step(2, "Karthika's formula: the rating earns 60, the vote earns 30, “enough responses” earns 0 and "
-        "turnout earns 0.1. Total", "90.1 → Excellent → nobody looks")
-step(3, "The new formula: only one learner voted, which is below three, so no verdict is issued at all",
-     "watch list")
+step(2, "Karthika's formula: the rating earns 60, instructor approval earns 30, “how many rated” "
+        "earns 0 and “rated ÷ attended” earns 0.1. Total", "90.1 → Excellent → nobody looks")
+step(3, "The new formula: only one learner answered, which is below three, so no verdict is issued "
+        "at all", "watch list")
 p("")
 note("The point",
      ["Karthika's formula called this class Excellent on the strength of one person's opinion out of "
-      "thirty-eight. The ten points for responses and turnout were not enough to say “we have barely "
-      "heard from this room”.",
+      "thirty-eight. Those ten points were not enough to say “we have barely heard from this room”.",
       "Turning that same fact into a decision, rather than a few points, is what fixes it."], fill=GOOD_FILL)
 
 doc.add_page_break()
 
 doc.add_heading("7. How to settle this with evidence, not opinion", level=1)
-p("These are the classes where the two formulas disagree most: Karthika's says nobody needs to look, "
+p("These are the classes where the two formulas disagree most. Karthika's says nobody needs to look, "
   "the new one says watch the recording. We will run the video analysis on each one. If the analysis "
   "says the class should be re-taught, the old formula was hiding real problems.", after=6)
-table(["Class", "Instructor", "Date", "Rated", "Wanted the instructor again", "Karthika", "New"],
+table(["Class", "Instructor", "Date", "Rating", "Instructor approval", "Karthika", "New"],
       [[d["module"][:30], d["instructor"][:16], d["date"], f"{d['rating']:.2f}",
-        f"{d['want_instructor_again']} ({d['approval_pct']}%)",
+        f"{d['instructor_approval']} ({d['instructor_approval_pct']}%)",
         f"{d['karthika_score']:.0f} {d['karthika_says']}", f"{d['new_score']:.0f} {d['new_says']}"]
        for d in TIER1],
       widths=[4.2, 2.6, 1.9, 1.2, 3.4, 2.0, 1.7], size=9)
@@ -402,12 +408,12 @@ p("The full list of all 389 disagreements is in Disputed-Classes.csv, with two e
 doc.add_heading("8. What we are recommending", level=1)
 p("1.  Score the rating out of 100 first, then apply its weight of 70%. A class below 4.6 should lose "
   "real marks, not a few.", after=4)
-p("2.  Score the vote out of 100 the same way, then apply its weight of 30%. 79% should be almost as "
-  "good as 80%, and 50% should be much worse.", after=4)
-p("3.  Stop giving points for how many people rated and for turnout — we tested it and it changes "
-  "1 or 2 classes out of 2,779. Use the number of voters to "
-  "decide whether we act instead: under three voters no label at all, three to five a watch list, six "
-  "or more we act.", after=4)
+p("2.  Score instructor approval out of 100 the same way, then apply its weight of 30%. 79% should "
+  "be almost as good as 80%, and 50% should be much worse.", after=4)
+p("3.  Stop giving points for how many rated, and for learners who rated ÷ learners who attended — "
+  "we tested it and it changes 1 or 2 classes out of 2,779. Use the number of approval responses to "
+  "decide whether we act instead: under three no label at all, three to five a watch list, six or "
+  "more we act.", after=4)
 p("4.  Keep both standards absolute: a class below 4.6, or below 80% approval, can never be labelled "
   "Good or Excellent.", after=4)
 p("5.  Do not use the instructor's past classes in this score. We tested it; it changes what we do for "

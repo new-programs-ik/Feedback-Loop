@@ -213,8 +213,9 @@ class Doc:
         r.bold = True
         r.font.size = Pt(10.5)
         lines = [
-            f"{d['course']} · {d['kind']} · {d['rated_by']} of {d['attended']} learners rated it "
-            f"{d['rating']:.2f} · {d['want_instructor_again']} wanted the instructor again ({d['approval_pct']}%)",
+            f"{d['course']} · {d['kind']} · {d['learners_who_rated']} of the {d['learners_who_attended']} "
+            f"learners who attended rated it {d['rating']:.2f} · instructor approval "
+            f"{d['instructor_approval']} = {d['instructor_approval_pct']}%",
             f"Karthika's formula: {d['karthika_score']:.0f} → {d['karthika_says']} → {d['karthika_action']}",
             f"The new formula: {d['new_score']:.0f} → {d['new_says']} → {d['new_action']}",
         ]
@@ -255,11 +256,11 @@ def build_case():
     d.p(f"{len(TIER3)} classes were sent for a full video analysis by the old formula although the "
         f"class was fine; {sum(1 for t in TIER3 if t['rating'] >= LINE)} of them were rated 4.6 or "
         f"better. The reason is the same switch working the other way: a class where only three people "
-        f"voted and one said no is at 67%, so it loses all 30 points at once.", after=6)
+        f"answered and one said no is at 67%, so it loses all 30 points at once.", after=6)
     d.example(TIER3[0], fill=WARN_FILL)
 
-    d.p("3.  It judges a class on three votes, and forgives one judged on twenty.", bold=True, after=3)
-    d.p("The vote is all or nothing at 80%. Three people where one says no is 67%, so the class loses "
+    d.p("3.  It judges a class on three answers, and forgives one judged on twenty.", bold=True, after=3)
+    d.p("Instructor approval is all or nothing at 80%. Three people where one says no is 67%, so the class loses "
         "everything. Twenty people where four say no is exactly 80%, so the class keeps everything. "
         "The formula has no idea that the first number is three opinions and the second is twenty.", after=8)
 
@@ -294,7 +295,7 @@ def build_case():
 
     d.h(f"Group 3 · the old formula spends a video, the new one says it is not needed  ({len(TIER3)} classes)", level=2)
     d.p("This is the argument the other way round, and it is the strongest one: the old formula is "
-        "already condemning classes on a handful of votes, which is exactly what we were told not to do.",
+        "already condemning classes on a handful of answers, which is exactly what we were told not to do.",
         after=6)
     for x in TIER3[:3]:
         d.example(x, fill=GOOD_FILL)
@@ -333,7 +334,7 @@ def build_case():
             widths=[8.6, 4.3, 4.3], bold_first=True,
             colors={(2, 1): W_RED, (2, 2): W_TEAL})
     d.p("The video count barely moves. What changes is that weak classes now get a cheap transcript "
-        "read instead of being invisible, and small classes stop being condemned on three votes.", after=8)
+        "read instead of being invisible, and small classes stop being condemned on three answers.", after=8)
 
     d.note("How to settle this for good",
            ["Run the video analysis on the five classes in Group 1. The analysis already tells us whether "
@@ -361,23 +362,25 @@ def build_how():
             [["Excellent or Good", "nobody looks"],
              ["Average", "someone reads the transcript"],
              ["Bad", "someone watches the recording; the analysis then says whether the class should be re-taught"],
-             ["No label", "too few learners voted — the class is watched, nothing is spent on it"]],
+             ["No label", "too few learners answered the approval question — the class is watched, "
+                          "nothing is spent on it"]],
             widths=[4.2, 13.0], bold_first=True)
 
     d.h("2. The old formula, exactly as it worked", level=1)
     d.table(["Part", "Points", "How they were earned"],
-            [["The rating", "60", "the rating divided by 5, times 60. A 4.30 class earned 51.6"],
-             ["Wanting the instructor again", "30", "all 30 if 80% or more said yes; zero below that"],
+            [["The class rating", "60", "the rating divided by 5, times 60. A 4.30 class earned 51.6"],
+             ["Instructor approval", "30", "all 30 if approval was 80% or more; zero below that"],
              ["How many rated", "6", "all 6 if ten or more rated; zero below that"],
-             ["Turnout", "4", "the share of the room that rated, times 4"]],
+             ["Learners who rated ÷ learners who attended", "4", "that fraction, times 4"]],
             widths=[4.6, 1.6, 11.0], bold_first=True)
     ex = TIER1[0]
-    d.p(f"On a real class: {ex['module']}, rated {ex['rating']:.2f} by {ex['rated_by']} of "
-        f"{ex['attended']} learners, {ex['want_instructor_again']} wanting the instructor again.", after=4)
+    d.p(f"On a real class: {ex['module']}, rated {ex['rating']:.2f} by {ex['learners_who_rated']} of the "
+        f"{ex['learners_who_attended']} learners who attended, with instructor approval "
+        f"{ex['instructor_approval']}.", after=4)
     d.note("The arithmetic",
            [f"{ex['rating']:.2f} ÷ 5 × 60 = {ex['rating'] / 5 * 60:.1f} points for the rating",
-            f"plus 30, because {ex['approval_pct']}% is above 80%",
-            f"plus a little for the head-count and turnout",
+            f"plus 30, because instructor approval of {ex['instructor_approval_pct']}% is above 80%",
+            f"plus a little for the head-count and for learners who rated ÷ learners who attended",
             f"= {ex['karthika_score']:.0f} out of 100 → “{ex['karthika_says']}” → nobody looks."])
 
     d.h("3. What is wrong with it", level=1)
@@ -388,17 +391,17 @@ def build_how():
          f"full 30 points arrive anyway and the weak rating costs almost nothing."),
         ("It condemns small classes",
          f"{len(TIER3)} classes were sent for a video analysis although the class was fine, because a few "
-         f"voters put them under 80%. A class rated 4.87 where 2 of 3 people voted yes was scored 59 and "
-         f"sent for a full video analysis."),
+         f"answers put instructor approval under 80%. A class rated 4.87, where 2 of the 3 learners who "
+         f"answered said yes, was scored 59 and sent for a full video analysis."),
         ("The rating hardly counts",
          "Dividing by five keeps even a poor class near the top of the rating points, so the rating — the "
          "one number that is actually about the class — moves the score least."),
         ("It pays for the size of the room",
-         "Ten points went to how many rated and how much of the room rated. That rewards big classes and "
-         "penalises test reviews, which are smaller by nature."),
-        ("A single vote can swing everything",
-         "Because the vote is all or nothing at 80%, one learner changing their mind can move a class by "
-         "30 points, which is the same as the distance between a 5.0 class and a 2.5 class."),
+         "Ten points went to how many rated, and to learners who rated ÷ learners who attended. That "
+         "rewards big classes and penalises test reviews, which are smaller by nature."),
+        ("A single answer can swing everything",
+         "Because instructor approval is all or nothing at 80%, one learner changing their mind can move "
+         "a class by 30 points, which is the same as the distance between a 5.0 class and a 2.5 class."),
     ], start=1):
         d.p(f"{i}.  {title}", bold=True, after=3)
         d.p(body, after=8)
@@ -407,24 +410,24 @@ def build_how():
     d.h("4. The new formula, part by part", level=1)
     d.p("Two things the learners told us about this class, and nothing else.", after=6)
     d.table(["Part", "Points", "How they are earned"],
-            [["The rating", "70", "0 points at 3.55 and below · 75 of the way up at 4.6 · 100 at 5.0. "
-                                  "The steep stretch is below 4.6, so a weak class loses real points"],
-             ["Wanting the instructor again", "30", "0 points at 40% and below · full points at 80% and "
-                                                    "above · sliding in between, so 79% is nearly as good as 80% and 50% is far worse"]],
+            [["The class rating", "70", "0 marks at 3.55 and below · 75 marks at 4.6 · 100 marks at 5.0. "
+                                        "The steep stretch is below 4.6, so a weak class loses real points"],
+             ["Instructor approval", "30", "0 marks at 40% and below · 100 marks at 80% and above · "
+                                           "sliding in between, so 79% is nearly as good as 80% and 50% is far worse"]],
             widths=[4.6, 1.6, 11.0], bold_first=True)
     d.p("Then the two absolute rules:", after=4)
-    d.bullet("a class rated below 4.6, or with fewer than 80% wanting the instructor again, can never be "
-             "labelled Good or Excellent. If it fails both, it is Bad.", lead="The lines cannot be bought off:")
-    d.bullet("under 3 votes, no label at all. With 3, 4 or 5 votes the label is marked provisional and "
-             "the class only goes on a watch list. From 6 votes the label counts and can trigger work.",
-             lead="Too few voices, no verdict:")
+    d.bullet("a class rated below 4.6, or with instructor approval below 80%, can never be labelled Good "
+             "or Excellent. If it fails both, it is Bad.", lead="The two standards cannot be bought off:")
+    d.bullet("under 3 approval responses, no label at all. With 3, 4 or 5 the label is marked provisional "
+             "and the class only goes on a watch list. From 6 the label counts and can trigger work.",
+             lead="Too few answers, no verdict:")
     d.note("Where the head-count went, since this is the question everyone asks",
-           ["The old formula gave 10 of its 100 points to how many people rated and how much of the room "
-            "rated. The new formula gives it no points at all.",
-            "Instead it decides whether we believe the class: fewer than 3 votes and there is no verdict; "
-            "3 to 5 votes and the class is only watched; 6 or more and the verdict counts.",
-            "So the same fact is still used, but to decide whether to act rather than to add points. That "
-            "is why three unhappy learners can no longer put a class in the queue."])
+           ["The old formula gave 10 of its 100 points to how many rated, and to learners who rated ÷ "
+            "learners who attended. The new formula gives them no points at all.",
+            "Instead they decide whether we believe the class: fewer than 3 approval responses and there "
+            "is no verdict; 3 to 5 and the class is only watched; 6 or more and the verdict counts.",
+            "So the same facts are still used, but to decide whether to act rather than to add points. "
+            "That is why three unhappy learners can no longer put a class in the queue."])
     d.note("The instructor's past record, and why we are dropping it",
            ["The version we tested had a third part worth 15 points: the instructor's average across their "
             "earlier classes.",
@@ -432,18 +435,18 @@ def build_how():
             "place in no way that matters.",
             "It also invites the fair objection that we are judging this class by the instructor's past. "
             "The score is about the class. The record stays on the instructor's own page for coaching.",
-            "Recommendation: drop it. Rating 70, the vote 30."], fill=GOOD_FILL)
+            "Recommendation: drop it. The class rating 70, instructor approval 30."], fill=GOOD_FILL)
 
-    d.h("5. Why “enough responses” and “turnout” earn no points any more", level=1)
-    d.p("Karthika's formula gave 6 points for having enough raters and 4 points for turnout — ten of "
-        "her hundred. The obvious question is whether we should keep them. We tested it instead of "
-        "assuming.", after=6)
+    d.h("5. Why “how many rated” and “learners who rated ÷ learners who attended” earn no points", level=1)
+    d.p("Karthika's formula gave 6 points for having enough raters, and 4 points for learners who rated "
+        "÷ learners who attended — ten of her hundred. The obvious question is whether we should keep "
+        "them. We tested it instead of assuming.", after=6)
     d.table(["Version tested", "Videos/week", "Reviews/week", "Weak classes hidden", "Outcomes that differ"],
-            [["The rating and the vote only", "4.8", "14.5", "0", "—"],
-             ["+ responses, worth 7", "4.8", "14.5", "0", "2 of 2,779"],
-             ["+ responses 6, turnout 4", "4.8", "14.5", "0", "1 of 2,779"],
+            [["The class rating and instructor approval only", "4.8", "14.5", "0", "—"],
+             ["+ how many rated, worth 7", "4.8", "14.5", "0", "2 of 2,779"],
+             ["+ how many rated 6, rated ÷ attended 4", "4.8", "14.5", "0", "1 of 2,779"],
              ["Karthika's 60 / 30 / 6 / 4", "4.8", "14.5", "0", "2 of 2,779"],
-             ["+ responses 10, turnout 5", "4.8", "14.5", "0", "2 of 2,779"]],
+             ["+ how many rated 10, rated ÷ attended 5", "4.8", "14.5", "0", "2 of 2,779"]],
             widths=[5.0, 2.6, 2.6, 3.4, 3.6], bold_first=True, size=9.5)
     d.p("All five give the same answer, and the reason is worth understanding: the two standards are "
         "absolute. Below 4.6, or below 80% with enough voters, a class can never be Good or Excellent, "
@@ -451,15 +454,15 @@ def build_how():
         "so a few points do not change what we do. The ten points never had anything left to decide.",
         after=8)
     d.note("Where those two facts are used instead",
-           ["How many rated: decides whether we act. Under 3 voices no verdict; 3 to 5 a watch list; "
-            "6 or more we act.",
-            "Turnout: shown on the class page for the PM, never scored.",
+           ["How many rated: decides whether we act. Under 3 approval responses no verdict; 3 to 5 a "
+            "watch list; 6 or more we act.",
+            "Learners who rated ÷ learners who attended: shown on the class page for the PM, never scored.",
             "So nothing is thrown away. The same facts moved from adding points to deciding whether to "
             "spend money — which is what they were really telling us all along."], fill=GOOD_FILL)
     d.p("The class that makes this obvious: RAG Powered Knowledge Agents, 4 July. Thirty-eight learners "
         "attended and exactly one rated it, giving 5.0. Karthika's formula scores it 90.1 and calls it "
-        "Excellent, because the rating earns 60, the vote earns 30, and the ten points for responses and "
-        "turnout are far too small to say “we have barely heard from this room”. The new formula issues "
+        "Excellent, because the rating earns 60 and instructor approval earns 30, and those ten remaining "
+        "points are far too small to say “we have barely heard from this room”. The new formula issues "
         "no verdict at all and puts it on the watch list.", after=10)
 
     d.h("6. How I chose those numbers, honestly", level=1)
@@ -481,8 +484,8 @@ def build_how():
              ["How many analyses can we do a week?",
               f"The new formula produces about {(NEW_ACTS['video'] + NEW_ACTS['transcript']) / WEEKS:.0f} a week "
               f"({NEW_ACTS['video'] / WEEKS:.1f} videos and the rest transcripts). A PM can do about 12."],
-             ["Should one vote be able to flip a verdict?",
-              "A class sitting exactly on 4.6 or exactly on 80% can flip on one learner. Making each line a "
+             ["Should one learner's answer be able to flip a verdict?",
+              "A class sitting exactly on 4.6 or exactly on 80% can flip on one learner. Making each standard a "
               "narrow grey zone would stop it."],
              ["When do we know for sure?",
               "When the five classes in Group 1 have been through a video analysis and we see whether it asks "
@@ -491,13 +494,14 @@ def build_how():
 
     d.h("8. Words used in this document", level=1)
     d.table(["Word", "What it means"],
-            [["The rating", "the average stars learners gave the class, out of 5"],
-             ["Wanting the instructor again", "the share of voters who answered yes to “would you want this instructor to take the class again?”"],
+            [["The class rating", "the average stars learners gave the class, out of 5"],
+             ["Instructor approval", "the share of learners who answered yes to “would you want this instructor to take the class again?”"],
+             ["Approval responses", "how many learners answered that question at all"],
              ["4.6", "the rating at or above which we consider a class acceptable — the VP's number"],
-             ["80%", "the share of learners wanting the instructor again that we consider acceptable"],
-             ["Turnout", "how much of the room rated the class: people who rated ÷ people who attended"],
+             ["80%", "the instructor approval we consider acceptable"],
+             ["Learners who rated ÷ learners who attended", "how much of the room rated the class. Shown to the PM, never scored"],
              ["Label", "Excellent, Good, Average or Bad"],
-             ["Provisional", "a label based on 3 to 5 votes. It is shown, but no work is triggered by it"],
+             ["Provisional", "a label based on 3 to 5 approval responses. It is shown, but no work is triggered by it"],
              ["Video analysis", "the AI watches the recording and reports what went wrong, and whether the class should be re-taught"]],
             widths=[5.0, 12.2], bold_first=True, size=10)
     d.save(HOW_OUT)
