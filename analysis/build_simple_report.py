@@ -92,6 +92,37 @@ TIER1 = sorted([d for d in DISPUTED if d["test_first"].startswith("1.")], key=la
 TIER3 = sorted([d for d in DISPUTED if d["test_first"].startswith("3.")], key=lambda d: -d["rating"])
 
 
+def known_links():
+    """Recording links already stored against a class, keyed by (first name, topic words)."""
+    conn = ST.connect()
+    cur = conn.cursor()
+    cur.execute("""select c.topic, c.vimeo_link, i.name
+                     from classes c left join instructors i on i.id = c.instructor_id
+                    where c.vimeo_link is not null and c.vimeo_link <> ''""")
+    rows = cur.fetchall()
+    conn.close()
+    out = []
+    for topic, link, who in rows:
+        words = {w for w in str(topic or "").lower().replace("-", " ").split() if len(w) > 3}
+        first = str(who or "").split()[0].lower() if who else ""
+        out.append((first, words, link))
+    return out
+
+
+LINKS = known_links()
+
+
+def link_for(instructor, topic):
+    """The stored link for this class, or "" — the instructor's first name must match and at least
+    two meaningful words of the topic must overlap, so a wrong recording is never attached."""
+    first = str(instructor or "").split()[0].lower() if instructor else ""
+    words = {w for w in str(topic or "").lower().replace("-", " ").split() if len(w) > 3}
+    for kfirst, kwords, link in LINKS:
+        if kfirst and kfirst == first and len(words & kwords) >= 2:
+            return link
+    return ""
+
+
 def one(rating, rated, att, yes, no):
     inp = {"rating": rating, "num_ratings": rated, "attended": att, "yes_votes": yes, "no_votes": no,
            "escalated": False, "track_avg": None}
@@ -398,7 +429,7 @@ def _test_table(group):
           [[i, d["date"], d["module"][:26], _kind(d), d["instructor"][:14], f"{d['rating']:.2f}",
             f"{d['want_instructor_again']} ({d['want_instructor_again_pct']}%)",
             f"{d['karthika_score']:.0f} {d['karthika_says']}",
-            f"{d['new_score']:.0f} {d['new_says']}", ""]
+            f"{d['new_score']:.0f} {d['new_says']}", link_for(d["instructor"], d["module"])]
            for i, d in enumerate(group, 1)],
           widths=[0.6, 1.6, 3.4, 1.9, 1.9, 1.0, 2.2, 1.5, 1.5, 2.0], size=8.5)
 
@@ -414,8 +445,10 @@ para("These were rated 4.6 or better and judged by a handful of learners. If the
      "nothing wrong, the old formula is spending videos it does not need to.", color=MUTED, after=6)
 _test_table(TIER3[:8])
 
-para("Paste each class's recording link into the last column and the analysis can be run on all of "
-     "them in one go.", size=10, color=MUTED, after=8)
+_filled = sum(1 for d in list(TIER1) + list(TIER3[:8]) if link_for(d["instructor"], d["module"]))
+para(f"{_filled} of these recordings are already on file and their links are filled in. Paste the "
+     f"remaining ones into the last column and the analysis can be run on all of them in one go.",
+     size=10, color=MUTED, after=8)
 note("What the answer will mean",
      ["If the analysis asks for a re-class on any of these, the old formula was hiding real problems, "
       "because it told us nobody needed to look.",
