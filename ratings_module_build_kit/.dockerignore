@@ -6,8 +6,4 @@ __pycache__/
 outputs/
 test_*.py
 sample_transcript.vtt
-db.py
-metabase.py
-uplevel.py
-apply_schema.py
 README.md

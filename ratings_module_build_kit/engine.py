@@ -12,7 +12,7 @@ Pipeline:  parse (+ keep speakers)
            -> extract INSTRUCTOR findings per window, judged in full-session context (LLM)
            -> synthesise: verify against the whole session, drop learner-attributed / resolved-later
               artefacts, de-duplicate, write feedback + PM re-class call (LLM)
-Model:     Claude Sonnet 4.6 (pinned in Config). Set ANTHROPIC_API_KEY in the environment.
+Model:     Claude Sonnet 5 (pinned in Config). Set ANTHROPIC_API_KEY in the environment.
 
 Run:
   # plumbing check, no API key needed:
@@ -36,19 +36,31 @@ log = logging.getLogger("ratings_engine")
 # ───────────────────────────────────────────────────────────────────── config
 @dataclass(frozen=True)
 class Config:
-    model: str = "claude-sonnet-4-6"     # pinned for reproducibility
-    temperature: float = 0.0
+    # Claude Sonnet 5 (migrated from Sonnet 4.6, Sep 2026). Two API differences that matter here:
+    #  - sampling params (temperature/top_p/top_k) are REJECTED with a 400 - we no longer send any.
+    #    temperature=0 never guaranteed identical outputs anyway; the skeptic pass is the real
+    #    consistency guard.
+    #  - adaptive thinking is ON by default and its tokens count against max_tokens, and the new
+    #    tokenizer runs ~30% more tokens for the same text - so the caps below are sized with
+    #    generous headroom (a truncated response breaks the JSON contract and burns a repair call).
+    model: str = "claude-sonnet-5"       # pinned for reproducibility
     window_min: int = 30                 # extraction window length
     overlap_min: int = 2                 # carry context across windows
     max_retries: int = 4                 # network/5xx retries (SDK level)
-    timeout_s: float = 120.0
-    max_tokens_extract: int = 4000
-    max_tokens_synth: int = 3000
-    max_tokens_skeptic: int = 1500       # the adversarial second-pass verdict call
-    repair_attempts: int = 1             # re-ask once if the JSON is malformed/invalid
+    timeout_s: float = 240.0             # adaptive thinking makes long calls longer
+    # Adaptive thinking runs by default and its tokens come out of these same budgets, so each of
+    # these is roughly double what the visible answer needs. The self-check used to have the
+    # SMALLEST budget of all while being one call covering every finding at once - so it failed
+    # most often on exactly the classes with the most to check.
+    max_tokens_extract: int = 16000
+    max_tokens_synth: int = 16000
+    max_tokens_skeptic: int = 12000      # the adversarial second-pass verdict call
+    max_tokens_materials: int = 4000     # the materials->Markdown conversion call
+    max_tokens_map: int = 3000           # the whole-session map (adaptive thinking eats into this)
+    repair_attempts: int = 2             # re-ask if the JSON is malformed, truncated or invalid
     review_enabled: bool = True          # kill-switch: False restores the un-verified pipeline exactly
-    price_in_per_mtok: float = 3.0       # USD, for cost reporting only
-    price_out_per_mtok: float = 15.0
+    price_in_per_mtok: float = 2.0       # USD, for cost reporting only (Sonnet 5: $2 in / $10 out)
+    price_out_per_mtok: float = 10.0
 
 CFG = Config()
 
@@ -88,6 +100,14 @@ def one_level_down(s: str) -> str:
 # justify a re-class "yes" (see gate_reclass).
 CONTENT_DELIVERY_FLAGS = {"coverage", "correctness", "problem_coverage", "solution_walkthrough"}
 
+
+def content_delivery_flags(class_type: str = "live_class") -> set:
+    """The deciding flags that actually exist for this kind of class. `coverage` is live-class only
+    and `problem_coverage`/`solution_walkthrough` are test-review only, so the shared set always
+    named something the class in hand could not produce - quietly narrowing what a re-teach could
+    ever rest on."""
+    return CONTENT_DELIVERY_FLAGS & set(flags_for(class_type))
+
 # Code-enforced severity floors: (class_type, flag) → minimum severity. A floor violation is never
 # legitimate (learners treat reviewed ARS solutions as canonical), so this is code, not just prompt.
 SEVERITY_FLOORS = {("ars", "correctness"): "major"}
@@ -110,9 +130,12 @@ SEVERITY — use these exact bars; they are checkable claims, not impressions:
   minor    - a polish issue with little learning impact: brief dead air, a missed recap, sparse
              check-ins, a small logistics hiccup, low interactivity in an otherwise clear class.
 TIE-BREAK: if the evidence does not CLEARLY meet the bar for a severity, use the LOWER one.
-CEILINGS: engagement, camera, screen_share, logistics, structure, examples and coding_time are at
-most MODERATE unless the evidence is catastrophic AND quoted (e.g. a tech failure consuming a large
-fraction of the class). FLOOR: correctness in an ARS is MAJOR at minimum - learners treat reviewed
+This tie-break is about which severity to give a finding you are raising. It is NOT a reason
+to drop the finding: a real problem recorded as minor is useful, a real problem recorded as
+nothing is lost for good.
+CEILINGS: engagement, camera, screen_share, logistics and structure are at most MODERATE unless the
+evidence is catastrophic AND quoted (e.g. a tech failure consuming a large fraction of the class).
+Any other presentation-quality flag your rubric names is capped the same way. FLOOR: correctness in an ARS is MAJOR at minimum - learners treat reviewed
 solutions as canonical."""
 
 # ──────────────────────────────────────────────────────── transcript: parse + chunk
@@ -125,8 +148,15 @@ class Cue:
     speaker: str | None = None   # who said it, when the transcript tells us (instructor / a learner)
 
 def _ts_to_seconds(ts: str) -> float:
+    """Seconds from a caption timestamp. WebVTT makes the hours field OPTIONAL, so `MM:SS.mmm` is
+    valid and common; a bare `SS.mmm` turns up in hand-made files. Reject anything else loudly
+    rather than guessing - a wrong timestamp silently mis-places a finding."""
     ts = ts.strip().replace(",", ".")
-    h, m, s = ts.split(":")
+    parts = ts.split(":")
+    if len(parts) > 3 or not parts:
+        raise ValueError(f"not a caption timestamp: {ts!r}")
+    parts = ["0"] * (3 - len(parts)) + parts          # pad to H:M:S
+    h, m, s = parts
     return int(h) * 3600 + int(m) * 60 + float(s)
 
 def _seconds_to_ts(sec: float) -> str:
@@ -139,6 +169,57 @@ _VOICE_RE = re.compile(r"<v\s+([^>]+?)>", re.I)   # WebVTT voice tag:  <v Speake
 # A "Name:" line prefix — conservative: 1–3 capitalised words then a colon (avoids "Problem two:" etc.)
 _SPEAKER_PREFIX_RE = re.compile(r"^([A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,2}):\s+(?=\S)")
 
+# Words a teacher says with a colon all the time. Recurrence alone used to promote these to
+# "speakers", which both invented people and DELETED the word from the transcript - so a wrong
+# statement could be attributed to a learner who does not exist and dropped on that basis.
+_NOT_A_SPEAKER = {
+    "note", "notes", "output", "input", "example", "examples", "problem", "problems", "question",
+    "questions", "answer", "answers", "solution", "solutions", "step", "steps", "task", "tasks",
+    "hint", "hints", "tip", "tips", "warning", "error", "errors", "result", "results", "summary",
+    "recap", "agenda", "topic", "goal", "goals", "objective", "objectives", "definition", "syntax",
+    "code", "demo", "test", "tests", "data", "model", "function", "method", "class", "exercise",
+    "assignment", "homework", "reminder", "important", "key", "fix", "update", "aside", "caveat",
+    "context", "reference", "source", "reason", "idea", "point", "case", "rule", "formula",
+    "time complexity", "space complexity", "big o", "complexity", "edge case", "edge cases",
+    "right", "okay", "ok", "so", "now", "next", "then", "also", "and", "but", "because", "however",
+    "therefore", "finally", "first", "second", "third", "yes", "no", "correct", "exactly", "good",
+    "great", "sure", "alright", "actually", "basically", "again", "one", "two", "three", "four",
+    "part one", "part two", "part three", "q", "a", "todo", "to do", "pro tip", "for example",
+}
+
+
+def _looks_like_a_person(name: str | None) -> bool:
+    """A recurring `Word:` prefix is only a speaker if it is not an everyday teaching word."""
+    if not name:
+        return False
+    return name.strip().lower().rstrip(".") not in _NOT_A_SPEAKER
+
+def _cue_blocks(raw: str) -> list[list[str]]:
+    """Split a caption file into cue blocks. Blank lines are the normal separator, but plenty of
+    exporters omit them - so if that yields far fewer blocks than there are timestamp lines, fall
+    back to splitting ON the timestamp lines. Getting this wrong used to collapse an entire class
+    into one cue, silently."""
+    blocks = [[l for l in b.splitlines() if l.strip()]
+              for b in re.split(r"\n\s*\n", raw.strip())]
+    blocks = [b for b in blocks if b]
+    n_stamps = raw.count("-->")
+    if len(blocks) >= n_stamps or n_stamps == 0:
+        return blocks
+
+    lines = [l for l in raw.splitlines() if l.strip()]
+    stamp_at = [i for i, l in enumerate(lines) if "-->" in l]
+    out: list[list[str]] = []
+    for k, i in enumerate(stamp_at):
+        stop = stamp_at[k + 1] if k + 1 < len(stamp_at) else len(lines)
+        body = lines[i + 1:stop]
+        # the last line before the next timestamp is that cue's index, not this cue's text
+        if body and k + 1 < len(stamp_at) and body[-1].strip().isdigit():
+            body = body[:-1]
+        head = [lines[i - 1]] if i and lines[i - 1].strip().isdigit() and not out else []
+        out.append(head + [lines[i]] + body)
+    return out
+
+
 def parse_cues(raw: str) -> list[Cue]:
     """Parse .srt or .vtt *text* into timestamped cues, PRESERVING the speaker when the transcript
     marks it. Tolerant of WEBVTT headers, indices, BOM and inline tags.
@@ -149,8 +230,7 @@ def parse_cues(raw: str) -> list[Cue]:
     """
     raw = re.sub(r"^WEBVTT.*?\n\n", "", raw, flags=re.S)
     rows: list[list] = []   # [idx, start, end, text, voice_speaker, prefix_candidate]
-    for block in re.split(r"\n\s*\n", raw.strip()):
-        lines = [l for l in block.splitlines() if l.strip()]
+    for lines in _cue_blocks(raw):
         ti = next((i for i, l in enumerate(lines) if "-->" in l), None)
         if ti is None:
             continue
@@ -176,7 +256,8 @@ def parse_cues(raw: str) -> list[Cue]:
     # Promote a "Name:" prefix to a real speaker only if it RECURS (>= 2 cues); voice-tag speakers
     # are always trusted. This keeps stray colon-lines from being read as speakers.
     from collections import Counter
-    recurring = {n for n, c in Counter(r[5] for r in rows if r[5]).items() if c >= 2}
+    recurring = {n for n, c in Counter(r[5] for r in rows if r[5]).items()
+                 if c >= 2 and _looks_like_a_person(n)}
     cues: list[Cue] = []
     for idx, start, end, text, voice, cand in rows:
         speaker = voice
@@ -195,10 +276,15 @@ def chunk_by_time(cues: list[Cue], window_min: int = CFG.window_min, overlap_min
     if not cues:
         return []
     window, overlap = window_min * 60, overlap_min * 60
-    end = cues[-1].end
+    # Caption files are not always in order: a merged recording, an appended second track or a
+    # re-stamped closing line all put a stray timestamp out of sequence. Reading the first and last
+    # cue as the bounds then threw most of the class away without a word, so sort and take the real
+    # bounds. Every cue must land in exactly one window.
+    cues = sorted(cues, key=lambda c: (c.start, c.idx))
+    first, last = cues[0].start, cues[-1].start
     chunks: list[list[Cue]] = []
-    start = cues[0].start
-    while start < end:
+    start = first
+    while start <= last:
         lo = start - (overlap if chunks else 0)
         seg = [c for c in cues if lo <= c.start < start + window]
         if seg:
@@ -230,11 +316,36 @@ def _normalise_quote(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+_QUOTE_FURNITURE = re.compile(
+    r"""^\s*
+        (?:[\[\(]?\s*\d{1,2}:\d{2}(?::\d{2})?\s*[\]\)]?\s*)?      # a leading timestamp
+        (?:[A-Z][A-Za-z.'\u2019-]*(?:\s+[A-Z][A-Za-z.'\u2019-]*){0,2}\s*:\s+)?  # a leading "Name: "
+    """,
+    re.VERBOSE)
+
+
+def _strip_quote_furniture(quote: str) -> str:
+    """Remove the timestamp and speaker label the segment was RENDERED with, which the model is
+    invited to copy along with the words."""
+    out = _QUOTE_FURNITURE.sub("", quote, count=1)
+    # a quote spanning two cues can carry the next cue's furniture in the middle of it
+    out = re.sub(r"\s*[\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?\s*"
+                 r"(?:[A-Z][A-Za-z.'\u2019-]*(?:\s+[A-Z][A-Za-z.'\u2019-]*){0,2}\s*:)?\s*", " ", out)
+    return out.strip()
+
+
 def quote_present(transcript_text: str, quote: str) -> bool:
     """True if the (normalised) quote appears in the (normalised) transcript. A visual observation
     ('<visual: …>') is not a transcript quote — callers handle those separately."""
+    body = _normalise_quote(transcript_text)
     q = _normalise_quote(quote)
-    return bool(q) and q in _normalise_quote(transcript_text)
+    if q and q in body:
+        return True
+    # Try again without the timestamp and speaker label the model may have copied from the segment
+    # it was shown. Being unable to match a faithfully copied quote used to push the verifier
+    # toward dropping a true finding.
+    q2 = _normalise_quote(_strip_quote_furniture(quote))
+    return bool(q2) and q2 in body
 
 
 def excerpt_around(cues: list[Cue], timestamp: str, window_s: int = 120) -> str:
@@ -273,13 +384,17 @@ If a dimension is fine, raise nothing for it.
 
 [A] Read directly from the transcript:
   pace           - too fast or too slow; visible rushing (e.g. final agenda items compressed near the end).
-  clarity        - concepts explained clearly and correctly; jargon defined; no muddled/contradictory bits.
+  clarity        - a TRUE statement explained badly: muddled, contradictory, jargon left undefined.
+                   If the statement is factually WRONG, that is `correctness`, never `clarity`.
   structure      - logical flow, signposting ("first... now... to recap"), and a wrap-up/summary.
   examples       - concrete examples, live demos, or worked problems used to illustrate concepts.
-  correctness    - statements that appear technically wrong or misleading (a human verifies; be honest on confidence).
+  correctness    - a statement that is factually WRONG or misleading, however smoothly it was said.
+                   Use this whenever the content itself is wrong, even if the delivery was clear
+                   (a human verifies; be honest on confidence).
   logistics      - late start, long dead-air gaps, or tech problems the instructor mentions.
   coverage       - were the planned AGENDA items actually covered? Flag any planned item skipped or rushed.
   coding_time    - was a coding notebook / live coding actually used, and roughly >= 30 min spent on it? Estimate from timestamps.
+                   (examples and coding_time are capped at MODERATE, like the other delivery flags.)
   agenda_balance - did each agenda item get enough time (aim ~45 min), and did the IMPORTANT items get MORE time? Use timestamps.
   concept_left   - did the instructor DEFER a planned concept to a future class ("we'll cover this next time / next class")? Quote it.
 
@@ -296,7 +411,16 @@ If a dimension is fine, raise nothing for it.
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
 - For coding_time and agenda_balance, give the time range you estimated and the quotes that mark the start and end.
-- Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
+- Prefer PRECISION over completeness for JUDGEMENT calls - was the pace too fast, was the room
+  engaged, was the structure clear. If unsure about one of those, do not raise it.
+- The opposite applies to CHECKABLE CLAIMS about the subject matter. If the instructor states
+  something about the material that is wrong - a definition, a formula, what a parameter does, a
+  complexity, a result - RAISE it as `correctness`, and set confidence to what you actually believe
+  ("low" is a legitimate answer). Do not stay silent because you are only fairly sure. A later pass
+  reviews every such finding and removes the ones that do not hold up; nothing anywhere can recover
+  one you did not raise. A wrong statement learners wrote down is not a small thing.
+- Before you finish the segment: re-read the instructor's factual assertions about the subject and
+  ask of each one, plainly, "is that true?" Raise the ones that are not.
 - Never invent or paraphrase quotes."""
 
 RUBRIC_ARS = """\
@@ -311,7 +435,8 @@ WHAT AN ARS IS (read carefully):
 - Read the WHOLE-SESSION MAP given in CONTEXT first, and judge each segment IN THE CONTEXT OF THE WHOLE
   SESSION. If a doubt raised here is RESOLVED later (per the map), do NOT flag it as unresolved — that
   would be a text-segmentation artefact, not a real problem.
-- The assignment / planned problems are given in CONTEXT when available — use them to judge coverage.
+- The assignment / planned problems are given in CONTEXT when available — use them to judge how much
+  of the assignment was actually reviewed.
 - PLANNED CLASS MATERIALS (the assignment content / solutions outline) may also be given in CONTEXT —
   check the transcript against them for problem_coverage and correctness.
 - Use the [HH:MM:SS] timestamps to estimate how long was spent on each problem.
@@ -335,7 +460,8 @@ If a dimension is fine, raise nothing for it.
                          Raise only from what is said aloud.
   problem_deferred     - a problem pushed to a future session ("we'll do this one next time"). Quote it.
   pace                 - too fast or too slow; visible rushing.
-  clarity              - explanations clear and correct; jargon defined; no muddled/contradictory bits.
+  clarity              - a TRUE explanation delivered badly: muddled, contradictory, jargon undefined.
+                         If the content itself is WRONG, that is `correctness`, never `clarity`.
   structure            - per-problem flow (restate -> approach -> solution -> complexity -> mistakes) and a recap.
   correctness          - anything technically wrong in a presented solution. Raise at MAJOR severity at
                          minimum — learners treat reviewed solutions as canonical.
@@ -355,7 +481,16 @@ If a dimension is fine, raise nothing for it.
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
 - For problem_coverage and time_balance, give the time range you estimated and the quotes that mark start and end.
-- Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
+- Prefer PRECISION over completeness for JUDGEMENT calls - was the pace too fast, was the room
+  engaged, was the structure clear. If unsure about one of those, do not raise it.
+- The opposite applies to CHECKABLE CLAIMS about the subject matter. If the instructor states
+  something about the material that is wrong - a definition, a formula, what a parameter does, a
+  complexity, a result - RAISE it as `correctness`, and set confidence to what you actually believe
+  ("low" is a legitimate answer). Do not stay silent because you are only fairly sure. A later pass
+  reviews every such finding and removes the ones that do not hold up; nothing anywhere can recover
+  one you did not raise. A wrong statement learners wrote down is not a small thing.
+- Before you finish the segment: re-read the instructor's factual assertions about the subject and
+  ask of each one, plainly, "is that true?" Raise the ones that are not.
 - Never invent or paraphrase quotes."""
 
 RUBRICS = {"live_class": RUBRIC_LIVE, "ars": RUBRIC_ARS}
@@ -366,20 +501,37 @@ SECTION_C_TRANSCRIPT_ONLY = """\
 [C] Needs the video, not the transcript (raise ONLY on a clear verbal cue; otherwise leave for a separate check on the recording):
   camera         - whether the instructor's camera is on. The transcript cannot show this; only flag if they say e.g. "can you see me?".
   screen_share   - screen-sharing problems. Only flag on a clear verbal cue (e.g. "can you see my screen?", "it's frozen").
-  slides_mismatch - do NOT raise without video; leave for the recording check."""
+[[SECTION_C_LIVE_ONLY_NOVIDEO]]"""
 
 SECTION_C_WITH_VIDEO = """\
 [C] Judged from the VISUAL TRACK in CONTEXT (sampled frames from the recording — treat it as ground
     truth about what was on screen, with the stated sampling gaps):
   camera         - instructor camera off or absent for a meaningful span of the class.
-  screen_share   - screen not shared, frozen, wrong window, or unreadably small text while teaching.
-  slides_mismatch - what is visibly on screen does not match the PLANNED CLASS MATERIALS outline
-                    (planned slides/topics never appear on screen).
-  Also CROSS-CHECK coding_time: if the transcript claims live coding but no notebook/code is visible
-  in that span of the visual track, flag it.
+  engagement     - if the track reports LEARNERS VISIBLE, a large fall over the session is real
+                   evidence about the room. If it reports CHAT LEFT UNANSWERED, questions were
+                   sitting on screen with no reply - the transcript usually cannot show this.
+  A stretch marked NOT OBSERVED is exactly that: raise nothing about it, in either direction.
+  screen_share   - screen not shared at all, or a visible error left unresolved on screen, while
+                   teaching. Do NOT judge whether text was too small to read: the frames are
+                   downscaled before you see them, so small text in the track is our doing, not the
+                   instructor's. Do not judge "frozen" or "wrong window" either - a still frame
+                   cannot show either one.
+[[SECTION_C_LIVE_ONLY]]
   Visual evidence items use {"timestamp":"HH:MM:SS","quote":"<visual: camera off 00:14:30-00:31:00>",
   "source":"video"} — the '<visual: ...>' form is exempt from the verbatim-transcript rule but MUST
   restate a line from the VISUAL TRACK, never an invented one."""
+
+# Two of section C's checks name flags that exist only for a live class. Left in a test-review
+# prompt they invited the model to return a flag the validator rejects, which burnt the one repair
+# attempt and then killed the whole class analysis.
+SECTION_C_LIVE_ONLY_NOVIDEO = """  slides_mismatch - do NOT raise without video; leave for the recording check."""
+
+SECTION_C_LIVE_ONLY = """\
+  slides_mismatch - what is visibly on screen does not match the PLANNED CLASS MATERIALS outline
+                    (planned slides/topics never appear on screen).
+  Also CROSS-CHECK coding_time: if the transcript claims live coding but no notebook/code is visible
+  in that span of the visual track, flag it."""
+
 
 # ── Pass 0: understand the WHOLE conversation before judging any part of it ──────────────────
 # This is what makes the analysis intelligent rather than a per-segment text matcher: one pass reads
@@ -401,19 +553,56 @@ CONV_MAP_SYS = (
 
 CONV_MAP_MAX_CHARS = 60000   # cap the transcript fed to the map pass (very long sessions are truncated)
 
+def _map_slices(cues: list[Cue]) -> list[list[Cue]]:
+    """Consecutive groups of cues, each small enough to map in one call. Every cue is in exactly
+    one group, so the END of the session is always described."""
+    out: list[list[Cue]] = []
+    cur: list[Cue] = []
+    size = 0
+    for c in cues:
+        cost = len(c.text) + 24                       # text plus the "[HH:MM:SS] Name: " it renders with
+        if cur and size + cost > CONV_MAP_MAX_CHARS:
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(c)
+        size += cost
+    if cur:
+        out.append(cur)
+    return out
+
+
 def map_conversation(client, cues: list[Cue], ctx: str, usage: "Usage") -> str:
-    """Read the whole transcript once and return a neutral session map (speakers, arc, what got resolved)."""
-    body = format_segment(cues)
-    truncated = len(body) > CONV_MAP_MAX_CHARS
-    if truncated:
-        body = body[:CONV_MAP_MAX_CHARS]
-    user = (
-        f"CLASS CONTEXT\n{ctx}\n\n"
-        f"FULL TRANSCRIPT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known):\n{body}\n\n"
-        + ("[note: transcript truncated for length — map what you can]\n\n" if truncated else "")
-        + "Produce the session map now."
-    )
-    return _call(client, CONV_MAP_SYS, user, 1200, usage).strip()
+    """A neutral map of the session: speakers, arc, what got resolved, what was left open.
+
+    This map is the ONLY whole-class context every later pass gets, and they are told not to flag
+    anything the session resolves later. It used to be a prefix cut of the transcript, so on a long
+    class it described the first hour or so and the later passes still trusted it about the end -
+    a wrong statement made in the final half hour was outside the only evidence that could have
+    excused or confirmed it. Long sessions are now mapped in consecutive parts instead.
+    """
+    slices = _map_slices(cues)
+    parts: list[str] = []
+    for i, seg in enumerate(slices, 1):
+        span = f"{_seconds_to_ts(seg[0].start)}-{_seconds_to_ts(seg[-1].end)}"
+        scope = ("" if len(slices) == 1 else
+                 f"\nThis is PART {i} OF {len(slices)} of one class, covering {span}. Map only what is "
+                 f"in front of you; a thread you cannot see resolved here may be resolved in another "
+                 f"part.\n")
+        user = (
+            f"CLASS CONTEXT\n{ctx}\n{scope}\n"
+            f"TRANSCRIPT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known):\n"
+            f"{format_segment(seg)}\n\n"
+            "Produce the session map now."
+        )
+        one = _call(client, CONV_MAP_SYS, user, CFG.max_tokens_map, usage).strip()
+        if not one:
+            log.warning("session map part %d of %d came back empty", i, len(slices))
+            continue
+        parts.append(one if len(slices) == 1 else f"--- PART {i} OF {len(slices)} ({span}) ---\n{one}")
+    if not parts:
+        log.warning("session map is empty; later passes will run without whole-class context")
+        return ""
+    return "\n\n".join(parts)
 
 EXTRACT_SYS = (
     "You are a precise teaching-quality auditor reviewing ONE segment of a class transcript that may "
@@ -421,7 +610,7 @@ EXTRACT_SYS = (
     "extract only evidence-backed findings ABOUT THE INSTRUCTOR, as strict JSON. Rules you never break: "
     "never blame the instructor for a learner's words; use the whole-session map for context and never "
     "flag something the session resolves elsewhere; every quote is copied verbatim from the segment; you "
-    "never invent or paraphrase quotes; you prefer returning nothing over raising an unsupported flag; "
+    "never invent or paraphrase quotes; you never raise a flag with no evidence behind it, but you DO raise a checkable factual error at the confidence you actually hold rather than staying silent - a later pass removes what does not hold up, and nothing can recover what you never said; "
     "you output JSON only — no prose, no code fences."
 )
 
@@ -430,10 +619,21 @@ def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_clas
     allowed = "|".join(sorted(flags_for(class_type)))
     rubric = RUBRICS[class_type].replace(
         "[[SECTION_C]]", SECTION_C_WITH_VIDEO if has_video else SECTION_C_TRANSCRIPT_ONLY)
+    legal = set(flags_for(class_type))
+    rubric = rubric.replace(
+        "[[SECTION_C_LIVE_ONLY]]",
+        SECTION_C_LIVE_ONLY if {"slides_mismatch", "coding_time"} <= legal else "")
+    rubric = rubric.replace(
+        "[[SECTION_C_LIVE_ONLY_NOVIDEO]]",
+        SECTION_C_LIVE_ONLY_NOVIDEO if "slides_mismatch" in legal else "")
     return (
         f"CLASS CONTEXT\n{ctx}\n\n{rubric}\n\n{SEVERITY_ANCHORS}\n\n"
         f"TRANSCRIPT SEGMENT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known — "
         f"lines with no name are usually the instructor, but confirm from content):\n{segment_text}\n\n"
+        "WHICH LABEL YOU CHOOSE HAS A CONSEQUENCE. These flags, and only these, can lead to learners "
+        f"being asked to re-attend the class: {', '.join(sorted(content_delivery_flags(class_type)))}. "
+        "So do not reach for a softer neighbouring label to be kind, and do not reach for one of these "
+        "unless the evidence really is about content that was wrong or never delivered.\n"
         "BEFORE extracting: attribute each line to the instructor or a learner. Judge ONLY the instructor. "
         "Do not raise anything the whole-session map shows is resolved later, and never turn a learner's "
         "words into an instructor flag.\n"
@@ -459,15 +659,21 @@ SYNTH_SYS = (
 def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class",
                      has_video: bool = False) -> str:
     if class_type == "ars":
-        frame = ("   - Frame the points around the PROBLEMS reviewed (coverage, walkthrough depth, reasoning),\n"
+        frame = ("   - Frame the points around the PROBLEMS reviewed (how much was covered, walkthrough\n"
+                 "     depth, reasoning),\n"
                  "     not agenda items.\n")
-        yes_rule = ('     - "yes"   : assigned problems were skipped or badly rushed, OR a presented solution was\n'
-                    "                 technically wrong or so unclear that learners likely did not get it (learners\n"
-                    "                 treat reviewed solutions as canonical).\n")
+        yes_rule = ('     - "yes"   : ONLY for a provable MAJOR failure of correctness,\n'
+                    "                 problem_coverage or solution_walkthrough - an assigned problem skipped\n"
+                    "                 ENTIRELY, or a presented solution that is provably WRONG (learners treat\n"
+                    "                 reviewed solutions as canonical). Rushed or muddled but delivered is\n"
+                    "                 'maybe', not 'yes'.\n")
     else:
         frame = ""
-        yes_rule = ('     - "yes"   : important planned agenda content was not covered or was badly rushed, OR core\n'
-                    "                 concepts were explained incorrectly or so unclearly that learners likely did not get them.\n")
+        yes_rule = ('     - "yes"   : ONLY for a provable MAJOR failure of coverage or correctness - a planned\n'
+                    "                 core agenda item skipped ENTIRELY (or compressed so badly it cannot have\n"
+                    "                 landed), or a core concept taught PROVABLY WRONG and never corrected.\n"
+                    "                 Content that was rushed, muddled or thin but still delivered is\n"
+                    "                 'maybe', not 'yes'.\n")
     return (
         f"CLASS CONTEXT\n{ctx}\n\n"
         f"RAW FINDINGS collected from segment passes:\n{findings_json}\n\n"
@@ -534,7 +740,8 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         '"feedback":"the DETAILED coaching message (internal), referencing timestamps",'
         '"instructor_summary":"the note to SEND to the instructor: one opening line with the rating, then '
         '4-5 bullets max, each a specific problem + Fix, with NO timestamps",'
-        '"reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only","deciding_flags":["coverage","correctness"]}}'
+        '"reclass":{"recommended":"yes|no|maybe","reason":"1-2 sentences for the PM only",'
+        f'"deciding_flags":{json.dumps(sorted(content_delivery_flags(class_type))[:2])}}}}}'
     )
 
 # ── Stage 4: adversarial verification (the skeptic) ────────────────────────────────
@@ -655,6 +862,32 @@ def merge_conservative(v1: list[dict], v2: list[dict]) -> list[dict]:
     return [by_id[k] for k in sorted(by_id)]
 
 
+_GROUNDED_DROP = ("learner", "not the instructor", "quote", "does not support", "misattribut",
+                  "not in the transcript", "wrong speaker", "resolved later", "self-correct")
+
+
+def _drop_is_grounded(verdict: dict) -> bool:
+    """A drop that rests on a checkable failure - the quote does not say it, the speaker was a
+    learner, the session resolves it - rather than on an opinion about severity."""
+    txt = f"{verdict.get('anchor_rule', '')} {verdict.get('reason', '')}".lower()
+    return any(w in txt for w in _GROUNDED_DROP)
+
+
+def apply_floors(result: dict, class_type: str) -> dict:
+    """Raise any finding that arrived below a code-set floor. The floors existed to make one rule
+    non-negotiable - a wrong solution in a test review is major, because learners treat reviewed
+    solutions as canonical - but they were only ever consulted when something tried to lower a
+    finding, so the same finding arriving low simply stayed low."""
+    for f in (result.get("flags") or []):
+        if not isinstance(f, dict):
+            continue
+        floor = SEVERITY_FLOORS.get((class_type, f.get("flag")))
+        if floor and severity_rank(f.get("severity", "minor")) < severity_rank(floor):
+            f["floor_applied_from"] = f.get("severity")
+            f["severity"] = floor
+    return result
+
+
 def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple[dict, list[dict]]:
     """Apply skeptic verdicts mechanically. Guards: downgrades move at most ONE level per pass
     (a bigger swing is recorded, not applied); code-side severity floors always win; drops keep a
@@ -675,6 +908,21 @@ def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple
         rec = {"flag": name, "verdict": v["verdict"], "from_severity": sev,
                "anchor_rule": v.get("anchor_rule", ""), "reason": v.get("reason", "")}
         if v["verdict"] == "drop":
+            floor = SEVERITY_FLOORS.get((class_type, name))
+            if floor and severity_rank(sev) >= severity_rank(floor):
+                # The floor used to guard only the downgrade path, so a verifier that wanted the
+                # finding reduced could delete it instead and the guard never fired - the mild
+                # action was blocked and the total one waved through. A finding at or above a
+                # code-set floor may still be dropped, but only on a stated attribution or
+                # evidence failure, never on a judgement call about how bad it was.
+                if not _drop_is_grounded(v):
+                    rec["verdict"] = "uphold"
+                    rec["to_severity"] = sev
+                    rec["reason"] = (rec["reason"] + f" [floor: {name} in an {class_type} may only be "
+                                     "dropped on an attribution or evidence failure]").strip()
+                    review.append(rec)
+                    kept.append(f)
+                    continue
             rec["to_severity"] = None
             review.append(rec)
             continue  # flag removed
@@ -711,21 +959,72 @@ def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple
     return out, review
 
 
-def gate_reclass(result: dict) -> dict:
+def surviving_summary(result: dict) -> str:
+    """What is actually left, in one plain clause, written by code rather than by the model."""
+    counts: dict[tuple, int] = {}
+    for f in (result.get("flags") or []):
+        if isinstance(f, dict) and f.get("severity") in ("major", "moderate"):
+            key = (f.get("flag"), f.get("severity"))
+            counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return "Nothing at moderate or major severity was left standing."
+    parts = []
+    for (flag, sev), n in sorted(counts.items(), key=lambda kv: (kv[0][1] != "major", kv[0][0])):
+        name = str(flag).replace("_", " ")
+        parts.append(f"{n} {name} ({sev})" if n > 1 else f"{name} ({sev})")
+    return "What was left standing: " + ", ".join(parts) + "."
+
+
+def attach_evidence(result: dict) -> dict:
+    """Put the code's own account of the surviving findings onto the re-class call.
+
+    The sentence a PM reads is written by a model, and on a real class it said "one major
+    correctness issue survived review" when three had. Counting is not the model's job.
+    """
+    rc = result.get("reclass")
+    if not isinstance(rc, dict):
+        return result
+    summary = surviving_summary(result)
+    rc["surviving"] = summary
+    reason = str(rc.get("reason") or "").strip()
+    if summary and summary not in reason:
+        rc["reason"] = (reason + " " + summary).strip() if reason else summary
+    return result
+
+
+def gate_reclass(result: dict, class_type: str = "live_class") -> dict:
     """A re-class 'yes' must rest on at least one surviving MAJOR content-delivery flag; otherwise
     it is auto-softened to 'maybe' (visibly). 'maybe' is never upgraded; 'no' is never touched."""
     rc = result.get("reclass") or {}
     if rc.get("recommended") != "yes":
         return result
-    has_support = any(
-        f.get("severity") == "major" and f.get("flag") in CONTENT_DELIVERY_FLAGS
-        for f in (result.get("flags") or []) if isinstance(f, dict)
-    )
+    # A re-teach is the most expensive thing this system can ask for, so it must rest on a finding
+    # the model itself is not hedging about. Confidence was collected, displayed, and consulted
+    # nowhere: a finding marked "low" could send a whole cohort back to a repeated class.
+    deciding = [f for f in (result.get("flags") or []) if isinstance(f, dict)
+                and f.get("severity") == "major"
+                and f.get("flag") in content_delivery_flags(class_type)]
+    has_support = any(f.get("confidence") in ("medium", "high") for f in deciding)
+    hedged = bool(deciding) and not has_support
+    live = {f.get("flag") for f in (result.get("flags") or []) if isinstance(f, dict)}
+    named = [x for x in (rc.get("deciding_flags") or []) if x in live]
+    if rc.get("deciding_flags") is not None:
+        rc["deciding_flags"] = named          # never point the PM at a finding that was deleted
     if not has_support:
         rc["softened_from"] = "yes"
         rc["recommended"] = "maybe"
-        rc["reason"] = ("[auto-softened from 'yes': no confirmed major content-delivery flag "
-                        "survived verification] " + str(rc.get("reason", ""))).strip()
+        surviving = sorted({f.get("flag") for f in (result.get("flags") or [])
+                            if isinstance(f, dict)
+                            and f.get("flag") in content_delivery_flags(class_type)
+                            and f.get("severity") in ("moderate", "major")})
+        if hedged:
+            note = ("[auto-softened from 'yes': the finding it rested on is marked low confidence, "
+                    "so it is not enough on its own to ask learners to re-attend] ")
+        else:
+            note = ("[auto-softened from 'yes': no major content finding was left standing"
+                    + (f"; what did survive: {', '.join(surviving)}" if surviving else "")
+                    + "] ")
+        rc["reason"] = (note + str(rc.get("reason", ""))).strip()
     return result
 
 
@@ -834,6 +1133,7 @@ class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
     calls: int = 0
+    truncated: int = 0           # replies the model was still writing when it hit the cap
     def cost_usd(self) -> float:
         return (self.input_tokens * CFG.price_in_per_mtok + self.output_tokens * CFG.price_out_per_mtok) / 1_000_000
 
@@ -842,7 +1142,20 @@ def _client():
     return anthropic.Anthropic(max_retries=CFG.max_retries, timeout=CFG.timeout_s)
 
 def _strip_fences(s: str) -> str:
-    return re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
+    """The JSON the model meant to send, with code fences and any chatty preamble removed.
+
+    Stripping only the fence LINES left "Here is the JSON you asked for:" in front of the object,
+    which failed to parse and burnt a whole repair attempt on something a bracket match fixes.
+    """
+    out = re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
+    if out[:1] in "{[":
+        return out
+    starts = [i for i in (out.find("{"), out.find("[")) if i != -1]
+    if not starts:
+        return out
+    i = min(starts)
+    j = max(out.rfind("}"), out.rfind("]"))
+    return out[i:j + 1].strip() if j > i else out
 
 # An SDK upgrade that removes a keyword we pass must not take the whole tool down: losing
 # temperature=0 costs us some determinism, dying costs the team every analysis. (anthropic 1.x
@@ -867,37 +1180,77 @@ def _create_message(client, **kwargs):
         return client.messages.create(**kwargs)
 
 
-def _call(client, system: str, user: str, max_tokens: int, usage: Usage) -> str:
+class _Truncated(ValueError):
+    """The model was still writing when it hit its budget. A repair must ask for something shorter,
+    not the same thing again."""
+
+
+def _call(client, system: str, user: str, max_tokens: int, usage: Usage,
+          note_truncation: bool = False) -> str:
     t = time.time()
+    # No sampling params: Sonnet 5 rejects non-default temperature/top_p/top_k with a 400.
+    # No thinking param either - the model runs adaptive thinking by default; our text extractor
+    # below only reads "text" blocks, so thinking blocks pass through harmlessly.
     msg = _create_message(
         client,
-        model=CFG.model, max_tokens=max_tokens, temperature=CFG.temperature,
+        model=CFG.model, max_tokens=max_tokens,
         system=system, messages=[{"role": "user", "content": user}],
     )
     usage.input_tokens += msg.usage.input_tokens
     usage.output_tokens += msg.usage.output_tokens
     usage.calls += 1
+    # A reply that hit the cap is a HALF answer, not a short one. Left undetected it looked like a
+    # quiet window: findings the model was still writing were simply lost, and on the plain-text
+    # map pass there was no JSON parse to fail loudly either.
+    was_cut = getattr(msg, "stop_reason", None) == "max_tokens"
+    if was_cut:
+        usage.truncated += 1
+        log.warning("model reply hit the %d-token cap and was cut off mid-answer", max_tokens)
     log.info("llm call ok  in=%d out=%d  %.1fs", msg.usage.input_tokens, msg.usage.output_tokens, time.time() - t)
-    return "".join(b.text for b in msg.content if b.type == "text")
+    text = "".join(b.text for b in msg.content if b.type == "text")
+    if was_cut and note_truncation:
+        raise _Truncated(text)
+    return text
 
-def _call_json(client, system: str, user: str, max_tokens: int, validate: Callable[[Any], list[str]], usage: Usage) -> dict:
-    """Call the model, parse + validate JSON, and re-ask once if it is malformed or invalid."""
-    text = _call(client, system, user, max_tokens, usage)
-    for attempt in range(CFG.repair_attempts + 1):
+def _call_json(client, system: str, user: str, max_tokens: int, validate: Callable[[Any], list[str]],
+               usage: Usage) -> dict:
+    """Call the model, parse + validate JSON, and re-ask if it is malformed, truncated or invalid.
+
+    A reply that ran out of budget mid-sentence and a reply that is simply wrong both arrive as
+    unparseable JSON, and they need opposite corrections. Telling the model "return corrected JSON
+    only" when what actually happened is that it was cut off produces the same overlong answer
+    again. So truncation is detected and answered on its own terms: say it was cut off, and ask for
+    a complete, more compact reply.
+    """
+    def ask(prompt: str) -> tuple[str, bool]:
         try:
-            obj = json.loads(_strip_fences(text))
-            errs = validate(obj)
-            if not errs:
-                return obj
-            problem = "Validation errors: " + "; ".join(errs[:8])
-        except json.JSONDecodeError as e:
-            problem = f"Invalid JSON: {e}"
+            return _call(client, system, prompt, max_tokens, usage, note_truncation=True), False
+        except _Truncated as cut:
+            return str(cut), True
+
+    text, was_cut = ask(user)
+    for attempt in range(CFG.repair_attempts + 1):
+        if was_cut:
+            problem = (f"Your previous reply was CUT OFF after {max_tokens} tokens - it was never "
+                       "finished, so it could not be read. Answer again, complete this time, and "
+                       "keep it compact: same JSON shape and the same findings, but say each thing "
+                       "in as few words as you can.")
+        else:
+            try:
+                obj = json.loads(_strip_fences(text))
+                errs = validate(obj)
+                if not errs:
+                    return obj
+                problem = ("Your previous reply was invalid. Validation errors: "
+                           + "; ".join(errs[:8]) + "\nReturn corrected JSON only.")
+            except json.JSONDecodeError as e:
+                problem = (f"Your previous reply was not valid JSON: {e}\n"
+                           "Return the whole answer again as valid JSON only - no prose, no fences.")
         if attempt >= CFG.repair_attempts:
-            raise ValueError(f"model output still invalid after repair — {problem}")
-        log.warning("repairing model output: %s", problem)
-        text = _call(client, system,
-                     user + f"\n\nYour previous reply was invalid. {problem}\nReturn corrected JSON only.",
-                     max_tokens, usage)
+            short = problem.split("\n")[0]
+            raise ValueError(f"model output still invalid after repair — {short}")
+        log.warning("repairing model output (attempt %d): %s", attempt + 1, problem.split("\n")[0][:120])
+        text, was_cut = ask(user + "\n\n" + problem)
     raise RuntimeError("unreachable")
 
 def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
@@ -913,40 +1266,97 @@ def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
 # so this enforces it in code, on every path that can produce the note.
 SUMMARY_MAX_BULLETS = 5
 
-# "[00:12:34]", "(01:02)", "at 00:12:34 —" … with any bracketing and adjacent filler ("at", "around").
+# "[00:12:34]", "(01:02:03)", "at 00:12:34 —". Deliberately NARROW: a bare "10:30" or "80:20" in a
+# sentence is a clock time or a ratio, not a transcript timestamp, and stripping those turned
+# "apply the 80:20 rule" into "apply the rule" and "averaged 4:55 out of 5" into "averaged out of 5".
+# So a bare pair now has to be bracketed, or carry the HH:MM:SS shape a transcript actually uses.
 _TS_IN_SUMMARY = re.compile(
-    r"""\s*(?:\b(?:at|around|near|from|by)\b\s*)?      # optional lead-in word
-        [\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?        # the timestamp itself
-        (?:\s*[-–—]\s*[\[\(]?\d{1,2}:\d{2}(?::\d{2})?[\]\)]?)?   # optional range
+    r"""\s*(?:\b(?:at|around|near|from|by)\b\s*)?          # optional lead-in word
+        (?:
+            [\[\(]\s*\d{1,2}:\d{2}(?::\d{2})?\s*          # bracketed: [01:02] or (00:12:34)
+              (?:[-–—]\s*\d{1,2}:\d{2}(?::\d{2})?\s*)?
+            [\]\)]
+          |
+            \b\d{1,2}:\d{2}:\d{2}\b                        # or the full HH:MM:SS form, unbracketed
+              (?:\s*[-–—]\s*\d{1,2}:\d{2}:\d{2}\b)?
+        )
     """,
     re.VERBOSE,
 )
 
+# Anything that would tell the instructor the PM's re-teach decision. That call is for the PM alone;
+# four prompts said so and no line of code checked.
+_RECLASS_WORDS = re.compile(
+    r"\b(re-?class(?:ed|ing)?|re-?teach(?:ing)?|re-?taught|re-?attend(?:ance)?|"
+    r"repeat this (?:class|session)|make-?up (?:class|session)|run (?:it|this) again)\b", re.I)
 
-def tidy_instructor_summary(text: str) -> str:
-    """Strip timestamps from the send-to-instructor note and cap it at SUMMARY_MAX_BULLETS.
 
-    Bullets are written most-important-first, so trimming keeps the ones that matter.
+_BULLET_RE = re.compile(r"^\s*(?:[-*•–—]\s|\d{1,2}[.)]\s)")
+
+
+def _clean_line(raw: str) -> str:
+    """One line with transcript timestamps removed and the punctuation they left behind tidied."""
+    line = _TS_IN_SUMMARY.sub("", raw)
+    line = re.sub(r"\s*[\(\[]\s*[,;:.\-–—\s]*[\)\]]", "", line)
+    line = re.sub(r"\s+([,.;:])", r"\1", line)
+    line = re.sub(r"([,;:])\s*([.;:])", r"\2", line)
+    return re.sub(r"[ \t]{2,}", " ", line).rstrip()
+
+
+def _bullet_rank(text: str, flags: list | None) -> int:
+    """How serious a bullet is, judged by the finding it is about. Lower sorts first."""
+    order = {"major": 0, "moderate": 1, "minor": 2}
+    body = text.lower()
+    best = 3
+    for f in (flags or []):
+        if not isinstance(f, dict):
+            continue
+        name = str(f.get("flag") or "").replace("_", " ")
+        words = [w for w in name.split() if len(w) > 3] or [name]
+        if name and all(w in body for w in words):
+            best = min(best, order.get(f.get("severity"), 2))
+    # a bullet that plainly describes wrong content outranks a polish note even when no flag matched
+    if best == 3 and re.search(r"\b(incorrect|wrong|not correct|misstat|inaccurate)\b", body):
+        best = 0
+    return best
+
+
+def tidy_instructor_summary(text: str, flags: list | None = None) -> str:
+    """Clean the send-to-instructor note: drop transcript timestamps, keep the re-teach decision out
+    of it, and cap it at SUMMARY_MAX_BULLETS.
+
+    The cap used to keep the FIRST five bullets on the assumption that the model writes them
+    most-important-first. Nothing checked that, and two later passes are free to reorder them - so a
+    note could keep five notes about the camera and the dead air and delete the one saying a concept
+    was taught wrongly. Bullets are now ordered by the severity of the finding they describe before
+    the cap is applied, and every bullet style is counted, not just dashes.
     """
     if not isinstance(text, str) or not text.strip():
         return text
-    out_lines: list[str] = []
-    bullets = 0
-    for raw in text.splitlines():
-        line = _TS_IN_SUMMARY.sub("", raw)
-        # Tidy what the removal left behind: brackets now holding only punctuation — "(,)", "[ - ]" —
-        # then stray space before punctuation, doubled punctuation, and doubled spaces.
-        line = re.sub(r"\s*[\(\[]\s*[,;:.\-–—\s]*[\)\]]", "", line)
-        line = re.sub(r"\s+([,.;:])", r"\1", line)
-        line = re.sub(r"([,;:])\s*([.;:])", r"\2", line)
-        line = re.sub(r"[ \t]{2,}", " ", line).rstrip()
-        if re.match(r"\s*[-*•]\s", line):
-            bullets += 1
-            if bullets > SUMMARY_MAX_BULLETS:
-                continue
-        if line.strip() or out_lines:      # keep internal blank lines, drop leading ones
-            out_lines.append(line)
-    return "\n".join(out_lines).strip()
+
+    lines = [_clean_line(l) for l in text.splitlines()]
+
+    # group each bullet with its wrapped continuation lines, so trimming never orphans a "Fix:"
+    preamble: list[str] = []
+    groups: list[list[str]] = []
+    for line in lines:
+        if _BULLET_RE.match(line):
+            groups.append([line])
+        elif groups:
+            groups[-1].append(line)
+        else:
+            preamble.append(line)
+
+    kept = [g for g in groups if not _RECLASS_WORDS.search(" ".join(g))]
+    if len(kept) != len(groups):
+        log.warning("removed %d bullet(s) that named the re-class decision from the instructor note",
+                    len(groups) - len(kept))
+
+    order = sorted(range(len(kept)), key=lambda i: (_bullet_rank(" ".join(kept[i]), flags), i))
+    keep_idx = sorted(order[:SUMMARY_MAX_BULLETS])
+    out = list(preamble) + [l for i in keep_idx for l in kept[i]]
+    body = "\n".join(out).strip()
+    return _RECLASS_WORDS.sub("", body).strip() if _RECLASS_WORDS.search(body) else body
 
 
 def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
@@ -956,28 +1366,52 @@ def synthesise(client, findings: list[dict], ctx: str, usage: Usage,
                      build_synth_user(ctx, json.dumps(findings, ensure_ascii=False, indent=2),
                                       class_type, has_video),
                      CFG.max_tokens_synth, lambda o: validate_result(o, allowed), usage)
-    obj["instructor_summary"] = tidy_instructor_summary(obj.get("instructor_summary", ""))
+    obj["instructor_summary"] = tidy_instructor_summary(obj.get("instructor_summary", ""),
+                                                        obj.get("flags"))
     return obj
 
-MATERIALS_SYS = (
-    "You compress class materials into a compact teaching outline that an auditor will check a class "
-    "transcript against. Output plain text, <= 400 words: the topics in order, key concepts/definitions, "
-    "planned examples/exercises/problems, and anything marked as important. No commentary, no preamble."
+# ── the materials agent ────────────────────────────────────────────────────────
+# A dedicated conversion step: whatever the PM attaches (a slide deck, a notebook, a doc) is first
+# turned into clean, faithful MARKDOWN by its own model call, and THAT Markdown is what the analysis
+# reads as "the planned class". Structure survives (slide order, headings, code blocks), boilerplate
+# doesn't, and the analysis context stays small and predictable however big the deck was.
+MATERIALS_MD_SYS = (
+    "You are the MATERIALS AGENT. You convert raw text extracted from class materials (slide decks, "
+    "notebooks, documents) into clean, faithful GitHub-flavoured Markdown that a class auditor will "
+    "check the session against.\n"
+    "STRUCTURE: one '## <file name>' section per source file (the raw text marks them with "
+    "'=== name ==='); keep the original order; use '### [Slide N] <title>' headings where slide "
+    "markers appear; bullet lists for content; code in fenced blocks; tables as Markdown tables.\n"
+    "FIDELITY: preserve topic names, definitions, formulas, problem statements and planned "
+    "exercises exactly as written - never invent, reorder or editorialise. Drop only true "
+    "boilerplate (logos, footers, page numbers, repeated headers).\n"
+    "LENGTH: at most ~900 words. When the source is longer, keep EVERY topic/section heading and "
+    "compress the prose under each - never silently drop a whole section.\n"
+    "Output ONLY the Markdown - no preamble, no commentary."
 )
 
-# Materials shorter than this go into the context verbatim; longer ones are LLM-compressed first.
-MATERIALS_DIGEST_THRESHOLD = 4000
-MATERIALS_MAX_CHARS = 60000
+# This small, the text goes into the context verbatim - a model call would add nothing.
+MATERIALS_MD_SKIP = 2000
+MATERIALS_MAX_CHARS = 60000   # hard input cap for the conversion call
 
 
-def _digest_materials(client, text: str, usage: Usage) -> str:
-    """Boil raw class materials down to an outline the extraction prompts can carry."""
+def _materials_markdown(client, text: str, usage: Usage) -> str:
+    """The materials agent: raw extracted materials text -> Markdown context.
+
+    Never raises - materials improve an analysis but must never kill one. On any conversion
+    failure the analysis continues on (truncated) raw text, and the failure is logged.
+    """
     text = text.strip()
-    if len(text) <= MATERIALS_DIGEST_THRESHOLD:
+    if len(text) <= MATERIALS_MD_SKIP:
         return text
-    return _call(client, MATERIALS_SYS,
-                 f"MATERIALS:\n{text[:MATERIALS_MAX_CHARS]}\n\nCompress to the outline now.",
-                 1500, usage).strip()
+    try:
+        md = _call(client, MATERIALS_MD_SYS,
+                   f"RAW MATERIALS:\n{text[:MATERIALS_MAX_CHARS]}\n\nConvert to Markdown now.",
+                   CFG.max_tokens_materials, usage).strip()
+        return md or text[:MATERIALS_MD_SKIP]
+    except Exception:
+        log.exception("materials->markdown conversion failed; continuing on truncated raw text")
+        return text[:MATERIALS_MD_SKIP]
 
 
 # Two revise modes — the DETAILED internal feedback keeps timestamps and hides the rating; the
@@ -1038,7 +1472,14 @@ def revise_feedback(current: str, instruction: str, ctx: str = "", flags_json: s
     log.info("revise done  cost=$%.4f  %.1fs", meta["cost_usd"], meta["seconds"])
     text = obj["feedback"].strip()
     if kind == "summary":  # the note the instructor receives: no timestamps, <= 5 bullets
-        text = tidy_instructor_summary(text)
+        # order the points by the severity of the finding each one is about, using whatever
+        # flag list the caller passed alongside the text
+        try:
+            _flags = json.loads(flags_json) if flags_json else None
+            _flags = _flags.get("flags") if isinstance(_flags, dict) else _flags
+        except (ValueError, AttributeError):
+            _flags = None
+        text = tidy_instructor_summary(text, _flags if isinstance(_flags, list) else None)
     return text, meta
 
 RECONCILE_SYS = (
@@ -1054,8 +1495,14 @@ RECONCILE_SYS = (
 
 
 def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") -> dict:
-    """After drops/downgrades, one call keeps the two prose outputs honest (they may still reference
-    a removed finding). Flags/severities/reclass stay exactly as code applied them."""
+    """After drops/downgrades, one call keeps the PROSE honest - it may still describe a finding
+    the verification deleted. That includes the RE-CLASS REASON, which is what the PM reads: a
+    "maybe" whose reason still recites three provably wrong statements that were all dropped is
+    worse than no reason at all. The recommendation itself (yes/no/maybe) is decided by code and
+    is not negotiable here; only the words explaining it are rewritten."""
+    rc = result.get("reclass") or {}
+    call = rc.get("recommended", "maybe")
+    softened = rc.get("softened_from") == "yes"
     user = (
         "REVIEW CHANGES (what the second-pass verification did):\n"
         + json.dumps(changed, ensure_ascii=False, indent=1)
@@ -1063,13 +1510,19 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
         + json.dumps(result.get("flags") or [], ensure_ascii=False, indent=1)
         + "\n\nCURRENT DETAILED FEEDBACK (internal):\n" + str(result.get("feedback", ""))
         + "\n\nCURRENT SUMMARY TO SEND THE INSTRUCTOR:\n" + str(result.get("instructor_summary", ""))
-        + '\n\nAdjust both texts per the review changes. Return JSON ONLY: '
-          '{"feedback":"...","instructor_summary":"..."}'
+        + "\n\nCURRENT RE-CLASS REASON (for the PM):\n" + str(rc.get("reason", ""))
+        + f"\n\nTHE RE-CLASS CALL IS ALREADY DECIDED BY CODE: {call!r}."
+        + ("  It was softened from 'yes' because no major coverage or correctness finding "
+           "survived verification.\n" if softened else "\n")
+        + "Rewrite all three texts so they describe ONLY what survived. The re-class reason must "
+          f"explain the {call!r} call in 1-2 sentences using surviving findings only; a claim that "
+          "was dropped or downgraded must not reappear. Never argue for a different call.\n"
+          'Return JSON ONLY: {"feedback":"...","instructor_summary":"...","reclass_reason":"..."}'
     )
 
     def _validate(obj: Any) -> list[str]:
         errs = []
-        for key in ("feedback", "instructor_summary"):
+        for key in ("feedback", "instructor_summary", "reclass_reason"):
             if not isinstance(obj.get(key), str) or not obj.get(key).strip():
                 errs.append(f"missing/empty '{key}'")
         return errs
@@ -1077,8 +1530,13 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
     try:
         obj = _call_json(client, RECONCILE_SYS, user, CFG.max_tokens_synth, _validate, usage)
         result["feedback"] = obj["feedback"].strip()
-        result["instructor_summary"] = tidy_instructor_summary(obj["instructor_summary"])
-    except Exception:  # reconciliation is best-effort — never lose the analysis over prose polish
+        result["instructor_summary"] = tidy_instructor_summary(obj["instructor_summary"],
+                                                               result.get("flags"))
+        reason = obj["reclass_reason"].strip()
+        if softened:
+            reason = "[was 'yes' before verification] " + reason
+        result.setdefault("reclass", {})["reason"] = reason
+    except Exception:  # best-effort - never lose the analysis over prose polish
         log.exception("prose reconciliation failed; keeping the original texts")
     return result
 
@@ -1103,9 +1561,10 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     usage = Usage()
     t0 = time.time()
     if materials and materials.strip():
-        log.info("digesting %d chars of class materials", len(materials))
-        outline = _digest_materials(client, materials, usage)
-        ctx = ctx + "\n\nPLANNED CLASS MATERIALS (outline of what was supposed to be taught):\n" + outline
+        log.info("materials agent: converting %d chars to Markdown", len(materials))
+        outline = _materials_markdown(client, materials, usage)
+        ctx = (ctx + "\n\nPLANNED CLASS MATERIALS (Markdown outline of what was supposed to be "
+                     "taught, prepared by the materials agent):\n" + outline)
     # Pass 0 — read the whole conversation first, so every later segment is judged in full context
     # (who speaks, the real flow, and which doubts get resolved). This is the anti-"text-segmentation" step.
     log.info("mapping the whole conversation (%d cues) before judging any segment", len(cues))
@@ -1117,20 +1576,33 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         ctx = ctx + ("\n\nVISUAL TRACK (sampled frames from the recording — ground truth for what was "
                      "on camera/screen; states between samples are interpolated):\n" + visual_track)
     findings: list[dict] = []
+    windows_failed: list[dict] = []
     for i, seg in enumerate(chunks, 1):
         log.info("extract %d/%d  %s–%s", i, len(chunks), _seconds_to_ts(seg[0].start), _seconds_to_ts(seg[-1].end))
-        findings += extract_findings(client, seg, ctx, usage, class_type, has_video)
+        try:
+            findings += extract_findings(client, seg, ctx, usage, class_type, has_video)
+        except Exception as e:  # noqa: BLE001
+            # One window whose reply will not validate used to kill the whole class after every
+            # earlier window had already been paid for. Lose the window, keep the class, and say so.
+            windows_failed.append({"window": i, "of": len(chunks),
+                                   "span": f"{_seconds_to_ts(seg[0].start)}-{_seconds_to_ts(seg[-1].end)}",
+                                   "error": f"{type(e).__name__}: {e}"[:200]})
+            log.exception("window %d of %d could not be extracted; continuing without it",
+                          i, len(chunks))
     log.info("synthesise %d raw findings", len(findings))
     result = synthesise(client, findings, ctx, usage, class_type, has_video)
 
     # Stage 4 — adversarial verification: a skeptic tries to REFUTE every serious finding, then code
     # applies the verdicts and gates the re-class call. This is what stops over-flagged "criticals".
     transcript_text = "\n".join(c.text for c in cues)
+    result = apply_floors(result, class_type)      # a floor must hold on the way in, not only down
     review_records: list[dict] = []
     review_error = ""
+    second_vote_error = ""
     flags_raised = len(result.get("flags") or [])
     n_candidates = 0
     reclass_softened = False
+    prose_stale = False
     if CFG.review_enabled:
         candidates = select_review_candidates(result)
         n_candidates = len(candidates)
@@ -1138,18 +1610,21 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
             log.info("skeptic review of %d finding(s)", len(candidates))
             try:
                 verdicts = skeptic_review(client, candidates, cues, transcript_text, ctx, usage)
-                if (result.get("reclass") or {}).get("recommended") == "yes":
-                    # highest-stakes output -> a second, narrower vote on the content-delivery majors
-                    content_majors = [c for c in candidates
-                                      if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
-                    if content_majors:
-                        log.info("re-class second vote on %d content major(s)", len(content_majors))
-                        try:
-                            vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx,
-                                                   usage, reclass_framing=True)
-                            verdicts = merge_conservative(verdicts, vote2)
-                        except Exception:  # the second vote is a bonus; never lose the first one
-                            log.exception("re-class second vote failed; keeping the first verdicts")
+                # A second, narrower vote on the findings that decide whether learners are asked
+                # to re-attend. It runs whenever such findings exist, not only when the call is
+                # already "yes" - the scrutiny must not depend on the answer it is scrutinising.
+                content_majors = [c for c in candidates
+                                  if c.get("flag") in content_delivery_flags(class_type)
+                                  and c.get("severity") == "major"]
+                if content_majors:
+                    log.info("re-class second vote on %d content major(s)", len(content_majors))
+                    try:
+                        vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx,
+                                               usage, reclass_framing=True)
+                        verdicts = merge_conservative(verdicts, vote2)
+                    except Exception as e2:  # noqa: BLE001  the second vote is a bonus
+                        second_vote_error = str(e2)[:200]
+                        log.exception("re-class second vote failed; keeping the first verdicts")
                 result, review_records = apply_verdicts(result, verdicts, class_type)
             except Exception as e:  # noqa: BLE001
                 # The self-check is a quality ENHANCEMENT: if it cannot produce valid verdicts, keep the
@@ -1158,23 +1633,46 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                 review_error = str(e)[:200]
                 review_records = []
         before = (result.get("reclass") or {}).get("recommended")
-        result = gate_reclass(result)
+        result = gate_reclass(result, class_type)
         reclass_softened = bool(before == "yes"
                                 and (result.get("reclass") or {}).get("recommended") == "maybe")
         changed = [r for r in review_records if r["verdict"] in ("drop", "downgrade")]
         if changed:
             log.info("reconciling prose after %d verification change(s)", len(changed))
+            before_prose = (result.get("feedback"), result.get("instructor_summary"))
             result = _reconcile_prose(client, result, changed, usage)
+            if (result.get("feedback"), result.get("instructor_summary")) == before_prose:
+                # The clean-up is what removes wording that rests on a deleted finding. When it
+                # fails, the note still argues for findings the verifier threw out - so the draft
+                # must be marked, not shipped as if it were reconciled.
+                prose_stale = True
+    result = attach_evidence(result)     # the count of what survived is the code's, not the model's
     result["review"] = review_records
+    # Everything a reader needs to judge how much this analysis was actually checked. This lived
+    # only in `meta`, which the store never persists, so a failed verification reached the PM
+    # looking exactly like a clean one.
+    result["verification"] = {
+        "enabled": bool(CFG.review_enabled),
+        "ran": bool(CFG.review_enabled and not review_error and n_candidates > 0),
+        "findings_checked": n_candidates,
+        "error": review_error or None,
+        "second_vote_error": second_vote_error or None,
+        "prose_reconciled": not prose_stale,
+        "windows_lost": len(windows_failed),
+        "replies_cut_off": usage.truncated,
+    }
 
     dropped = sum(1 for r in review_records if r["verdict"] == "drop")
     meta = {
         "model": CFG.model, "class_type": class_type, "windows": len(chunks), "cues": len(cues),
         "speakers": sorted({c.speaker for c in cues if c.speaker}),
-        "conversation_mapped": True,
+        "conversation_mapped": bool(convo_map and convo_map.strip()),
+        "map_parts": len(_map_slices(cues)),
         "raw_findings": len(findings), "materials_used": bool(materials and materials.strip()),
+        "windows_failed": windows_failed,
+        "replies_cut_off": usage.truncated,
         "video_used": has_video,
-        "review_ran": bool(CFG.review_enabled and not review_error),
+        "review_ran": bool(CFG.review_enabled and not review_error and n_candidates > 0),
         "review_error": review_error or None,
         "flags_raised": flags_raised,
         "flags_reviewed": n_candidates,
@@ -1239,10 +1737,39 @@ def read_agenda(value: str) -> str:
             return fh.read().strip()
     return value or "(not provided)"
 
-def build_context(course: str, topic: str, instructor: str, rating: str, agenda: str) -> str:
+RATING_LINE = 4.55          # the rating at or under which a class is treated as low-rated
+
+
+def build_context(course: str, topic: str, instructor: str, rating: str, agenda: str,
+                  num_ratings: str = "") -> str:
+    """The facts the model is given about the class.
+
+    This used to assert "below the 4.55 line -> this class was flagged" for EVERY class, including
+    ones rated 4.87 that a PM was merely spot-checking. Every later pass then reasoned from a false
+    premise. It also claimed an agenda was present when the caller had passed "(not provided)",
+    which invited the model to invent a plan and mark the instructor against it.
+    """
+    try:
+        val = float(str(rating).strip())
+        note = ("below the 4.55 line, which is why it was flagged" if val < RATING_LINE
+                else "at or above the 4.55 line; this class was NOT flagged for a low rating")
+        rating_line = f"Learner rating: {rating}/5 ({note})."
+    except (TypeError, ValueError):
+        rating_line = ("Learner rating: not known. Do not assume the class was rated badly or well.")
+    if num_ratings:
+        rating_line += f" Learners who rated: {num_ratings}."
+
+    has_agenda = bool(agenda) and agenda.strip().lower() not in ("(not provided)", "not provided", "")
+    if has_agenda:
+        agenda_block = ("Class agenda (planned items, with expected time if known):\n" + agenda)
+    else:
+        agenda_block = (
+            "Class agenda: NOT PROVIDED. You do not know what was planned, so do not judge whether "
+            "planned items were covered, skipped or given the right amount of time, and do not "
+            "reconstruct an agenda from the instructor's own remarks and then mark them against it. "
+            "Judge only what you can hear: whether what WAS taught was correct and clearly delivered.")
     return (f"Course: {course}\nPlanned topic: {topic}\nInstructor: {instructor}\n"
-            f"Learner rating: {rating}/5 (below the 4.5 line -> this class was flagged).\n"
-            f"Class agenda (planned items, with expected time if known):\n{agenda}")
+            f"{rating_line}\n{agenda_block}")
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="Analyse a low-rated class transcript.")
@@ -1281,14 +1808,20 @@ def main(argv=None):
     # idempotency: a stable id from the transcript + context
     with open(a.transcript, encoding="utf-8-sig") as fh:
         _tx = fh.read()
-    run_id = hashlib.sha256((_tx + ctx).encode()).hexdigest()[:10]
+    # The class kind belongs in the key: a test review and a live class of the same transcript are
+    # judged by different rubrics and different floors, and leaving it out meant the second one
+    # silently received the first one's analysis.
+    run_id = hashlib.sha256((_tx + ctx + "|" + a.class_type + "|" + CFG.model).encode()).hexdigest()[:10]
     out = os.path.join(a.out_dir, run_id)
-    if os.path.isdir(out) and not a.force:
+    if os.path.isfile(os.path.join(out, "result.json")) and not a.force:
         log.info("result already exists at %s (use --force to re-run)", out)
         return 0
-    os.makedirs(out, exist_ok=True)
 
+    # ...and the folder is created only once there is something to put in it. Creating it first
+    # meant a crash left an empty folder that every later run read as "already done", reporting
+    # success without analysing anything.
     result, meta = analyse(a.transcript, ctx, a.class_type)
+    os.makedirs(out, exist_ok=True)
     meta["run_id"] = run_id
     with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)

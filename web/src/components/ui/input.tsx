@@ -1,13 +1,18 @@
 import * as React from "react";
+import { fieldClasses } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+/** Text/date/month input on the shared field chrome (36px, card surface, brand focus ring).
+ *  Native date pickers follow the theme via `color-scheme`. */
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
-        "border-input flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+        fieldClasses,
+        "placeholder:text-muted-foreground dark:scheme-dark flex w-full px-3 py-1",
+        "file:text-foreground file:border-0 file:bg-transparent file:text-sm file:font-medium",
         className,
       )}
       {...props}

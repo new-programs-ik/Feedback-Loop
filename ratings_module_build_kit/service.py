@@ -9,10 +9,12 @@ Run locally:   uvicorn service:app --port 8000
 Deploy (free): Render / Cloud Run. Set ANTHROPIC_API_KEY (+ VIMEO_ACCESS_TOKEN) in the env.
 
 Endpoints:
-  GET  /health           -> liveness + which capabilities are configured
-  POST /dry-run          -> {cues, windows, est_tokens}         (transcript text; no API key)
+  GET  /health           -> liveness + which capabilities are configured + the scoring version
+  POST /dry-run          -> {cues, windows, est_tokens}         (transcript text; no Claude call)
   POST /transcript       -> {text, video_id, language, chars}   (fetch captions from a Vimeo URL)
   POST /analyze          -> {result, meta, transcript_source}   (needs ANTHROPIC_API_KEY)
+  POST /sync-ratings     -> {status: accepted}                   (one ratings sync, in the background)
+  POST /sync-learners    -> 501 until a learner-level source exists (learner_source.py)
 
 Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorization: Bearer <it>`.
 """
@@ -22,6 +24,7 @@ import base64
 import io
 import json as _json
 import logging
+import hmac
 import os
 from typing import Literal, Optional
 
@@ -34,9 +37,12 @@ config.load_env()
 
 import engine as E  # noqa: E402  (after load_env so config is present)
 import materials_fetch as MF  # noqa: E402
+import ratings_store as RST  # noqa: E402  (the scoring version for /health; the sync's store)
 import store as ST  # noqa: E402
 import video as VD  # noqa: E402
 import vimeo as V  # noqa: E402
+
+log = logging.getLogger("service")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 app = FastAPI(title="Ratings Analysis Worker", version="2.0")
@@ -44,11 +50,27 @@ app = FastAPI(title="Ratings Analysis Worker", version="2.0")
 WORKER_API_KEY = os.environ.get("WORKER_API_KEY") or None
 
 
+# Set this only for a local machine that is not reachable from outside.
+ALLOW_NO_AUTH = (os.environ.get("WORKER_ALLOW_NO_AUTH") or "").strip().lower() in ("1", "true", "yes")
+
+
 def require_worker_auth(authorization: Optional[str] = Header(default=None)) -> None:
-    """If WORKER_API_KEY is configured, require it as a Bearer token (server→server)."""
+    """Require WORKER_API_KEY as a Bearer token.
+
+    This used to return early when no key was configured - which is the shipped default - so a
+    deployed worker with the variable unset accepted every request from anyone who found its
+    address: analyses written against any class, and the Anthropic bill paid by us. Missing
+    configuration now refuses the request instead of disabling the lock. Set WORKER_ALLOW_NO_AUTH=1
+    to run without a key on a machine that is not reachable from the internet.
+    """
     if not WORKER_API_KEY:
-        return
-    if authorization != f"Bearer {WORKER_API_KEY}":
+        if ALLOW_NO_AUTH:
+            return
+        raise HTTPException(
+            status_code=503,
+            detail="worker is not configured: set WORKER_API_KEY (or WORKER_ALLOW_NO_AUTH=1 for "
+                   "a local, unreachable machine)")
+    if not authorization or not hmac.compare_digest(authorization, f"Bearer {WORKER_API_KEY}"):
         raise HTTPException(status_code=401, detail="invalid worker credentials")
 
 
@@ -99,6 +121,23 @@ class TranscriptRequest(BaseModel):
 
 
 # ─────────────────────────── class-materials text extraction ───────────────────────────
+# Hard caps so a huge deck can never blow the worker's memory (Render free tier = 512MB).
+# Files are processed ONE AT A TIME and the raw bytes are released before the next file;
+# the extracted text is capped per file; the combined text is capped again before the
+# materials agent converts it to Markdown (engine.MATERIALS_MAX_CHARS).
+MATERIALS_MAX_FILES = 8
+MATERIALS_MAX_FILE_BYTES = 25 * 1024 * 1024      # 25 MB per file
+MATERIALS_MAX_FILE_CHARS = 40_000                # extracted text per file
+
+
+def _cap_text(text: str, filename: str) -> str:
+    if len(text) > MATERIALS_MAX_FILE_CHARS:
+        log.info("materials '%s': extracted %d chars, capped to %d",
+                 filename, len(text), MATERIALS_MAX_FILE_CHARS)
+        return text[:MATERIALS_MAX_FILE_CHARS] + "\n[... truncated for length ...]"
+    return text
+
+
 def extract_text(filename: str, data: bytes) -> str:
     """Pull plain text out of an uploaded materials file (slides / notebook / doc)."""
     name = (filename or "").lower()
@@ -140,27 +179,46 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 def gather_materials(req: AnalyzeRequest) -> str:
-    """Combine pasted text + uploaded files + fetched link(s) into one materials string.
-    Held in memory for this request only — never persisted anywhere."""
+    """Combine pasted text + uploaded files + fetched link(s) into one raw materials string.
+    The engine's MATERIALS AGENT then converts that to clean Markdown, and the Markdown - not
+    the raw dump - is what the analysis reads. Everything here is held in memory for this
+    request only and released as soon as each file's text is out — never persisted anywhere."""
     parts = []
     if req.materials_text and req.materials_text.strip():
-        parts.append(req.materials_text.strip())
+        parts.append(_cap_text(req.materials_text.strip(), "pasted text"))
+    if len(req.materials_files) > MATERIALS_MAX_FILES:
+        raise HTTPException(status_code=422,
+                            detail=f"too many materials files ({len(req.materials_files)}) — "
+                                   f"attach at most {MATERIALS_MAX_FILES}")
     for mf in req.materials_files:
         try:
             data = base64.b64decode(mf.b64)
         except Exception:
             raise HTTPException(status_code=422, detail=f"materials file '{mf.filename}' is not valid base64")
+        if len(data) > MATERIALS_MAX_FILE_BYTES:
+            raise HTTPException(status_code=422,
+                                detail=f"materials file '{mf.filename}' is "
+                                       f"{len(data) // (1024 * 1024)}MB — the limit is "
+                                       f"{MATERIALS_MAX_FILE_BYTES // (1024 * 1024)}MB per file "
+                                       "(share a link instead of uploading)")
         text = extract_text(mf.filename or "materials.txt", data)
+        del data                                    # release the raw bytes before the next file
         if text.strip():
-            parts.append(f"=== {mf.filename} ===\n{text}")
-    # Materials-by-link: the "materials agent" fetches the deck/notebook from a Drive/Docs/web-manager
-    # link so big files never hit the upload limit. Fetched in memory, extracted, then discarded.
+            parts.append(f"=== {mf.filename} ===\n{_cap_text(text, mf.filename)}")
+    # Materials-by-link: fetched from a Drive/Docs/web-manager link so big files never hit the
+    # upload limit. Fetched in memory, extracted, then discarded.
     if req.materials_url and req.materials_url.strip():
         try:
             for filename, data in MF.fetch_all(req.materials_url):
+                if len(data) > MATERIALS_MAX_FILE_BYTES:
+                    raise HTTPException(status_code=422,
+                                        detail=f"linked file '{filename}' is "
+                                               f"{len(data) // (1024 * 1024)}MB — the limit is "
+                                               f"{MATERIALS_MAX_FILE_BYTES // (1024 * 1024)}MB")
                 text = extract_text(filename, data)
+                del data
                 if text.strip():
-                    parts.append(f"=== {filename} (from link) ===\n{text}")
+                    parts.append(f"=== {filename} (from link) ===\n{_cap_text(text, filename)}")
         except MF.MaterialsFetchError as e:
             raise HTTPException(status_code=422, detail=f"couldn't read the materials link: {e}")
     return "\n\n".join(parts)
@@ -194,10 +252,20 @@ def health() -> dict:
         "video_enabled": not os.environ.get("VIDEO_DISABLED"),
         "video_max_frames": VD.VCFG.max_frames,
         "review_enabled": E.CFG.review_enabled,
+        "ratings_source": os.environ.get("RATINGS_SOURCE") or "sheet",
+        # v3: the queue decision is the Class Sentiment Score, computed in the database with the
+        # active scoring_configs row; this is the version it is scoring with (None = none active
+        # or the database could not be asked - cached, never blocks the health check for long).
+        "rule_version": RST.RULE_VERSION,
+        "scoring_config_version": RST.cached_config_version(),
+        "sheet_configured": bool(os.environ.get("RATINGS_SHEET_ID")
+                                 and (os.environ.get("GOOGLE_SA_JSON_FILE")
+                                      or os.environ.get("GOOGLE_SA_JSON"))),
+        "slack_configured": bool(os.environ.get("SLACK_BOT_TOKEN")),
     }
 
 
-@app.post("/dry-run")
+@app.post("/dry-run", dependencies=[Depends(require_worker_auth)])
 def dry_run(req: AnalyzeRequest) -> dict:
     if not (req.transcript and req.transcript.strip()):
         raise HTTPException(status_code=422, detail="dry-run needs 'transcript' text")
@@ -274,8 +342,43 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict
     out). The worker writes the result straight to the DB when done; the UI polls for it."""
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured for async persistence")
+    # One analysis per class at a time. The UI offers Retry while a job may still be running, and
+    # each press used to start another full analysis: both were paid for, both wrote a row, and the
+    # review page could then show one run's findings above the other run's draft.
+    if not ST.claim_for_analysis(req.class_id):
+        return {"status": "already running", "class_id": req.class_id}
     background.add_task(_run_analysis_job, req)
     return {"status": "accepted", "class_id": req.class_id}
+
+
+@app.post("/sync-ratings", dependencies=[Depends(require_worker_auth)])
+def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> dict:
+    """Pull the ratings source (sheet/Metabase) into class_ratings and notify handlers.
+    Called hourly by pg_cron (via pg_net) and by the web app's "Sync now" button. Runs in the
+    background so the caller returns immediately; progress lands in sync_runs, which the web
+    reads under RLS. ratings_sync itself guards against concurrent runs."""
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
+    trigger = str((body or {}).get("trigger") or "manual")
+    import ratings_sync as RSY
+    background.add_task(RSY.run_sync, trigger)
+    return {"status": "accepted", "trigger": trigger}
+
+
+@app.post("/sync-learners", dependencies=[Depends(require_worker_auth)])
+def sync_learners(body: Optional[dict] = None) -> dict:
+    """Learner-level ingestion (one row per learner per rated class, see learner_source.py).
+    There is no learner-level data source yet, so this answers 501 with the reason until
+    LEARNER_SOURCE names an implementation - the route exists so the web app and the cron can
+    already be wired to it."""
+    import learner_source as LS
+    try:
+        src = LS.build_learner_source(dict(os.environ))
+    except LS.LearnerSourceNotConfigured as e:
+        raise HTTPException(status_code=501, detail=str(e))
+    raise HTTPException(status_code=501,
+                        detail=f"learner source {getattr(src, 'name', '?')!r} is configured, but learner "
+                               "ingestion ships in v1.1 - nothing was imported")
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

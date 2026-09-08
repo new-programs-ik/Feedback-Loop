@@ -12,6 +12,31 @@ touches it.
   quizzes, tickets, participation, learner_health_scores + config), indexes, RBAC helper
   functions, **RLS policies**, and seed data.
 - `migrations/0002_auth_hooks.sql` — the JWT role-claim hook + the new-user provisioning trigger.
+- `migrations/0003` … `0014` — feedback-module additions, team access, the ratings ingest
+  (`class_ratings`, `sync_runs`, handlers, notifications), the hourly cron, the approval vote.
+- **Feedback Loop v3 (0015 → 0021, applied in this order; all additive, all idempotent):**
+  - `0015_scoring_configs.sql` — the Class Sentiment Score in the database: `scoring_configs`
+    (versioned, one active), `score_class_rating()`, `course_priors()`, `apply_scoring_config()`
+    (activate + re-score every class), `scoring_whatif_summary()` (preview any config),
+    `class_score_history` + trigger, the `sentiment_*` columns on `class_ratings`. Seeds C0–C5
+    from `fixtures/scoring_configs.json`; C0 active.
+  - `0016_instructor_identity.sql` — `normalize_person_name()`, `instructor_aliases`,
+    `instructor_match_suggestions`, `instructor_merges`, accept / reject / alias / merge / undo RPCs,
+    `class_ratings.instructor_canonical`.
+  - `0017_cohorts_topics.sql` — parsed cohort identity on `cohorts`, `topics` + `topic_aliases`
+    (`normalize_topic_name()`), `cohort_id` / `cohort_ids` / `topic_id` / `week_no` on `class_ratings`.
+  - `0018_course_members.sql` — `course_members` (people × courses, handler flag), course
+    colour/initials, `default_course_for()`, membership ↔ login linking on sign-in.
+  - `0019_rollups_queue_sync.sql` — `v_course_month_rollup`, `v_instructor_rollup`,
+    `v_cohort_journey`, `v_topic_hotspots`, `queue_rows()`, sync metrics, `report_shares`.
+  - `0020_learner_contract.sql` — the empty learner layer (`learners`, `learner_ratings`,
+    `learner_import_runs`); contract in `docs/LEARNER_INGEST_CONTRACT.md`.
+  - `0021_tighten_reads.sql` — ratings tables readable by staff (admin / pm) only.
+- `fixtures/scoring_cases.json`, `fixtures/scoring_configs.json` — the scoring contract (94 cases,
+  six configs) shared by `analysis/sentiment_score.py`, the SQL function and the web mirror.
+- `test_scoring_sql.py` — runs every fixture case through `score_class_rating()`; exits non-zero on
+  any mismatch. Run it after touching the scoring function or the fixture:
+  `./ratings_module_build_kit/.venv/Scripts/python supabase/test_scoring_sql.py`
 - `apply_migrations.py` — applies the `.sql` files (in order) to `DATABASE_URL`.
 
 ## Apply
@@ -24,7 +49,7 @@ Idempotent: `create ... if not exists` + policies dropped-then-created, so it's 
 
 ## Roles & access (RLS)
 - **admin** — sees/does everything.
-- **pm** — sees only classes/analyses/feedback for courses assigned in `pm_course_assignments`.
+- **pm** — any @interviewkickstart.com sign-in; reads every course (one team), writes a course's settings only as a member of it (`course_members`, migration 0018). `pm_course_assignments` is legacy and unused.
 - **learner** — sees only their own rows (analytics tables); no feedback-module access.
 - Instructors do **not** log in — PMs view instructor analytics.
 

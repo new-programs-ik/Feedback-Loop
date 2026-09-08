@@ -1,119 +1,150 @@
-# 🚀 Setting up the Worker on Render — the complete, click-by-click guide
+# 🚀 Setting up the worker on Render — the complete, click-by-click guide
 
-The **worker** ("AI brain") runs on [Render](https://render.com). For the **live website's** analysis
-to work, the worker needs a few **environment variables** (settings). The most important one is
-**`DATABASE_URL`** — the address + password of your database — because the worker uses it to save each
-finished analysis back into the database.
+The **worker** runs on [Render](https://render.com). It does two jobs for the live website: it pulls
+the ratings sheet every hour and scores the classes, and it runs the AI analysis when a PM clicks
+Analyze. For either to work, the worker needs a few **environment variables** (settings). The most
+important one is **`DATABASE_URL`** — the address and password of the database — because the worker
+saves every synced class and every finished analysis there.
 
-Written for a non-technical reader. You do this **once**. Take it slowly, one step at a time.
+Written for a non-technical reader. You do this once. Take it one step at a time.
 
-> ✅ **You do NOT need to be able to "find things in Supabase."** The value you need is already sitting
-> in a file on your computer. **Method 1 below is the easy way — start there.** Method 2 (Supabase) is
-> only a backup if you can't find the file.
+> ✅ **You do not need to be able to find things in Supabase.** The value you need is already in a
+> file on your computer. Method 1 below is the easy way — start there. Method 2 (Supabase) is only
+> a backup if you cannot find the file.
 
 ---
 
 ## STEP 1 — Get the `DATABASE_URL` value
 
-The value is one long line that looks exactly like this (yours is already filled in except the password):
+The value is one long line shaped like this (yours has real values in place of the parts in angle
+brackets):
 
 ```
-postgresql://postgres.hedtphkfatmpqhuyndwk:YOUR_DB_PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
+postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supabase.com:5432/postgres?sslmode=require
 ```
 
-You only need to swap **`YOUR_DB_PASSWORD`** for your real database password. Pick ONE method below.
+### ⭐ Method 1 — Copy it from the file on your computer (easiest)
 
-### ⭐ Method 1 — Copy it from the file on your computer (easiest, no Supabase)
-
-Your project already has the complete, correct value saved in a settings file. Just copy it:
-
-1. On your computer, open the project folder:
-   `C:\Users\DELL\Documents\NP team automation\ratings_module_build_kit`
-2. Find the file named **`.env`** (just ".env", no name before the dot).
-   - Can't see it? In File Explorer click the **View** menu → tick **Hidden items** (files starting
-     with a dot are hidden by default). Or open the folder in **VS Code**, which shows it.
+1. Open the project folder on your computer, then the `ratings_module_build_kit` folder inside it.
+2. Find the file named **`.env`** (just ".env", nothing before the dot).
+   - Cannot see it? In File Explorer click **View → Show → Hidden items** (files starting with a
+     dot are hidden by default). Or open the folder in **VS Code**, which shows it.
 3. Open `.env` (right-click → **Open with → Notepad**, or open it in VS Code).
 4. Find the line that starts with **`DATABASE_URL=`**.
-5. Select and copy **everything after the `=` sign** — the whole `postgresql://...sslmode=require` line.
-   That copied text is your value. **Done — skip to Step 2.**
-
-> This line already has the real password in it, so you don't have to type or find anything else.
+5. Copy **everything after the `=` sign** — the whole `postgresql://...sslmode=require` line.
+   That is your value. **Done — skip to Step 2.**
 
 ### Method 2 — Get it from the Supabase website (backup)
 
-Use this only if you couldn't find the `.env` file.
-
 1. Go to **[supabase.com/dashboard](https://supabase.com/dashboard)** and sign in.
-2. Click your project to open it. (Its id is **hedtphkfatmpqhuyndwk** — the name may differ.)
-3. Look at the **top bar** of the project. Click the green **`Connect`** button (top-right area, near
-   the project name). *(This is the new location. If you don't see a Connect button, use the old path:
-   click **⚙️ Project Settings** at the very bottom of the left menu → **Database**.)*
-4. A **"Connect to your project"** popup opens. Near the top there are tabs like **Direct connection**,
-   **Transaction pooler**, **Session pooler**. Click **Session pooler**.
-5. It shows a line starting with `postgresql://postgres...`. Copy that whole line (there's a small
-   **copy icon** ⧉ on the right).
-6. The line has `[YOUR-PASSWORD]` in the middle. Replace `[YOUR-PASSWORD]` (including the square
-   brackets) with your **database password** — the one you chose when the project was created (it's the
-   same password stored in the `.env` file from Method 1).
-7. Make sure the very end reads `?sslmode=require`. If it's missing, add it.
+2. Click the project to open it.
+3. Click the green **Connect** button in the top bar. (Older layout: **Project Settings →
+   Database**.)
+4. In the popup, choose the **Session pooler** tab.
+5. Copy the line starting with `postgresql://postgres...` (there is a copy icon on the right).
+6. Replace `[YOUR-PASSWORD]` (including the square brackets) with your **database password** — the
+   one chosen when the project was created (it is the same one stored in the `.env` file).
+7. Make sure the very end reads `?sslmode=require`. If it is missing, add it.
 
-> 🔒 This value contains your database password — treat it like a password. Only paste it into Render's
-> secure Environment box (Step 2). Never put it in a chat, email, or the public code.
+> 🔒 This value contains your database password — treat it like a password. Only paste it into
+> Render's Environment box (Step 3). Never put it in a chat, an email, or the code.
 
 ---
 
-## STEP 2 — Open your Worker on Render
+## STEP 2 — Open the worker on Render
 
 1. Go to **[dashboard.render.com](https://dashboard.render.com)** and sign in.
-2. You'll see your services listed. Click the **worker** service — it's the one that runs the analysis
-   (its type is **Web Service**; the name is something like **feedback-loop-worker**).
-   - Not sure which one? It's the service whose logs mention **uvicorn** / **service:app**, not the
-     Next.js website.
+2. Click the **worker** service — the one that runs the analysis (type **Web Service**; the name is
+   something like **feedback-loop-worker**).
+   - Not sure? It is the service whose logs mention **uvicorn** / **service:app**, not the website.
 
 ---
 
 ## STEP 3 — Add the environment variables
 
-1. In the worker's page, look at the **left-side menu** and click **Environment**.
-2. You'll see a section called **Environment Variables**. Click **+ Add Environment Variable**.
+1. In the worker's page, click **Environment** in the left menu.
+2. Under **Environment Variables**, click **+ Add Environment Variable**.
 3. Add the first one:
-   - **Key** (or "NAME") box: type `DATABASE_URL`
-   - **Value** box: paste the line you copied in Step 1.
-4. Click **+ Add Environment Variable** again for each of the others you need:
+   - **Key**: `DATABASE_URL`
+   - **Value**: the line you copied in Step 1.
+4. Repeat for each row you need:
 
-   | Key (type this exactly) | Value (paste this) | Do I need it? |
+   | Key (type it exactly) | Value | Do I need it? |
    |---|---|---|
-   | `DATABASE_URL` | the line from Step 1 | **Yes — required.** Lets the worker save results. |
+   | `DATABASE_URL` | the line from Step 1 | **Yes — required.** The worker saves synced classes and analysis results here. |
    | `ANTHROPIC_API_KEY` | your Claude key (starts with `sk-ant-`) | **Yes — required.** Runs the AI. |
+   | `WORKER_API_KEY` | a long secret word of your choosing | **Yes.** Only callers that know it can ask the worker to do anything. The same value goes on the website (Vercel) and into the hourly timer (Step 6). |
+   | `RATINGS_SHEET_ID` | the long id in the ratings sheet's URL (`docs.google.com/spreadsheets/d/THIS_PART/edit`) | **Yes, for the hourly sync.** |
+   | `GOOGLE_SA_JSON_FILE` | `/etc/secrets/google-sa.json` | **Yes, for the hourly sync** — together with Step 4. |
+   | `UI_URL` | `https://feedback-loop-ten.vercel.app` | Yes. The Slack cards link here, and the worker tells the site to refresh after each sync. |
+   | `SLACK_BOT_TOKEN` | the Slack bot token (starts with `xoxb-`) | For the Slack cards and the "sync failed" alerts. |
+   | `SLACK_PM_CHANNEL_ID` | the channel id (starts with `C`) | Same — the channel the cards go to. |
    | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Yes, if you analyze **Vimeo links**. |
-   | `WORKER_API_KEY` | a shared secret word | Only if your website already sends one. |
+   | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video frames per class. |
+   | `VIDEO_DISABLED` | `1` | Optional kill-switch: video analysis off on this deployment. |
+   | `RATINGS_SHEET_TABS` | tab names, comma-separated | Only if the tabs are not `MLSU_Live_Class_Poll,Agentic_AI_Live_Class_Poll`. |
+   | `NOTIFY_MAX_AGE_DAYS` / `NOTIFY_MAX_PER_RUN` | `10` / `25` | Optional guard rails for Slack: only classes this recent are pinged, at most this many per hourly run. `0` for the second one holds every card. |
    | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |
-   | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video-analysis frames per class. |
-   | `VIDEO_DISABLED` | `1` | Optional kill-switch: turns video analysis off on this deployment. |
 
    > 🎬 **About video analysis on the free tier:** it works, but the free worker is slow and can spin
-   > down mid-job, so keep `VIDEO_MAX_FRAMES=40`. If video jobs ever get stuck, either set
-   > `VIDEO_DISABLED=1` here (analyses continue transcript-only) or upgrade the worker to Render's
-   > Starter plan (~$7/mo — the paid tier's real benefit is no spin-down). Enabling video for plain
-   > Vimeo links is a separate one-time step: see [VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md).
+   > down mid-job, so keep `VIDEO_MAX_FRAMES=40`. If video jobs get stuck, set `VIDEO_DISABLED=1`
+   > (analyses continue transcript-only) or upgrade the worker to Render's Starter plan (about
+   > $7/month; its real benefit is no spin-down). Enabling video for plain Vimeo links is a separate
+   > one-time step: [VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md).
 
-   *(The Claude / Vimeo values are also in the same `.env` file from Step 1 — lines
+   *(The Claude and Vimeo values are also in the same `.env` file from Step 1 — the lines
    `ANTHROPIC_API_KEY=` and `VIMEO_ACCESS_TOKEN=`.)*
-5. Click **Save Changes** (bottom or top-right of the Environment page).
-6. Render will show **"Deploying"** and automatically restart the worker. This takes about **1–3 minutes**.
+5. Do **not** click Save yet if you still have Step 4 to do; otherwise click **Save Changes**.
 
 ---
 
-## STEP 4 — Check it worked
+## STEP 4 — Add the Google key as a Secret File
 
-1. Still on the worker's page, click the **Logs** tab (left menu).
-2. Wait for the deploy to finish. **Success looks like this:**
+The hourly sync reads the ratings sheet through a "robot" Google account. Its key is a small JSON
+file (created in [GOOGLE_SHEET_SYNC_SETUP.md](GOOGLE_SHEET_SYNC_SETUP.md); on your computer it is
+`ratings_module_build_kit/google-sa.json`). On Render it goes in as a **Secret File**, not a
+variable:
+
+1. Still on the **Environment** page, scroll to **Secret Files** → **+ Add Secret File**.
+2. **Filename**: `google-sa.json`
+3. **Contents**: open your local `google-sa.json` in Notepad, select all, copy, paste.
+4. Render stores it at `/etc/secrets/google-sa.json` — which is exactly the value you gave
+   `GOOGLE_SA_JSON_FILE` in Step 3.
+5. Click **Save Changes**. Render shows **Deploying** and restarts the worker (1–3 minutes).
+
+---
+
+## STEP 5 — Check it worked
+
+1. On the worker's page, click **Logs**. Success looks like:
    ```
    INFO:     Application startup complete.
    INFO:     Uvicorn running on http://0.0.0.0:10000
    ```
-3. Now open the **live website**, sign in, and run a **New analysis** on a class.
-4. It should show **"Analyzing…"** and then, about a minute later, fill in the feedback on its own. 🎉
+2. Open `https://<your-worker>.onrender.com/health` in a browser. You want to see
+   `"status":"ok"`, `"anthropic_key":true`, `"sheet_configured":true`, `"slack_configured":true`
+   (if you set Slack), `"ffmpeg":true`, and `"scoring_config_version"` with a number.
+3. Open the **live website**, sign in, go to **Admin › Sync** and click **Sync now**. Within a
+   minute or two the table shows a run with status **ok**, rows fetched and rows scored.
+4. Run a **New analysis** on one class from the queue (click **Analyze** on a row). It shows
+   **Analyzing…** and then, a few minutes later, fills in the feedback on its own. 🎉
+
+---
+
+## STEP 6 — Switch on the hourly timer (once)
+
+The database calls the worker every hour (at :00, and again at :05 in case the free worker was
+asleep). It needs to know the worker's address and the secret word. Both are stored in Supabase's
+**Vault**, never in a file:
+
+1. Supabase dashboard → the project → **SQL Editor** → **New query**.
+2. Paste, with your own values, and click **Run**:
+   ```sql
+   select vault.create_secret('https://<your-worker>.onrender.com', 'worker_url');
+   select vault.create_secret('<the WORKER_API_KEY from Step 3>', 'worker_api_key');
+   ```
+3. The schedule itself is created by migration `0013_ratings_cron.sql` (see [DEPLOY.md](../DEPLOY.md)).
+   From the next full hour, **Admin › Sync** shows runs with trigger **cron**.
 
 ---
 
@@ -121,21 +152,30 @@ Use this only if you couldn't find the `.env` file.
 
 | What you see | What it usually means | Fix |
 |---|---|---|
-| Class stuck on **"Analyzing…"** forever | `DATABASE_URL` is missing or wrong | Redo Step 1 → Step 3. Check the **password** is correct and the line ends with `?sslmode=require`. |
-| Logs say **`No module named ...`** | A code file wasn't included in the deploy | Tell your developer (this is a code/Dockerfile fix, not a settings one). |
-| Logs say **`DATABASE_URL is not set`** | The variable name is misspelled | It must be exactly `DATABASE_URL` (all caps, underscore). Re-check Step 3. |
-| **"password authentication failed"** | Wrong DB password in the value | Get the password again (it's in the `.env` file) and re-paste the whole line. |
-| First analysis of the day is slow (~1 min extra) | The free worker "sleeps" when idle and has to wake up | Normal — nothing to fix. |
+| Class stuck on **"Analyzing…"** forever | `DATABASE_URL` is missing or wrong | Redo Step 1 → Step 3. Check the password and that the line ends with `?sslmode=require`. |
+| Logs say **`No module named ...`** | A code file was not included in the deploy | Tell your developer (a Dockerfile fix, not a settings one). |
+| Logs say **`DATABASE_URL is not set`** | The variable name is misspelled | It must be exactly `DATABASE_URL` (all caps, underscore). |
+| **"password authentication failed"** | Wrong database password in the value | Get the password again (it is in the `.env` file) and re-paste the whole line. |
+| Sync failed: **"no Google service-account key"** | Step 4 missed, or `GOOGLE_SA_JSON_FILE` does not match the Secret File's path | Redo Step 4; the path must be `/etc/secrets/google-sa.json`. |
+| Sync failed: **"403 — the sheet is not shared…"** | The sheet is not shared with the robot account | Share it with the account's `client_email` as Viewer ([sheet setup](GOOGLE_SHEET_SYNC_SETUP.md)). |
+| Sync failed: **"missing required column(s) [X]"** | Someone renamed a header in the sheet | Rename it back, or tell the dev team. |
+| Sync failed: **"no active scoring config"** | No scoring version is active | Admin › Scoring → activate one (version 1 is the manager's original). |
+| No runs with trigger **cron** ever appear | The Vault secrets from Step 6 are missing (the database logs "vault secrets … not set — skipping") | Do Step 6. |
+| Slack cards say **"No owner assigned"** | The course has nobody on it | Admin › People → add the course's people and pick a handler. |
+| First analysis of the day is slow (about a minute extra) | The free worker sleeps when idle and has to wake up | Normal — nothing to fix. The hourly timer fires twice for the same reason. |
 
 ---
 
 ## Quick answers
 
-- **Do I need Render for testing on my own laptop?** No. Locally the worker reads these settings from
-  the `.env` file automatically. Render is only for the shared **live** website.
-- **I changed my database password.** Update `DATABASE_URL` in Render (Step 3) with the new password
-  and click **Save Changes** — it redeploys on its own.
-- **Which env vars are truly required?** Just two: `DATABASE_URL` and `ANTHROPIC_API_KEY`. The rest are
-  optional depending on features.
+- **Do I need Render for testing on my own laptop?** No. Locally the worker reads these settings
+  from the `.env` file. Render is only for the shared **live** website.
+- **I changed the database password.** Update `DATABASE_URL` in Render (Step 3) with the new
+  password and click **Save Changes** — it redeploys on its own.
+- **Which variables are truly required?** For analyses: `DATABASE_URL` and `ANTHROPIC_API_KEY`. For
+  the hourly sync, also `RATINGS_SHEET_ID` and the Google key (Step 4). Everything else depends on
+  which features you use.
+- **Where do I see whether the sync is healthy?** Admin › Sync in the app, and `/health` on the
+  worker.
 
-Related: keeping these secrets safe — see [HOW_IT_WORKS.md](HOW_IT_WORKS.md) §7.
+Related: keeping these secrets safe — [HOW_IT_WORKS.md](HOW_IT_WORKS.md), section 15.

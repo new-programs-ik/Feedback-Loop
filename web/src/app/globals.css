@@ -5,7 +5,7 @@
 :root {
   --radius: 0.625rem;
   /* Modern console palette: cool-tinted neutrals + a confident deep-indigo accent.
-     Every neutral carries a slight blue hue bias so the UI reads considered, not default. */
+     Indigo is for INTERACTIVE things only; data carries the band and chart colours. */
   --background: oklch(0.985 0.003 260);
   --foreground: oklch(0.21 0.02 262);
   --card: oklch(1 0 0);
@@ -33,6 +33,60 @@
   --sidebar-accent: oklch(0.925 0.015 272);
   --sidebar-accent-foreground: oklch(0.32 0.1 272);
   --sidebar-border: oklch(0.9 0.008 262);
+
+  /* The four Class Sentiment bands — teal / steel blue / amber / brick. Fixed, never used for
+     anything else. `-soft` is the tint behind a chip, `-text` the ink that passes contrast on it. */
+  --band-excellent: oklch(0.6 0.11 185);
+  --band-excellent-soft: oklch(0.6 0.11 185 / 14%);
+  --band-excellent-text: oklch(0.4 0.1 185);
+  --band-good: oklch(0.58 0.09 245);
+  --band-good-soft: oklch(0.58 0.09 245 / 14%);
+  --band-good-text: oklch(0.4 0.09 245);
+  --band-average: oklch(0.74 0.15 75);
+  --band-average-soft: oklch(0.74 0.15 75 / 18%);
+  --band-average-text: oklch(0.48 0.13 70);
+  --band-bad: oklch(0.55 0.17 30);
+  --band-bad-soft: oklch(0.55 0.17 30 / 14%);
+  --band-bad-text: oklch(0.44 0.16 30);
+  --band-none: oklch(0.7 0.01 262);
+
+  /* Eight fixed course colours — used only for the course identity square. */
+  --course-1: oklch(0.55 0.16 250);
+  --course-2: oklch(0.55 0.17 300);
+  --course-3: oklch(0.58 0.12 180);
+  --course-4: oklch(0.7 0.15 70);
+  --course-5: oklch(0.58 0.18 15);
+  --course-6: oklch(0.56 0.14 145);
+  --course-7: oklch(0.55 0.15 330);
+  --course-8: oklch(0.56 0.12 215);
+
+  /* Pass/fail data colors for the fine-vs-below stacks: deliberately DESATURATED so a wall of
+     "fine" classes reads calm and only the problem share carries weight. */
+  --viz-good: oklch(0.62 0.07 165);
+  --viz-bad: oklch(0.58 0.16 25);
+
+  /* Chart series — categorical, FIXED order (dataviz reference palette; validated for CVD
+     separation + contrast against the light card surface — never re-order, never cycle). */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
+  /* Ordinal/sequential ramp (rating bands, heat) — one blue hue, light→dark. */
+  --chart-seq-1: #86b6ef;
+  --chart-seq-2: #5598e7;
+  --chart-seq-3: #2a78d6;
+  --chart-seq-4: #1c5cab;
+  --chart-seq-5: #104281;
+  /* Chart chrome */
+  --chart-grid: oklch(0.93 0.006 262);
+
+  /* Sticky offsets: the topbar, and topbar + filter bar. Table headers stick under them. */
+  --topbar-h: 4rem;
+  --sticky-top: var(--topbar-h);
 }
 
 .dark {
@@ -56,13 +110,80 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.72 0.14 272);
+  /* Dark sidebar carries the same indigo identity as light — the stock gray tokens it shipped
+     with read as a different product after the theme flips. */
   --sidebar: oklch(0.19 0.018 262);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.922 0 0);
-  --sidebar-primary-foreground: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.93 0.008 262);
+  --sidebar-primary: oklch(0.72 0.14 272);
+  --sidebar-primary-foreground: oklch(0.16 0.015 262);
+  --sidebar-accent: oklch(0.28 0.045 272);
+  --sidebar-accent-foreground: oklch(0.92 0.03 272);
   --sidebar-border: oklch(1 0 0 / 10%);
+
+  --band-excellent: oklch(0.72 0.11 185);
+  --band-excellent-soft: oklch(0.72 0.11 185 / 18%);
+  --band-excellent-text: oklch(0.82 0.1 185);
+  --band-good: oklch(0.7 0.09 245);
+  --band-good-soft: oklch(0.7 0.09 245 / 18%);
+  --band-good-text: oklch(0.82 0.08 245);
+  --band-average: oklch(0.78 0.14 78);
+  --band-average-soft: oklch(0.78 0.14 78 / 18%);
+  --band-average-text: oklch(0.86 0.13 82);
+  --band-bad: oklch(0.66 0.16 30);
+  --band-bad-soft: oklch(0.66 0.16 30 / 18%);
+  --band-bad-text: oklch(0.8 0.13 30);
+  --band-none: oklch(0.5 0.01 262);
+
+  --course-1: oklch(0.7 0.14 250);
+  --course-2: oklch(0.7 0.15 300);
+  --course-3: oklch(0.72 0.11 180);
+  --course-4: oklch(0.78 0.14 75);
+  --course-5: oklch(0.7 0.16 15);
+  --course-6: oklch(0.7 0.13 145);
+  --course-7: oklch(0.7 0.14 330);
+  --course-8: oklch(0.7 0.11 215);
+
+  --viz-good: oklch(0.66 0.07 165);
+  --viz-bad: oklch(0.64 0.16 25);
+
+  /* Chart series — the SAME eight hues re-stepped for the dark card surface (validated set). */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-seq-1: #9ec5f4;
+  --chart-seq-2: #6da7ec;
+  --chart-seq-3: #3987e5;
+  --chart-seq-4: #256abf;
+  --chart-seq-5: #184f95;
+  --chart-grid: oklch(0.27 0.015 262);
+}
+
+/* One typographic scale, 11 → 40 px, and weights 400 / 500 / 600 only (`font-bold` = 600). */
+@theme {
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 40px;
+  --text-4xl: 40px;
+  --text-4xl--line-height: 44px;
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 600;
+  --font-weight-black: 600;
 }
 
 @theme inline {
@@ -93,6 +214,43 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-band-excellent: var(--band-excellent);
+  --color-band-excellent-soft: var(--band-excellent-soft);
+  --color-band-excellent-text: var(--band-excellent-text);
+  --color-band-good: var(--band-good);
+  --color-band-good-soft: var(--band-good-soft);
+  --color-band-good-text: var(--band-good-text);
+  --color-band-average: var(--band-average);
+  --color-band-average-soft: var(--band-average-soft);
+  --color-band-average-text: var(--band-average-text);
+  --color-band-bad: var(--band-bad);
+  --color-band-bad-soft: var(--band-bad-soft);
+  --color-band-bad-text: var(--band-bad-text);
+  --color-band-none: var(--band-none);
+  --color-course-1: var(--course-1);
+  --color-course-2: var(--course-2);
+  --color-course-3: var(--course-3);
+  --color-course-4: var(--course-4);
+  --color-course-5: var(--course-5);
+  --color-course-6: var(--course-6);
+  --color-course-7: var(--course-7);
+  --color-course-8: var(--course-8);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+  --color-chart-seq-1: var(--chart-seq-1);
+  --color-chart-seq-2: var(--chart-seq-2);
+  --color-chart-seq-3: var(--chart-seq-3);
+  --color-chart-seq-4: var(--chart-seq-4);
+  --color-chart-seq-5: var(--chart-seq-5);
+  --color-chart-grid: var(--chart-grid);
+  --color-viz-good: var(--viz-good);
+  --color-viz-bad: var(--viz-bad);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-sm: calc(var(--radius) - 4px);
@@ -117,21 +275,142 @@
   ::selection {
     background: color-mix(in oklch, var(--primary) 20%, transparent);
   }
+  /* Focus rings: visible, on-brand, never the browser default blue. */
+  :focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--ring) 70%, transparent);
+    outline-offset: 2px;
+  }
+  /* Thin, theme-aware scrollbars inside panels. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 18%, transparent) transparent;
+  }
+  /* Smooth theme flips. */
+  html.theme-transition, html.theme-transition * {
+    transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  }
 }
 
 @layer utilities {
-  /* Soft elevation used by cards + popovers */
+  /* Numbers: Geist Mono, tabular, slightly tightened — the score, the stat values. */
+  .font-num {
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  /* Soft elevation used by cards + popovers — quiet, Stripe-ish: a crisp 1px definition line
+     with the faintest lift, never a glow. */
   .shadow-soft {
-    box-shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 20px -8px rgb(16 24 40 / 0.1);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.05);
   }
-  .animate-in-up {
-    animation: in-up 0.25s ease-out both;
+  /* Floating layers (palette, popovers, hover cards): a real drop with a tight contact shadow. */
+  .shadow-pop {
+    box-shadow:
+      0 0 0 1px rgb(16 24 40 / 0.04),
+      0 2px 4px rgb(16 24 40 / 0.06),
+      0 24px 48px -12px rgb(16 24 40 / 0.22);
   }
-  @keyframes in-up {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: none; }
+  .dark .shadow-pop {
+    box-shadow:
+      inset 0 0 0 1px oklch(1 0 0 / 8%),
+      0 2px 4px rgb(0 0 0 / 0.3),
+      0 30px 60px -12px rgb(0 0 0 / 0.7);
+  }
+  /* Interactive cards lift on hover — 2px, 200ms, and the shadow deepens with it. */
+  .hover-lift {
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 10px 24px -10px rgb(16 24 40 / 0.18);
+  }
+  .dark .hover-lift:hover {
+    box-shadow: inset 0 0 0 1px oklch(1 0 0 / 9%), 0 14px 32px -12px rgb(0 0 0 / 0.65);
+  }
+  /* Frosted chrome (topbar, sticky filter rows). */
+  .glass {
+    background: color-mix(in oklch, var(--background) 72%, transparent);
+    backdrop-filter: saturate(160%) blur(12px);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
+  }
+  /* The sign-in scene's backdrop — the one brand moment; never behind a working screen. */
+  .bg-mesh {
+    background:
+      radial-gradient(60% 55% at 12% 0%, color-mix(in oklch, var(--primary) 9%, transparent), transparent 70%),
+      radial-gradient(45% 45% at 88% 10%, color-mix(in oklch, oklch(0.62 0.2 300) 7%, transparent), transparent 70%);
+  }
+  .dark .bg-mesh {
+    background:
+      radial-gradient(60% 55% at 12% 0%, color-mix(in oklch, var(--primary) 12%, transparent), transparent 70%),
+      radial-gradient(45% 45% at 88% 10%, color-mix(in oklch, oklch(0.62 0.2 300) 9%, transparent), transparent 70%);
+  }
+  /* Gradient text — sign-in headline only. */
+  .text-gradient {
+    background-image: linear-gradient(120deg, var(--primary), oklch(0.62 0.2 300));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  /* Shimmer for loading skeletons. */
+  .shimmer {
+    background: linear-gradient(90deg, var(--muted) 25%, color-mix(in oklch, var(--muted) 60%, var(--card)) 50%, var(--muted) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .animate-in-up { animation: none; }
+    .hover-lift, .hover-lift:hover { transition: none; transform: none; }
+    .shimmer { animation: none; }
   }
+  /* One step BELOW the card: chart wells, table header bands, sub-panels. Depth comes from
+     surfaces, not from bigger shadows. */
+  .surface-inset {
+    background: color-mix(in oklch, var(--muted) 45%, var(--card));
+  }
+  /* Shadows disappear on a dark ground — a hairline ring keeps the same sense of lift. */
+  .dark .shadow-soft {
+    box-shadow: inset 0 0 0 1px oklch(1 0 0 / 6%), 0 6px 20px -8px rgb(0 0 0 / 0.5);
+  }
+  /* Page enter: a 120 ms fade, nothing moves. */
+  .animate-in-up {
+    animation: fade-in 0.12s ease-out both;
+  }
+  /* The drawer slides in from the right once; the mobile menu from the left. */
+  .animate-in-right {
+    animation: in-right 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-in-left {
+    animation: in-left 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes in-right {
+    from { opacity: 0; transform: translateX(24px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes in-left {
+    from { opacity: 0; transform: translateX(-24px); }
+    to { opacity: 1; transform: none; }
+  }
+  /* A page with a sticky filter bar: table headers stick under it. */
+  .with-filter-bar {
+    --sticky-top: calc(var(--topbar-h) + 57px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in-up, .animate-in-right, .animate-in-left { animation: none; }
+  }
+}
+
+/* Reports and the class page are print surfaces: chrome disappears, data keeps its ink. */
+@media print {
+  [data-print-hide] { display: none !important; }
+  body { background: #fff; }
+  main { padding: 0 !important; }
+  .shadow-soft { box-shadow: none; border: 1px solid #ddd; }
+  svg, .print-exact { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }

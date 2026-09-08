@@ -50,6 +50,32 @@ backups/
 Feedback-Loop-User-Guide.pdf
 
 # one-off verification scripts (not part of the app)
-web/verify-prod.mjs
-web/shots.mjs
-web/live-check.mjs
+Rating-Threshold-Study.pdf
+analysis/window_rows.json
+Week-*-Ratings.pdf
+analysis/*.html
+Dev-Phase-Briefing.pdf
+Instructor-Approval-Study.pdf
+Instructor-Approval-Brief.pdf
+ui-preview/
+ratings_module_build_kit/google-sa.json
+web/start.log
+
+# archived one-offs, confidential docs and recordings (never committed)
+_archive/
+
+# validation study outputs (regenerable, contain instructor names + ratings)
+analysis/out/
+Sentiment-Score-Validation.pdf
+Sentiment-Score-One-Pager.pdf
+Formula-Study.pdf
+Formula-One-Pager.pdf
+
+# A service-account key must never be committed, whatever it is called or wherever it lands.
+*google-sa*.json
+*service-account*.json
+*-sa.json
+
+# design-review screenshots, regenerated on demand
+web/shots/
+shots/

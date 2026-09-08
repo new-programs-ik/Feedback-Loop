@@ -5,10 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Loader2, AlertTriangle, RefreshCcw, Send, SquarePlay } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle, SquarePlay } from "lucide-react";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion/reveal";
 import { ReviewActions } from "./review-actions";
-import { markAsSent, retryAnalysis } from "../actions";
-import { DeleteButton } from "../delete-button";
+import { DeleteAnalysisButton, MarkSentButton, RetryButton } from "./action-buttons";
 import { AutoRefresh } from "@/components/auto-refresh";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
@@ -32,12 +32,26 @@ type Result = {
   review?: ReviewRecord[];
   video?: VideoMeta;
   reclass?: { recommended?: string; reason?: string; deciding_flags?: string[]; softened_from?: string };
+  // How much of the analysis was actually checked. Written by the engine into the result itself so
+  // it reaches the database; a failed self-check used to be invisible here.
+  verification?: {
+    enabled?: boolean;
+    ran?: boolean;
+    findings_checked?: number;
+    error?: string | null;
+    second_vote_error?: string | null;
+    prose_reconciled?: boolean;
+    windows_lost?: number;
+    replies_cut_off?: number;
+  };
 };
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   await requireUser();
   const supabase = await createClient();
+  // "Now" is read once per request.
+  const nowMs = new Date().getTime();
 
   const { data: klass } = await supabase
     .from("classes")
@@ -76,12 +90,17 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const wasSent = fbStatus === "sent";
   const stuck =
     klass.status === "analyzing" &&
-    Date.now() - new Date(String(klass.updated_at ?? klass.created_at)).getTime() > 30 * 60 * 1000;
+    nowMs - new Date(String(klass.updated_at ?? klass.created_at)).getTime() > 30 * 60 * 1000;
   const canRetry = Boolean(klass.vimeo_link);
   const course = (klass.courses as { name?: string } | null)?.name ?? "—";
   const instructor = (klass.instructors as { name?: string } | null)?.name ?? "—";
   const rating = klass.rating as number | null;
   const reclass = result.reclass;
+  const flags = result.flags ?? [];
+  const review = result.review ?? [];
+  // Whether the self-check actually ran. Written into the result by the engine, so it
+  // survives into the database - it used to live only in the worker's memory.
+  const verification = result.verification;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -108,11 +127,39 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 </Badge>
               )
             )}
-            {(result.review ?? []).length > 0 && (
-              <Badge variant="secondary" title="Every serious finding got a second, adversarial review">
-                ✓ Self-checked
+            {analysis && (
+              verification?.ran ? (
+                <Badge variant="secondary"
+                       title={`${verification.findings_checked} finding(s) went through a second, adversarial review`}>
+                  ✓ Self-checked
+                </Badge>
+              ) : verification?.error ? (
+                <Badge variant="destructive"
+                       title={`The self-check could not run: ${verification.error}. The findings below were NOT double-checked.`}>
+                  Not self-checked
+                </Badge>
+              ) : verification && verification.findings_checked === 0 ? (
+                <Badge variant="outline" title="No finding was serious enough to need a second review">
+                  Nothing to self-check
+                </Badge>
+              ) : review.length > 0 ? (
+                <Badge variant="secondary" title="Every serious finding got a second, adversarial review">
+                  ✓ Self-checked
+                </Badge>
+              ) : null
+            )}
+            {verification?.prose_reconciled === false && (
+              <Badge variant="warning"
+                     title="The tidy-up that removes wording resting on a dropped finding did not run. Read the draft against the self-check list before sending it.">
+                Draft not tidied
               </Badge>
             )}
+            {verification?.windows_lost ? (
+              <Badge variant="warning"
+                     title={`${verification.windows_lost} part(s) of the class could not be read, so they were not analysed.`}>
+                {verification.windows_lost} part(s) of the class unread
+              </Badge>
+            ) : null}
           </div>
           <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-sm">
             <span>
@@ -133,12 +180,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             )}
           </p>
         </div>
-        <DeleteButton classId={String(klass.id)} />
+        <DeleteAnalysisButton classId={String(klass.id)} />
       </div>
 
       {!analysis ? (
         klass.status === "analyzing" ? (
-          <Card>
+          <Card className="shadow-soft">
             <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
               <Loader2 className="text-muted-foreground size-7 animate-spin" />
               <div className="font-medium">{stuck ? "This analysis looks stuck" : "Analyzing…"}</div>
@@ -147,17 +194,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                   ? "It has been running for over 30 minutes — the background worker probably restarted mid-job. Retry to run it again (materials and video are not stored, so a retry is transcript-only)."
                   : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
               </p>
-              {stuck && canRetry && (
-                <form action={retryAnalysis}>
-                  <input type="hidden" name="class_id" value={String(klass.id)} />
-                  <Button type="submit"><RefreshCcw className="size-4" /> Retry analysis</Button>
-                </form>
-              )}
+              {stuck && canRetry && <RetryButton classId={String(klass.id)} />}
               <AutoRefresh />
             </CardContent>
           </Card>
         ) : (
-          <Card>
+          <Card className="shadow-soft">
             <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
               <AlertTriangle className="text-destructive size-7" />
               <div className="font-medium">The analysis didn&apos;t finish</div>
@@ -165,12 +207,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 {failReason ||
                   "Something went wrong — the video may have no captions, or a materials file couldn't be read. Retry, or delete this and create it again."}
               </p>
-              {canRetry && (
-                <form action={retryAnalysis}>
-                  <input type="hidden" name="class_id" value={String(klass.id)} />
-                  <Button type="submit"><RefreshCcw className="size-4" /> Retry analysis</Button>
-                </form>
-              )}
+              {canRetry && <RetryButton classId={String(klass.id)} />}
               <p className="text-muted-foreground text-xs">
                 A retry re-fetches the transcript from Vimeo. Materials and video are not stored, so it runs transcript-only.
               </p>
@@ -180,139 +217,166 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       ) : (
         <>
           {result.overall && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Overall</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm leading-relaxed">{result.overall}</CardContent>
-            </Card>
+            <Reveal>
+              <Card className="shadow-soft">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Overall</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm leading-relaxed">{result.overall}</CardContent>
+              </Card>
+            </Reveal>
           )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Flags ({result.flags?.length ?? 0})</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {(result.flags ?? []).map((f, i) => (
-                <div key={i} className="rounded-lg border p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{f.flag}</span>
-                    <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-                    <span className="text-muted-foreground text-xs">{f.confidence} confidence</span>
-                  </div>
-                  {(f.evidence ?? []).map((e, j) => (
-                    <p key={j} className="text-muted-foreground mt-1.5 text-sm">
-                      <span className="font-mono text-xs">[{e.timestamp}]</span>{" "}
-                      {e.source === "video" && <Badge variant="outline" className="mr-1 align-middle">🎬 video</Badge>}
-                      “{e.quote}”
-                    </p>
-                  ))}
-                </div>
-              ))}
-              {(result.flags ?? []).length === 0 && (
-                <p className="text-muted-foreground text-sm">No flags raised.</p>
-              )}
-              {result.video?.video_used ? (
-                <p className="text-muted-foreground text-xs">
-                  🎬 Video analyzed: {result.video.frames_analyzed} frames sampled from the recording —
-                  camera/screen/slides findings are evidence-based.
-                </p>
-              ) : result.video?.video_error ? (
-                <p className="text-muted-foreground text-xs">
-                  Video analysis skipped: {result.video.video_error} — findings are transcript-only.
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          {(result.review ?? []).length > 0 && (
-            <Card>
+          <Reveal delay={0.05}>
+            <Card className="shadow-soft">
               <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  Self-check
-                  <Badge variant="secondary">the AI double-checked its own findings</Badge>
-                </CardTitle>
+                <CardTitle className="text-base">Flags ({flags.length})</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {(result.review ?? []).map((r, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm">
-                    <Badge
-                      variant={r.verdict === "drop" ? "destructive" : r.verdict === "downgrade" ? "warning" : "secondary"}
-                      className="mt-0.5 shrink-0"
-                    >
-                      {r.verdict === "drop" ? "removed" : r.verdict === "downgrade"
-                        ? `${r.from_severity} → ${r.to_severity}` : "confirmed"}
-                    </Badge>
-                    <div>
-                      <span className="font-medium">{r.flag}</span>
-                      <span className="text-muted-foreground"> — {r.reason}</span>
-                    </div>
-                  </div>
-                ))}
-                {result.reclass?.softened_from && (
-                  <p className="text-muted-foreground text-xs">
-                    ⚖️ The re-class call was auto-softened from <strong>yes</strong> to{" "}
-                    <strong>maybe</strong> because no major content-delivery issue survived verification.
-                  </p>
+              <CardContent className="space-y-3">
+                {flags.length > 0 && (
+                  <Stagger className="space-y-3" step={0.05}>
+                    {flags.map((f, i) => (
+                      <StaggerItem key={i} className="rounded-lg border p-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{f.flag}</span>
+                          <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
+                          <span className="text-muted-foreground text-xs">{f.confidence} confidence</span>
+                        </div>
+                        {(f.evidence ?? []).map((e, j) => (
+                          <p key={j} className="text-muted-foreground mt-1.5 text-sm">
+                            <span className="font-mono text-xs">[{e.timestamp}]</span>{" "}
+                            {e.source === "video" && <Badge variant="outline" className="mr-1 align-middle">🎬 video</Badge>}
+                            “{e.quote}”
+                          </p>
+                        ))}
+                      </StaggerItem>
+                    ))}
+                  </Stagger>
                 )}
-                <p className="text-muted-foreground text-xs">
-                  Every serious finding gets a second, adversarial review before you see it — severities
-                  are corrected and unsupported findings removed (shown here so nothing disappears silently).
-                </p>
+                {flags.length === 0 && (
+                  <p className="text-muted-foreground text-sm">No flags raised.</p>
+                )}
+                {result.video?.video_used ? (
+                  <p className="text-muted-foreground text-xs">
+                    🎬 Video analyzed: {result.video.frames_analyzed} frames sampled from the recording —
+                    camera/screen/slides findings are evidence-based.
+                  </p>
+                ) : result.video?.video_error ? (
+                  <p className="text-muted-foreground text-xs">
+                    Video analysis skipped: {result.video.video_error} — findings are transcript-only.
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
+          </Reveal>
+
+          {verification?.error && (
+            <Reveal>
+              <Card className="border-destructive/40 shadow-soft">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">The self-check did not run</CardTitle>
+                </CardHeader>
+                <CardContent className="text-muted-foreground space-y-1 text-sm">
+                  <p>
+                    Every finding below is the first draft. Nothing challenged it, so a finding may
+                    rest on a misread quote or on something a learner said rather than the
+                    instructor. Read it before you act on it, and re-run the analysis if you can.
+                  </p>
+                  <p className="font-mono text-xs">{verification.error}</p>
+                </CardContent>
+              </Card>
+            </Reveal>
           )}
 
-          <Card>
-            <CardHeader className="flex-row items-center justify-between pb-2">
-              <CardTitle className="text-base">Instructor feedback — review &amp; approve</CardTitle>
-              <span className="flex items-center gap-2">
-                {done && <Badge variant="success">{wasSent ? "Sent to instructor ✓" : "Approved"}</Badge>}
-                {done && !wasSent && (
-                  <form action={markAsSent}>
-                    <input type="hidden" name="class_id" value={String(klass.id)} />
-                    <Button type="submit" variant="outline" size="sm">
-                      <Send className="size-3.5" /> Mark as sent
-                    </Button>
-                  </form>
-                )}
-              </span>
-            </CardHeader>
-            <CardContent>
-              <ReviewActions
-                classId={String(klass.id)}
-                summaryInitial={summaryDraft}
-                feedbackInitial={draft}
-                done={done}
-              />
-            </CardContent>
-          </Card>
+          {review.length > 0 && (
+            <Reveal>
+              <Card className="shadow-soft">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    Self-check
+                    <Badge variant="secondary">the AI double-checked its own findings</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Stagger className="space-y-2" step={0.04}>
+                    {review.map((r, i) => (
+                      <StaggerItem key={i} className="flex items-start gap-2 text-sm">
+                        <Badge
+                          variant={r.verdict === "drop" ? "destructive" : r.verdict === "downgrade" ? "warning" : "secondary"}
+                          className="mt-0.5 shrink-0"
+                        >
+                          {r.verdict === "drop" ? "removed" : r.verdict === "downgrade"
+                            ? `${r.from_severity} → ${r.to_severity}` : "confirmed"}
+                        </Badge>
+                        <div>
+                          <span className="font-medium">{r.flag}</span>
+                          <span className="text-muted-foreground"> — {r.reason}</span>
+                        </div>
+                      </StaggerItem>
+                    ))}
+                  </Stagger>
+                  {result.reclass?.softened_from && (
+                    <p className="text-muted-foreground text-xs">
+                      ⚖️ The re-class call was auto-softened from <strong>yes</strong> to{" "}
+                      <strong>maybe</strong> because no major content-delivery issue survived verification.
+                    </p>
+                  )}
+                  <p className="text-muted-foreground text-xs">
+                    Every serious finding gets a second, adversarial review before you see it — severities
+                    are corrected and unsupported findings removed (shown here so nothing disappears silently).
+                  </p>
+                </CardContent>
+              </Card>
+            </Reveal>
+          )}
+
+          <Reveal>
+            <Card className="shadow-soft">
+              <CardHeader className="flex-row items-center justify-between pb-2">
+                <CardTitle className="text-base">Instructor feedback — review &amp; approve</CardTitle>
+                <span className="flex items-center gap-2">
+                  {done && <Badge variant="success">{wasSent ? "Sent to instructor ✓" : "Approved"}</Badge>}
+                  {done && !wasSent && <MarkSentButton classId={String(klass.id)} />}
+                </span>
+              </CardHeader>
+              <CardContent>
+                <ReviewActions
+                  classId={String(klass.id)}
+                  summaryInitial={summaryDraft}
+                  feedbackInitial={draft}
+                  done={done}
+                />
+              </CardContent>
+            </Card>
+          </Reveal>
 
           {reclass?.recommended && (
-            <Card className="border-amber-300/60">
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  Re-class recommendation
-                  <Badge variant="outline">PM only — not shown to the instructor</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={reclass.recommended === "yes" ? "destructive" : reclass.recommended === "maybe" ? "warning" : "secondary"}
-                    className="uppercase"
-                  >
-                    {reclass.recommended}
-                  </Badge>
-                  {reclass.deciding_flags && reclass.deciding_flags.length > 0 && (
-                    <span className="text-muted-foreground text-xs">
-                      deciding: {reclass.deciding_flags.join(", ")}
-                    </span>
-                  )}
-                </div>
-                <p className="text-muted-foreground">{reclass.reason}</p>
-              </CardContent>
-            </Card>
+            <Reveal>
+              <Card className="shadow-soft border-warning/50">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    Re-class recommendation
+                    <Badge variant="outline">PM only — not shown to the instructor</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1.5 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={reclass.recommended === "yes" ? "destructive" : reclass.recommended === "maybe" ? "warning" : "secondary"}
+                      className="uppercase"
+                    >
+                      {reclass.recommended}
+                    </Badge>
+                    {reclass.deciding_flags && reclass.deciding_flags.length > 0 && (
+                      <span className="text-muted-foreground text-xs">
+                        deciding: {reclass.deciding_flags.join(", ")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-muted-foreground">{reclass.reason}</p>
+                </CardContent>
+              </Card>
+            </Reveal>
           )}
         </>
       )}

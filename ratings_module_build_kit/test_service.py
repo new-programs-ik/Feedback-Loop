@@ -15,6 +15,25 @@ import service
 
 client = TestClient(service.app)
 
+# /health reports the active scoring-config version from the database; keep the suite offline.
+_version_patch = patch.object(service.RST, "cached_config_version", return_value=2)
+
+
+# These tests exercise the endpoints themselves, not the lock on the door, so they run as a local
+# machine with no key configured would. The lock has its own tests below.
+_auth_patch = patch.object(service, "ALLOW_NO_AUTH", True)
+
+
+def setUpModule():
+    _version_patch.start()
+    _auth_patch.start()
+
+
+def tearDownModule():
+    _version_patch.stop()
+    _auth_patch.stop()
+
+
 SRT = "1\n00:00:01,000 --> 00:00:03,000\nHello everyone.\n"
 RESULT = {
     "overall": "rushed the end",
@@ -39,6 +58,23 @@ class TestService(unittest.TestCase):
         self.assertIn("commit", body)                 # RENDER_GIT_COMMIT, or "local"
         self.assertTrue(body["anthropic_sdk"])        # the SDK version actually installed
         self.assertNotEqual(body["anthropic_sdk"], "missing")
+
+    def test_health_reports_the_scoring_version_and_rule_v3(self):
+        body = client.get("/health").json()
+        self.assertEqual(body["rule_version"], "v3")
+        self.assertEqual(body["scoring_config_version"], 2)      # patched: what active_scoring_config() says
+        with patch.object(service.RST, "cached_config_version", return_value=None):
+            self.assertIsNone(client.get("/health").json()["scoring_config_version"])   # none active / DB down
+
+    def test_sync_learners_is_501_until_a_source_exists(self):
+        with patch.dict(os.environ, {"LEARNER_SOURCE": ""}):
+            r = client.post("/sync-learners", json={})
+        self.assertEqual(r.status_code, 501)
+        self.assertIn("no learner-level data source", r.json()["detail"])
+        with patch.dict(os.environ, {"LEARNER_SOURCE": "csv"}):
+            r = client.post("/sync-learners")
+        self.assertEqual(r.status_code, 501)
+        self.assertIn("names no implementation", r.json()["detail"])
 
     def test_dry_run(self):
         r = client.post("/dry-run", json={"transcript": SRT})
@@ -216,6 +252,59 @@ class TestMaterials(unittest.TestCase):
         r = client.post("/analyze", json={
             "transcript": SRT, "materials_files": [{"filename": "x.txt", "b64": "!!!not-b64!!!"}]})
         self.assertEqual(r.status_code, 422)
+
+
+
+class TestTheWorkerIsNotOpenToEveryone(unittest.TestCase):
+    """With no key configured the worker used to accept every request from anyone who found its
+    address - write an analysis against any class, and spend our model budget doing it."""
+
+    def test_no_key_and_no_local_override_refuses(self):
+        with patch.object(service, "WORKER_API_KEY", ""), \
+             patch.object(service, "ALLOW_NO_AUTH", False):
+            r = client.post("/analyze-async", json={"class_id": "x", "transcript": SRT})
+            self.assertEqual(r.status_code, 503)
+            self.assertIn("WORKER_API_KEY", r.json()["detail"])
+
+    def test_a_wrong_key_is_refused(self):
+        with patch.object(service, "WORKER_API_KEY", "the-real-key"), \
+             patch.object(service, "ALLOW_NO_AUTH", False):
+            r = client.post("/analyze-async", json={"class_id": "x", "transcript": SRT},
+                            headers={"Authorization": "Bearer not-the-key"})
+            self.assertEqual(r.status_code, 401)
+
+    def test_no_header_at_all_is_refused(self):
+        with patch.object(service, "WORKER_API_KEY", "the-real-key"), \
+             patch.object(service, "ALLOW_NO_AUTH", False):
+            r = client.post("/analyze-async", json={"class_id": "x", "transcript": SRT})
+            self.assertEqual(r.status_code, 401)
+
+    def test_the_right_key_is_accepted(self):
+        with patch.object(service, "WORKER_API_KEY", "the-real-key"), \
+             patch.object(service, "ALLOW_NO_AUTH", False), \
+             patch.object(service, "BackgroundTasks", create=True):
+            r = client.post("/analyze-async", json={"class_id": "x", "transcript": SRT},
+                            headers={"Authorization": "Bearer the-real-key"})
+            self.assertNotIn(r.status_code, (401, 503))
+
+
+
+class TestOneAnalysisPerClass(unittest.TestCase):
+    """The Retry button appears while a job may still be running. Each press used to start another
+    full analysis: both paid for, both saved, and the review page could mix the two."""
+
+    def test_a_second_request_while_one_is_running_is_refused(self):
+        with patch.object(service.ST, "claim_for_analysis", return_value=False) as claim,              patch.object(service, "_run_analysis_job") as job:
+            r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["status"], "already running")
+            claim.assert_called_once_with("c1")
+            job.assert_not_called()
+
+    def test_the_first_request_is_accepted(self):
+        with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"):
+            r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            self.assertEqual(r.json()["status"], "accepted")
 
 
 if __name__ == "__main__":

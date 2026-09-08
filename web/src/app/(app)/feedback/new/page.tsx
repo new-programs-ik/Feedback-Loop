@@ -5,23 +5,69 @@ import { createClient } from "@/lib/supabase/server";
 import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { getActiveConfig } from "@/lib/scoring";
+import type { Action, Band } from "@/lib/sentiment";
 
 // Give the analysis kick-off (Vimeo fetch + handing the job to the worker) the platform max.
 export const maxDuration = 60;
 
-export default async function NewAnalysisPage() {
+export default async function NewAnalysisPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ prefill?: string }>;
+}) {
   const user = await requireUser();
   if (user.role === "learner") redirect("/dashboard");
 
   const supabase = await createClient();
-  const [{ data: courses }, { data: instructors }] = await Promise.all([
+  const { prefill: prefillId } = await searchParams;
+  const [{ data: courses }, { data: instructors }, prefillRes, active] = await Promise.all([
     supabase.from("courses").select("id, name").order("name"),
     supabase.from("instructors").select("name").order("name"),
+    prefillId
+      ? supabase
+          .from("class_ratings")
+          .select(
+            "id, course_id, topic, instructor, class_date, session_kind, rating, num_ratings, attended, yes_votes, no_votes, track_avg, sentiment_score, sentiment_band, sentiment_action, escalated, decision",
+          )
+          .eq("id", prefillId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    getActiveConfig(),
   ]);
   const instructorNames = ((instructors ?? []) as Array<{ name: string }>).map((i) => i.name);
+  const p = prefillRes.data as {
+    id: string; course_id: string | null; topic: string; instructor: string; class_date: string;
+    session_kind: string; rating: number; num_ratings: number | null; attended: number | null;
+    yes_votes: number | null; no_votes: number | null; track_avg: number | string | null;
+    sentiment_score: number | string | null; sentiment_band: Band | null; sentiment_action: Action | null;
+    escalated: boolean; decision: string;
+  } | null;
+  // One click from the Needs-analysis queue lands here with everything filled in.
+  const prefill = p
+    ? {
+        classRatingId: p.id,
+        courseId: p.course_id ?? "",
+        topic: p.topic,
+        instructor: p.instructor,
+        classDate: p.class_date,
+        classType: (p.session_kind === "Test Review" ? "ars" : "live_class") as "ars" | "live_class",
+        rating: String(p.rating),
+        numRatings: p.num_ratings != null ? String(p.num_ratings) : "",
+        attended: p.attended != null ? String(p.attended) : "",
+        yesVotes: p.yes_votes != null ? String(p.yes_votes) : "",
+        noVotes: p.no_votes != null ? String(p.no_votes) : "",
+        trackAvg: p.track_avg != null ? Number(p.track_avg) : null,
+        score: p.sentiment_score != null ? Number(p.sentiment_score) : null,
+        band: p.sentiment_band,
+        action: p.sentiment_action,
+        escalated: p.escalated,
+        video: p.decision === "video",
+      }
+    : undefined;
 
   return (
-    <div className="animate-in-up space-y-6">
+    <div className="animate-in-up mx-auto max-w-6xl space-y-6">
       <div className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
           <Link href="/feedback" aria-label="Back to queue">
@@ -35,7 +81,7 @@ export default async function NewAnalysisPage() {
           </p>
         </div>
       </div>
-      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} />
+      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill}  scoring={{ version: active.version, config: active.config }} />
     </div>
   );
 }

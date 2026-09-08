@@ -7,7 +7,10 @@ manager, reviewer) can read exactly what the AI is being told to do and **sugges
 You do **not** need to be technical to read this. Each prompt is followed by a plain-English
 "**what this is / why it's here / how to change it**" note.
 
-- **Model:** Claude **Sonnet 4.6** · **temperature 0** (most consistent, least "creative").
+- **Model:** Claude **Sonnet 5** (upgraded from Sonnet 4.6, Sep 2026 — newer and cheaper per token).
+  Sonnet 5 no longer accepts a "temperature" setting; consistency comes from the prompts' strict
+  JSON contracts and the adversarial self-check pass, and the model reasons ("thinks") before
+  answering by default.
 - **Where these live in the code (source of truth):** [`ratings_module_build_kit/engine.py`](../ratings_module_build_kit/engine.py).
   This doc mirrors that file. If you change a prompt in the code, update this doc too.
 - **Plain-English overview (no prompts):** see [HOW_IT_WORKS.md](HOW_IT_WORKS.md) §5–6.
@@ -21,7 +24,7 @@ One analysis makes several calls to the AI, in this order:
 
 | # | Stage | Prompt used | What it produces |
 |---|---|---|---|
-| 0 | **(optional) Digest materials** | `MATERIALS_SYS` | A short outline of the slides/notebook you attached |
+| 0 | **(optional) The materials agent** | `MATERIALS_MD_SYS` | Your slides/notebook converted to clean Markdown — what the analysis reads as "the planned class" |
 | 0b | **(optional) Watch the video** | `FRAME_OBSERVER_SYS` | Neutral descriptions of sampled frames → a timestamped **visual track** (camera / screen / slides) |
 | 1 | **Map the whole conversation** | `CONV_MAP_SYS` | A neutral map: who speaks, the flow, what got resolved |
 | 2 | **Extract findings per ~30-min window** | `EXTRACT_SYS` + rubric + **severity anchors** | Evidence-backed issues about the instructor |
@@ -60,26 +63,40 @@ As the analysis runs, two more blocks get **appended** to this context when avai
 
 ---
 
-## 3. Stage 0 — digest the materials (only if you attach any)
+## 3. Stage 0 — the MATERIALS AGENT (only if you attach any materials)
 
-**System prompt (`MATERIALS_SYS`):**
+**System prompt (`MATERIALS_MD_SYS`):**
 
 ```
-You compress class materials into a compact teaching outline that an auditor will check a class
-transcript against. Output plain text, <= 400 words: the topics in order, key concepts/definitions,
-planned examples/exercises/problems, and anything marked as important. No commentary, no preamble.
+You are the MATERIALS AGENT. You convert raw text extracted from class materials (slide decks,
+notebooks, documents) into clean, faithful GitHub-flavoured Markdown that a class auditor will
+check the session against.
+STRUCTURE: one '## <file name>' section per source file (the raw text marks them with
+'=== name ==='); keep the original order; use '### [Slide N] <title>' headings where slide
+markers appear; bullet lists for content; code in fenced blocks; tables as Markdown tables.
+FIDELITY: preserve topic names, definitions, formulas, problem statements and planned
+exercises exactly as written - never invent, reorder or editorialise. Drop only true
+boilerplate (logos, footers, page numbers, repeated headers).
+LENGTH: at most ~900 words. When the source is longer, keep EVERY topic/section heading and
+compress the prose under each - never silently drop a whole section.
+Output ONLY the Markdown - no preamble, no commentary.
 ```
 
-> **What this is / why:** big slide decks are too long to feed in whole, so the AI first boils them
-> down to *"what was supposed to be taught."* The analysis then checks the class **against that outline**
-> (e.g. *"Slide 14's topic was never covered"*). Materials under ~4,000 characters skip this and go in as-is.
-> **To change:** raise the 400-word limit, or tell it to keep code snippets, formulas, etc.
+> **What this is / why:** a dedicated conversion step with its own model call. Whatever the PM
+> attaches — a PPT, a notebook, a doc — is first turned into **clean Markdown**, and *that* Markdown
+> is what the analysis reads as "the planned class." Structure survives (slide order, headings, code
+> blocks), boilerplate doesn't, and the context stays small and predictable no matter how big the
+> deck was — which also keeps the worker's memory use bounded (files are extracted one at a time
+> with hard size caps, then released). Materials under ~2,000 characters skip the call and go in
+> as-is. A conversion failure can never kill an analysis — it falls back to (truncated) raw text.
+> **To change:** the ~900-word limit and the structure rules are all in this one prompt.
 
 > **Where the materials come from:** you can **upload** files, **paste** text, or give a **link** (a
-> Google Drive / Docs / Slides link, or an internal materials-app URL). The link path is handled by the
-> "materials agent" (`materials_fetch.py`): it downloads the file, extracts its text, and feeds it in here
-> — so a huge deck never has to be uploaded. The file must be shared *"Anyone with the link → Viewer"* (or
-> be an IK link the worker can open). Note: giving materials **improves accuracy but uses more tokens**.
+> Google Drive / Docs / Slides link, or an internal materials-app URL). The link path
+> (`materials_fetch.py`) downloads the file so a huge deck never has to be uploaded; the text is then
+> extracted with hard per-file size caps and handed to the materials agent above. The file must be
+> shared *"Anyone with the link → Viewer"* (or be an IK link the worker can open). Note: giving
+> materials **improves accuracy but uses more tokens**.
 
 ---
 

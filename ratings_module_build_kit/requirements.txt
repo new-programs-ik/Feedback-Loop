@@ -6,9 +6,10 @@ anthropic>=0.115,<1.0     # 1.x is a breaking rewrite; 0.115.1 is the version th
 fastapi>=0.110.0,<1.0
 uvicorn>=0.29.0,<1.0
 httpx>=0.27.0,<1.0
-SQLAlchemy>=2.0,<3.0
-psycopg2-binary>=2.9,<3.0   # Postgres driver for db.py (prod); tests use stdlib sqlite3
+psycopg2-binary>=2.9,<3.0   # Postgres driver for store.py / ratings_store.py (the tests never open a DB)
 pypdf>=4.0,<7.0             # class-materials extraction: slides/docs the analysis checks against
 python-pptx>=0.6.23,<2.0
 python-docx>=1.1,<2.0
 imageio-ffmpeg>=0.5,<1.0    # static ffmpeg binary (with https) for the video-frames stage
+google-auth>=2.29,<3.0      # service-account token for the ratings-sheet sync (token only; the
+                            # Sheets call itself goes through httpx so tests can MockTransport it)
