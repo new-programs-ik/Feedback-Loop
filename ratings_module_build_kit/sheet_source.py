@@ -55,13 +55,20 @@ def _default_token_provider(env: dict) -> str:
     from google.oauth2 import service_account  # deferred: not needed under test
     import google.auth.transport.requests
 
-    sa_file = env.get("GOOGLE_SA_JSON_FILE")
+    sa_file = (env.get("GOOGLE_SA_JSON_FILE") or "").strip()
     sa_json = env.get("GOOGLE_SA_JSON")
-    if sa_file and os.path.isfile(sa_file):
-        creds = service_account.Credentials.from_service_account_file(sa_file, scopes=[SCOPE])
+    found = _resolve_key_file(sa_file) if sa_file else None
+    if found:
+        creds = service_account.Credentials.from_service_account_file(found, scopes=[SCOPE])
     elif sa_json:
         creds = service_account.Credentials.from_service_account_info(
             json.loads(sa_json), scopes=[SCOPE])
+    elif sa_file:
+        # The setting is there; the file it names is not. Saying "no key configured" sent people
+        # looking for a missing setting instead of a missing file.
+        raise SheetSourceError(
+            f"GOOGLE_SA_JSON_FILE is set to {sa_file!r} but no such file exists. Looked in: "
+            + ", ".join(_key_search_paths(sa_file)))
     else:
         raise SheetSourceError(
             "no Google service-account key: set GOOGLE_SA_JSON_FILE (path) or GOOGLE_SA_JSON (content)")
@@ -69,17 +76,69 @@ def _default_token_provider(env: dict) -> str:
     return creds.token
 
 
+def _key_search_paths(sa_file: str) -> list[str]:
+    """Where a relative key path could reasonably live: as given, next to this module, and next to
+    the project it sits in. A relative path used to depend entirely on the working directory."""
+    if os.path.isabs(sa_file):
+        return [sa_file]
+    here = os.path.dirname(os.path.abspath(__file__))
+    return [os.path.abspath(sa_file),
+            os.path.join(here, sa_file),
+            os.path.join(os.path.dirname(here), sa_file)]
+
+
+def _resolve_key_file(sa_file: str) -> Optional[str]:
+    """The first of those that actually exists, or None."""
+    for p in _key_search_paths(sa_file):
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+# %B is the full month name ("January"), %b the abbreviation ("Jan"). The live sheet writes the
+# full name, and the list here used to carry only %b - so every month parsed as None except May,
+# the one month whose abbreviation IS its full name. Seven months of classes were dropped in
+# silence. Both forms are accepted now, in both orders, with and without a weekday in front.
+_DATE_FORMATS = (
+    "%Y-%m-%d", "%Y/%m/%d",
+    "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y",
+    "%B %d, %Y", "%b %d, %Y", "%B %d %Y", "%b %d %Y",
+    "%d %B %Y", "%d %b %Y", "%d-%B-%Y", "%d-%b-%Y",
+)
+
+
 def _parse_date(v) -> Optional[dt.date]:
-    """Sheet dates arrive as strings under FORMATTED_STRING rendering; be liberal in formats."""
+    """A class date from whatever the sheet holds: a formatted string, an ISO stamp, or the raw
+    serial number a spreadsheet stores underneath."""
     if v is None or v == "":
         return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        # A spreadsheet serial: days since 1899-12-30. Only sane values are accepted, so a stray
+        # rating or head-count in the date column is rejected rather than becoming a date in 1970.
+        if 20000 <= float(v) <= 80000:
+            return (dt.date(1899, 12, 30) + dt.timedelta(days=int(float(v))))
+        return None
+
     s = str(v).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%b-%Y", "%b %d, %Y", "%d %b %Y"):
+    if not s:
+        return None
+    if "," in s and s.split(",")[0].strip().isalpha() and len(s.split(",")) > 2:
+        s = s.split(",", 1)[1].strip()          # drop a leading weekday: "Friday, January 2, 2026"
+    head = s.split("T")[0].split(" ")[0]
+
+    for fmt in _DATE_FORMATS:
         try:
-            return dt.datetime.strptime(s[:20].split(" ")[0] if fmt == "%Y-%m-%d" else s, fmt).date()
+            return dt.datetime.strptime(s, fmt).date()
         except ValueError:
-            continue
-    try:  # ISO datetime string
+            pass
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            return dt.datetime.strptime(head, fmt).date()
+        except ValueError:
+            pass
+    try:
         return dt.datetime.fromisoformat(s).date()
     except ValueError:
         return None
@@ -164,15 +223,30 @@ class SheetRatingsSource:
             return row[i] if i is not None and len(row) > i else None
 
         out: list[dict] = []
+        skipped: dict[str, int] = {"unreadable date": 0, "no rating": 0, "nobody attended": 0,
+                                   "more rated than attended": 0}
+        first_bad_date = None
         for row in values[1:]:
             date = _parse_date(g(row, "Session Date"))
             rating = _num(g(row, "Overall Average"))
             attended = _num(g(row, "# Students Attended"))
             responses = _num(g(row, "Responses"))
             yes, no = _num(g(row, VOTE_COLUMNS[0])), _num(g(row, VOTE_COLUMNS[1]))
-            if date is None or rating is None or not attended:
-                continue                                    # header repeats, blanks, "No Ratings"
+            if date is None:
+                raw = g(row, "Session Date")
+                if raw not in (None, ""):
+                    skipped["unreadable date"] += 1
+                    if first_bad_date is None:
+                        first_bad_date = repr(raw)[:40]
+                continue
+            if rating is None:
+                skipped["no rating"] += 1
+                continue                                    # "No Ratings" rows
+            if not attended:
+                skipped["nobody attended"] += 1
+                continue
             if responses is not None and responses > attended:
+                skipped["more rated than attended"] += 1
                 continue                                    # data-entry error (seen in the wild)
             cohort = str(g(row, "Cohorts") or "").strip()
             type_ = str(g(row, "Type") or "").strip()
@@ -190,6 +264,22 @@ class SheetRatingsSource:
                 "no_votes": int(no) if no is not None else None,
                 "region": CR.region_of(type_),
             })
+
+        body = max(len(values) - 1, 1)
+        lost = sum(skipped.values())
+        if skipped["unreadable date"]:
+            # This is the failure that hid seven months of classes. It must never be quiet again.
+            log.error("tab %s: %d row(s) have a date this reader cannot understand (e.g. %s) - "
+                      "those classes are NOT being synced", tab_name,
+                      skipped["unreadable date"], first_bad_date)
+        if lost > body * 0.2:
+            log.error("tab %s: kept only %d of %d rows (%.0f%% dropped) - %s", tab_name, len(out),
+                      body, 100.0 * lost / body,
+                      ", ".join(f"{k}: {v}" for k, v in skipped.items() if v))
+        elif lost:
+            log.info("tab %s: kept %d of %d rows (%s)", tab_name, len(out), body,
+                     ", ".join(f"{k}: {v}" for k, v in skipped.items() if v))
+        self.last_skipped = dict(skipped)
         return out
 
     def fetch_rows(self) -> list[dict]:

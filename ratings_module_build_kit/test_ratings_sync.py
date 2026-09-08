@@ -873,5 +873,53 @@ class TestSlackPayload(unittest.TestCase):
         self.assertTrue(err)
 
 
+
+class TestTheSheetsDatesAreUnderstood(unittest.TestCase):
+    """The live sheet writes "January 2, 2026". The reader understood only "Jan 2, 2026", so every
+    month failed except May - the one month whose abbreviation is its full name - and 87% of the
+    classes were dropped without a word."""
+
+    def test_every_month_in_the_sheets_own_format(self):
+        import sheet_source as SS
+        for month, n in (("January", 1), ("February", 2), ("March", 3), ("April", 4), ("May", 5),
+                         ("June", 6), ("July", 7), ("August", 8), ("September", 9),
+                         ("October", 10), ("November", 11), ("December", 12)):
+            got = SS._parse_date(f"{month} 2, 2026")
+            self.assertIsNotNone(got, f"{month} did not parse")
+            self.assertEqual((got.year, got.month, got.day), (2026, n, 2))
+
+    def test_the_other_shapes_still_work(self):
+        import sheet_source as SS
+        import datetime as dt
+        for text in ("2026-01-02", "02/01/2026", "Jan 2, 2026", "2 January 2026", "2-Jan-2026",
+                     "2026-01-02T10:30:00", "Friday, January 2, 2026"):
+            self.assertIsNotNone(SS._parse_date(text), f"{text!r} did not parse")
+
+    def test_a_spreadsheet_serial_number_is_a_date(self):
+        import sheet_source as SS
+        import datetime as dt
+        self.assertEqual(SS._parse_date(46024), dt.date(2026, 1, 2))
+
+    def test_nonsense_is_not_a_date(self):
+        import sheet_source as SS
+        for junk in ("", None, "No Ratings", "banana", 4.6, 27, True):
+            self.assertIsNone(SS._parse_date(junk), f"{junk!r} should not parse as a date")
+
+    def test_losing_most_of_a_tab_is_reported_as_an_error(self):
+        import logging
+        import sheet_source as SS
+        src = SS.SheetRatingsSource(env={"RATINGS_SHEET_ID": "x"})
+        header = ["Session Date", "Type", "Cohorts", "Class", "Instructor",
+                  "Overall Average", "Responses", "# Students Attended"]
+        values = [header] + [["not a date", "Live Class", "C1", "T", "I", 4.5, 5, 10]
+                             for _ in range(20)]
+        with self.assertLogs("sheet_source", level="ERROR") as caught:
+            out = src._parse_tab("MLSU_Live_Class_Poll", values)
+        self.assertEqual(out, [])
+        joined = " ".join(caught.output)
+        self.assertIn("cannot understand", joined)
+        self.assertIn("NOT being synced", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

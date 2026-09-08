@@ -70,3 +70,8 @@ Sentiment-Score-Validation.pdf
 Sentiment-Score-One-Pager.pdf
 Formula-Study.pdf
 Formula-One-Pager.pdf
+
+# A service-account key must never be committed, whatever it is called or wherever it lands.
+*google-sa*.json
+*service-account*.json
+*-sa.json
