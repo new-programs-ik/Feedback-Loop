@@ -6,6 +6,7 @@ Run:  python -m unittest test_video -v
 import json
 import subprocess
 import time
+from unittest import mock
 import unittest
 from unittest.mock import patch
 
@@ -158,8 +159,16 @@ class _FakeClient:
 
 
 def _obs(ts, cam=True, scr=True, ct="slides", title=None, anomalies=None):
-    return {"ts": ts, "camera_on": cam, "instructor_visible": cam, "screen_shared": scr,
-            "content_type": ct, "heading_or_slide_title": title, "anomalies": anomalies or []}
+    """A frame description as the MODEL sends it: no timestamp, because the code owns the time."""
+    return {"camera_on": cam, "screen_shared": scr, "content_type": ct,
+            "heading_or_slide_title": title, "anomalies": anomalies or []}
+
+
+def _seen(at, cam=True, scr=True, ct="slides", title=None, anomalies=None):
+    """A frame description after the code has stamped the real frame time onto it."""
+    o = _obs(None, cam, scr, ct, title, anomalies)
+    o["at"] = at
+    return o
 
 
 class TestObserveFrames(unittest.TestCase):
@@ -179,16 +188,16 @@ class TestObserveFrames(unittest.TestCase):
 class TestVisualTrack(unittest.TestCase):
     def test_spans_titles_anomalies_honesty(self):
         obs = [
-            _obs("00:02:30", cam=True, scr=True, ct="slides", title="Decision Trees"),
-            _obs("00:05:00", cam=True, scr=True, ct="slides"),
-            _obs("00:07:30", cam=False, scr=True, ct="notebook", anomalies=["tiny_text"]),
-            _obs("00:10:00", cam=False, scr=True, ct="notebook", title="Decision Trees"),  # dup title
+            _seen(150, cam=True, scr=True, ct="slides", title="Decision Trees"),
+            _seen(300, cam=True, scr=True, ct="slides"),
+            _seen(450, cam=False, scr=True, ct="notebook", anomalies=["error_on_screen"]),
+            _seen(600, cam=False, scr=True, ct="notebook", title="Decision Trees"),   # dup title
         ]
         track = VD.compress_to_visual_track(obs, 4, 150)
-        self.assertIn("[00:02:30–00:05:00] camera ON | screen shared | slides", track)
-        self.assertIn("[00:07:30–00:10:00] camera OFF | screen shared | notebook", track)
+        self.assertIn("[00:02:30-00:05:00] camera ON | screen shared | slides", track)
+        self.assertIn("[00:07:30-00:10:00] camera OFF | screen shared | notebook", track)
         self.assertEqual(track.count("Decision Trees"), 1)     # deduped
-        self.assertIn("tiny_text", track)
+        self.assertIn("error_on_screen", track)
         self.assertIn("interpolated", track)                   # honesty line
 
     def test_empty(self):
@@ -221,6 +230,68 @@ class TestNeverRaise(unittest.TestCase):
             track, meta = VD.analyze_video(None, "https://x/y.mp4", 1000)
         self.assertEqual(track, "")
         self.assertIn("unexpected", meta["video_error"])
+
+
+
+class TestTheTrackOnlyClaimsWhatWasSeen(unittest.TestCase):
+    """Everything here used to be asserted as fact on the strength of a string the model typed."""
+
+    def test_span_times_come_from_the_frames_not_the_model(self):
+        """The model is not asked for a timestamp at all; the code stamps the real frame time."""
+        frames = [(150.0, JPEG), (300.0, JPEG)]
+        reply = json.dumps({"frames": [_obs(None), _obs(None)]})
+        out = VD.observe_frames(_FakeClient([reply]), frames, "t", __import__("engine").Usage())
+        self.assertEqual([o["at"] for o in out], [150.0, 300.0])
+
+    def test_a_gap_where_a_batch_was_dropped_is_shown_not_bridged(self):
+        obs = [_seen(0), _seen(150), _seen(900), _seen(1050)]      # 12 minutes missing in the middle
+        track = VD.compress_to_visual_track(obs, 8, 150)
+        self.assertIn("NOT OBSERVED", track)
+        self.assertIn("[00:02:30-00:15:00]", track)
+
+    def test_a_string_where_a_true_or_false_was_expected_does_not_destroy_the_track(self):
+        cleaned = VD.clean_observation({"camera_on": "true", "screen_shared": "no",
+                                        "content_type": "SLIDES", "anomalies": "blank"})
+        self.assertIs(cleaned["camera_on"], True)
+        self.assertIs(cleaned["screen_shared"], False)
+        self.assertEqual(cleaned["content_type"], "slides")
+        self.assertEqual(cleaned["anomalies"], ["blank"])
+
+    def test_a_value_we_do_not_understand_becomes_unknown(self):
+        cleaned = VD.clean_observation({"camera_on": "maybe", "content_type": "hologram"})
+        self.assertIsNone(cleaned["camera_on"])
+        self.assertIsNone(cleaned["content_type"])
+        self.assertIn("camera ?", VD.compress_to_visual_track([dict(cleaned, at=0)], 1, 150))
+
+    def test_a_track_that_saw_nothing_is_not_a_track(self):
+        nothing = [{"at": i * 150.0, "camera_on": None, "screen_shared": None} for i in range(8)]
+        self.assertFalse(VD.track_is_informative(nothing, 60))
+        real = [{"at": i * 150.0, "camera_on": True, "screen_shared": True} for i in range(40)]
+        self.assertTrue(VD.track_is_informative(real, 60))
+
+    def test_a_truncated_heading_list_says_so(self):
+        obs = [_seen(i * 60.0, title=f"Heading number {i}") for i in range(40)]
+        track = VD.compress_to_visual_track(obs, 40, 60)
+        self.assertIn("more headings not listed", track)
+        self.assertIn("do not conclude a topic never appeared", track)
+
+    def test_the_video_url_never_reaches_an_error_message(self):
+        url = ("https://vod-progressive.example.net/exp=1757400000~hmac=SECRETabc123/hd.mp4"
+               "?token=BEARER-xyz")
+        msg = VD.redact(f"Error opening input file {url}. ffmpeg exited")
+        self.assertNotIn("BEARER-xyz", msg)
+        self.assertNotIn("hmac", msg)
+        self.assertIn("<video url>", msg)
+
+    def test_a_short_class_is_not_reported_as_an_unreadable_recording(self):
+        times = VD.sample_times(600)                       # a ten-minute class
+        self.assertLess(len(times), VD.VCFG.min_frames + 4)
+        src = VD.VideoSource(kind="direct", url="x", duration_s=600)
+        with mock.patch.object(VD, "extract_frame", return_value=JPEG):
+            with self.assertRaises(VD.VideoStageError) as cm:
+                VD.extract_frames(src, [1.0], time.monotonic() + 60)
+        self.assertIn("too short to sample usefully", str(cm.exception))
+        self.assertIn("the recording itself is fine", str(cm.exception))
 
 
 if __name__ == "__main__":

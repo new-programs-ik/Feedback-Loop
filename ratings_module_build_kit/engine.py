@@ -48,12 +48,16 @@ class Config:
     overlap_min: int = 2                 # carry context across windows
     max_retries: int = 4                 # network/5xx retries (SDK level)
     timeout_s: float = 240.0             # adaptive thinking makes long calls longer
-    max_tokens_extract: int = 10000
-    max_tokens_synth: int = 8000
-    max_tokens_skeptic: int = 4000       # the adversarial second-pass verdict call
-    max_tokens_materials: int = 2500     # the materials->Markdown conversion call
+    # Adaptive thinking runs by default and its tokens come out of these same budgets, so each of
+    # these is roughly double what the visible answer needs. The self-check used to have the
+    # SMALLEST budget of all while being one call covering every finding at once - so it failed
+    # most often on exactly the classes with the most to check.
+    max_tokens_extract: int = 16000
+    max_tokens_synth: int = 16000
+    max_tokens_skeptic: int = 12000      # the adversarial second-pass verdict call
+    max_tokens_materials: int = 4000     # the materials->Markdown conversion call
     max_tokens_map: int = 3000           # the whole-session map (adaptive thinking eats into this)
-    repair_attempts: int = 1             # re-ask once if the JSON is malformed/invalid
+    repair_attempts: int = 2             # re-ask if the JSON is malformed, truncated or invalid
     review_enabled: bool = True          # kill-switch: False restores the un-verified pipeline exactly
     price_in_per_mtok: float = 2.0       # USD, for cost reporting only (Sonnet 5: $2 in / $10 out)
     price_out_per_mtok: float = 10.0
@@ -126,6 +130,9 @@ SEVERITY — use these exact bars; they are checkable claims, not impressions:
   minor    - a polish issue with little learning impact: brief dead air, a missed recap, sparse
              check-ins, a small logistics hiccup, low interactivity in an otherwise clear class.
 TIE-BREAK: if the evidence does not CLEARLY meet the bar for a severity, use the LOWER one.
+This tie-break is about which severity to give a finding you are raising. It is NOT a reason
+to drop the finding: a real problem recorded as minor is useful, a real problem recorded as
+nothing is lost for good.
 CEILINGS: engagement, camera, screen_share, logistics and structure are at most MODERATE unless the
 evidence is catastrophic AND quoted (e.g. a tech failure consuming a large fraction of the class).
 Any other presentation-quality flag your rubric names is capped the same way. FLOOR: correctness in an ARS is MAJOR at minimum - learners treat reviewed
@@ -404,7 +411,16 @@ If a dimension is fine, raise nothing for it.
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
 - For coding_time and agenda_balance, give the time range you estimated and the quotes that mark the start and end.
-- Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
+- Prefer PRECISION over completeness for JUDGEMENT calls - was the pace too fast, was the room
+  engaged, was the structure clear. If unsure about one of those, do not raise it.
+- The opposite applies to CHECKABLE CLAIMS about the subject matter. If the instructor states
+  something about the material that is wrong - a definition, a formula, what a parameter does, a
+  complexity, a result - RAISE it as `correctness`, and set confidence to what you actually believe
+  ("low" is a legitimate answer). Do not stay silent because you are only fairly sure. A later pass
+  reviews every such finding and removes the ones that do not hold up; nothing anywhere can recover
+  one you did not raise. A wrong statement learners wrote down is not a small thing.
+- Before you finish the segment: re-read the instructor's factual assertions about the subject and
+  ask of each one, plainly, "is that true?" Raise the ones that are not.
 - Never invent or paraphrase quotes."""
 
 RUBRIC_ARS = """\
@@ -465,7 +481,16 @@ If a dimension is fine, raise nothing for it.
 RULES:
 - Every finding MUST include a verbatim quote (<= 20 words) copied exactly, plus its timestamp.
 - For problem_coverage and time_balance, give the time range you estimated and the quotes that mark start and end.
-- Prefer PRECISION over completeness: if unsure, do NOT raise the flag. A false criticism is worse than a miss.
+- Prefer PRECISION over completeness for JUDGEMENT calls - was the pace too fast, was the room
+  engaged, was the structure clear. If unsure about one of those, do not raise it.
+- The opposite applies to CHECKABLE CLAIMS about the subject matter. If the instructor states
+  something about the material that is wrong - a definition, a formula, what a parameter does, a
+  complexity, a result - RAISE it as `correctness`, and set confidence to what you actually believe
+  ("low" is a legitimate answer). Do not stay silent because you are only fairly sure. A later pass
+  reviews every such finding and removes the ones that do not hold up; nothing anywhere can recover
+  one you did not raise. A wrong statement learners wrote down is not a small thing.
+- Before you finish the segment: re-read the instructor's factual assertions about the subject and
+  ask of each one, plainly, "is that true?" Raise the ones that are not.
 - Never invent or paraphrase quotes."""
 
 RUBRICS = {"live_class": RUBRIC_LIVE, "ars": RUBRIC_ARS}
@@ -482,7 +507,15 @@ SECTION_C_WITH_VIDEO = """\
 [C] Judged from the VISUAL TRACK in CONTEXT (sampled frames from the recording — treat it as ground
     truth about what was on screen, with the stated sampling gaps):
   camera         - instructor camera off or absent for a meaningful span of the class.
-  screen_share   - screen not shared, frozen, wrong window, or unreadably small text while teaching.
+  engagement     - if the track reports LEARNERS VISIBLE, a large fall over the session is real
+                   evidence about the room. If it reports CHAT LEFT UNANSWERED, questions were
+                   sitting on screen with no reply - the transcript usually cannot show this.
+  A stretch marked NOT OBSERVED is exactly that: raise nothing about it, in either direction.
+  screen_share   - screen not shared at all, or a visible error left unresolved on screen, while
+                   teaching. Do NOT judge whether text was too small to read: the frames are
+                   downscaled before you see them, so small text in the track is our doing, not the
+                   instructor's. Do not judge "frozen" or "wrong window" either - a still frame
+                   cannot show either one.
 [[SECTION_C_LIVE_ONLY]]
   Visual evidence items use {"timestamp":"HH:MM:SS","quote":"<visual: camera off 00:14:30-00:31:00>",
   "source":"video"} — the '<visual: ...>' form is exempt from the verbatim-transcript rule but MUST
@@ -577,7 +610,7 @@ EXTRACT_SYS = (
     "extract only evidence-backed findings ABOUT THE INSTRUCTOR, as strict JSON. Rules you never break: "
     "never blame the instructor for a learner's words; use the whole-session map for context and never "
     "flag something the session resolves elsewhere; every quote is copied verbatim from the segment; you "
-    "never invent or paraphrase quotes; you prefer returning nothing over raising an unsupported flag; "
+    "never invent or paraphrase quotes; you never raise a flag with no evidence behind it, but you DO raise a checkable factual error at the confidence you actually hold rather than staying silent - a later pass removes what does not hold up, and nothing can recover what you never said; "
     "you output JSON only — no prose, no code fences."
 )
 
@@ -1076,7 +1109,20 @@ def _client():
     return anthropic.Anthropic(max_retries=CFG.max_retries, timeout=CFG.timeout_s)
 
 def _strip_fences(s: str) -> str:
-    return re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
+    """The JSON the model meant to send, with code fences and any chatty preamble removed.
+
+    Stripping only the fence LINES left "Here is the JSON you asked for:" in front of the object,
+    which failed to parse and burnt a whole repair attempt on something a bracket match fixes.
+    """
+    out = re.sub(r"^```(?:json)?|```$", "", s.strip(), flags=re.M).strip()
+    if out[:1] in "{[":
+        return out
+    starts = [i for i in (out.find("{"), out.find("[")) if i != -1]
+    if not starts:
+        return out
+    i = min(starts)
+    j = max(out.rfind("}"), out.rfind("]"))
+    return out[i:j + 1].strip() if j > i else out
 
 # An SDK upgrade that removes a keyword we pass must not take the whole tool down: losing
 # temperature=0 costs us some determinism, dying costs the team every analysis. (anthropic 1.x
@@ -1101,7 +1147,13 @@ def _create_message(client, **kwargs):
         return client.messages.create(**kwargs)
 
 
-def _call(client, system: str, user: str, max_tokens: int, usage: Usage) -> str:
+class _Truncated(ValueError):
+    """The model was still writing when it hit its budget. A repair must ask for something shorter,
+    not the same thing again."""
+
+
+def _call(client, system: str, user: str, max_tokens: int, usage: Usage,
+          note_truncation: bool = False) -> str:
     t = time.time()
     # No sampling params: Sonnet 5 rejects non-default temperature/top_p/top_k with a 400.
     # No thinking param either - the model runs adaptive thinking by default; our text extractor
@@ -1117,30 +1169,55 @@ def _call(client, system: str, user: str, max_tokens: int, usage: Usage) -> str:
     # A reply that hit the cap is a HALF answer, not a short one. Left undetected it looked like a
     # quiet window: findings the model was still writing were simply lost, and on the plain-text
     # map pass there was no JSON parse to fail loudly either.
-    if getattr(msg, "stop_reason", None) == "max_tokens":
+    was_cut = getattr(msg, "stop_reason", None) == "max_tokens"
+    if was_cut:
         usage.truncated += 1
         log.warning("model reply hit the %d-token cap and was cut off mid-answer", max_tokens)
     log.info("llm call ok  in=%d out=%d  %.1fs", msg.usage.input_tokens, msg.usage.output_tokens, time.time() - t)
-    return "".join(b.text for b in msg.content if b.type == "text")
+    text = "".join(b.text for b in msg.content if b.type == "text")
+    if was_cut and note_truncation:
+        raise _Truncated(text)
+    return text
 
-def _call_json(client, system: str, user: str, max_tokens: int, validate: Callable[[Any], list[str]], usage: Usage) -> dict:
-    """Call the model, parse + validate JSON, and re-ask once if it is malformed or invalid."""
-    text = _call(client, system, user, max_tokens, usage)
-    for attempt in range(CFG.repair_attempts + 1):
+def _call_json(client, system: str, user: str, max_tokens: int, validate: Callable[[Any], list[str]],
+               usage: Usage) -> dict:
+    """Call the model, parse + validate JSON, and re-ask if it is malformed, truncated or invalid.
+
+    A reply that ran out of budget mid-sentence and a reply that is simply wrong both arrive as
+    unparseable JSON, and they need opposite corrections. Telling the model "return corrected JSON
+    only" when what actually happened is that it was cut off produces the same overlong answer
+    again. So truncation is detected and answered on its own terms: say it was cut off, and ask for
+    a complete, more compact reply.
+    """
+    def ask(prompt: str) -> tuple[str, bool]:
         try:
-            obj = json.loads(_strip_fences(text))
-            errs = validate(obj)
-            if not errs:
-                return obj
-            problem = "Validation errors: " + "; ".join(errs[:8])
-        except json.JSONDecodeError as e:
-            problem = f"Invalid JSON: {e}"
+            return _call(client, system, prompt, max_tokens, usage, note_truncation=True), False
+        except _Truncated as cut:
+            return str(cut), True
+
+    text, was_cut = ask(user)
+    for attempt in range(CFG.repair_attempts + 1):
+        if was_cut:
+            problem = (f"Your previous reply was CUT OFF after {max_tokens} tokens - it was never "
+                       "finished, so it could not be read. Answer again, complete this time, and "
+                       "keep it compact: same JSON shape and the same findings, but say each thing "
+                       "in as few words as you can.")
+        else:
+            try:
+                obj = json.loads(_strip_fences(text))
+                errs = validate(obj)
+                if not errs:
+                    return obj
+                problem = ("Your previous reply was invalid. Validation errors: "
+                           + "; ".join(errs[:8]) + "\nReturn corrected JSON only.")
+            except json.JSONDecodeError as e:
+                problem = (f"Your previous reply was not valid JSON: {e}\n"
+                           "Return the whole answer again as valid JSON only - no prose, no fences.")
         if attempt >= CFG.repair_attempts:
-            raise ValueError(f"model output still invalid after repair — {problem}")
-        log.warning("repairing model output: %s", problem)
-        text = _call(client, system,
-                     user + f"\n\nYour previous reply was invalid. {problem}\nReturn corrected JSON only.",
-                     max_tokens, usage)
+            short = problem.split("\n")[0]
+            raise ValueError(f"model output still invalid after repair — {short}")
+        log.warning("repairing model output (attempt %d): %s", attempt + 1, problem.split("\n")[0][:120])
+        text, was_cut = ask(user + "\n\n" + problem)
     raise RuntimeError("unreachable")
 
 def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
