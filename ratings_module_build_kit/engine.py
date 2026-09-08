@@ -959,6 +959,39 @@ def apply_verdicts(result: dict, verdicts: list[dict], class_type: str) -> tuple
     return out, review
 
 
+def surviving_summary(result: dict) -> str:
+    """What is actually left, in one plain clause, written by code rather than by the model."""
+    counts: dict[tuple, int] = {}
+    for f in (result.get("flags") or []):
+        if isinstance(f, dict) and f.get("severity") in ("major", "moderate"):
+            key = (f.get("flag"), f.get("severity"))
+            counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return "Nothing at moderate or major severity was left standing."
+    parts = []
+    for (flag, sev), n in sorted(counts.items(), key=lambda kv: (kv[0][1] != "major", kv[0][0])):
+        name = str(flag).replace("_", " ")
+        parts.append(f"{n} {name} ({sev})" if n > 1 else f"{name} ({sev})")
+    return "What was left standing: " + ", ".join(parts) + "."
+
+
+def attach_evidence(result: dict) -> dict:
+    """Put the code's own account of the surviving findings onto the re-class call.
+
+    The sentence a PM reads is written by a model, and on a real class it said "one major
+    correctness issue survived review" when three had. Counting is not the model's job.
+    """
+    rc = result.get("reclass")
+    if not isinstance(rc, dict):
+        return result
+    summary = surviving_summary(result)
+    rc["surviving"] = summary
+    reason = str(rc.get("reason") or "").strip()
+    if summary and summary not in reason:
+        rc["reason"] = (reason + " " + summary).strip() if reason else summary
+    return result
+
+
 def gate_reclass(result: dict, class_type: str = "live_class") -> dict:
     """A re-class 'yes' must rest on at least one surviving MAJOR content-delivery flag; otherwise
     it is auto-softened to 'maybe' (visibly). 'maybe' is never upgraded; 'no' is never touched."""
@@ -1613,6 +1646,7 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                 # fails, the note still argues for findings the verifier threw out - so the draft
                 # must be marked, not shipped as if it were reconciled.
                 prose_stale = True
+    result = attach_evidence(result)     # the count of what survived is the code's, not the model's
     result["review"] = review_records
     # Everything a reader needs to judge how much this analysis was actually checked. This lived
     # only in `meta`, which the store never persists, so a failed verification reached the PM

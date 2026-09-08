@@ -75,3 +75,7 @@ Formula-One-Pager.pdf
 *google-sa*.json
 *service-account*.json
 *-sa.json
+
+# design-review screenshots, regenerated on demand
+web/shots/
+shots/
