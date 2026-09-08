@@ -275,8 +275,34 @@ now samples across the whole recording, and says so plainly when it could not re
 - The command-line cache includes the class kind and the model, and its folder is created only once
   there is a result to put in it.
 
-### Still open
+### Closed since
 
-- Two analyses of the same class can still run at once; there is no lock.
-- A Slack message that fails to send still means that class is never notified again.
-- Nothing sweeps a class left in "analyzing" when the worker dies mid-job.
+- Two analyses of the same class can no longer run at once. The class is claimed before any work
+  starts and a second request is refused rather than paid for.
+- A Slack message that fails to send no longer buries the class. A failed record is now read as
+  proof the class still needs telling somebody, and the next sync picks it up.
+- The hourly sync releases any class that has been "analyzing" for more than ninety minutes and
+  writes the reason to the audit log.
+
+### Found while connecting the live sheet
+
+The sync was reading **358 of 2,833 classes and reporting success.** The sheet writes its dates as
+"January 2, 2026"; the reader understood "Jan 2, 2026" but not the full month name, and May is the
+one month whose abbreviation is its own full name. So May parsed, the other eight months did not,
+and 87% of the rows were dropped in silence. It had never been caught because the eight months of
+history the system was built on came from a spreadsheet export rather than through this reader.
+
+Both month forms are understood now, along with the raw serial number a spreadsheet stores
+underneath. More importantly, dropping rows is counted by reason: losing more than a fifth of a tab
+is an error, and a date the reader cannot read is always an error, whatever the share.
+
+### Both formulas, on all 2,833 live classes
+
+| | Karthika's formula | The new formula |
+|---|---|---|
+| Classes someone looks at | 254 | 415 |
+| Per week | 7.1 | 11.5 |
+| Of which video | 5.7 | 4.5 |
+
+They disagree about 293 classes. Every one of the 227 that only the new formula sends was rated
+below 4.6. Of the 66 that only Karthika's formula sends, 19 were rated 4.6 or better.
