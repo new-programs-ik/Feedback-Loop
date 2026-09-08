@@ -3,7 +3,7 @@ test_engine.py — tests for the parts that run without the API (parsing, chunki
 Run:  python -m unittest test_engine -v
 The LLM stages are covered by the eval harness (needs ANTHROPIC_API_KEY + labelled classes).
 """
-import os, tempfile, unittest
+import json, os, tempfile, unittest
 import engine as E
 
 SAMPLE_SRT = """1
@@ -329,6 +329,94 @@ class TestReclassGating(unittest.TestCase):
     def test_no_untouched(self):
         out = E.gate_reclass(self._res("no", []))
         self.assertEqual(out["reclass"]["recommended"], "no")
+
+
+class TestReclassReasonIsHonest(unittest.TestCase):
+    """The PM reads the re-class reason. After verification deletes a finding, the reason must not
+    still recite it - that is what made a 'maybe' look arbitrary in the first four real analyses."""
+
+    def _major(self, flag):
+        return {"flag": flag, "severity": "major", "confidence": "high",
+                "evidence": [{"timestamp": "00:01:00", "quote": "q"}]}
+
+    def test_softening_note_names_what_survived(self):
+        res = {"flags": [self._major("engagement"),
+                         {"flag": "coverage", "severity": "moderate", "confidence": "high",
+                          "evidence": [{"timestamp": "00:02:00", "quote": "q"}]}],
+               "reclass": {"recommended": "yes", "reason": "three wrong statements"}}
+        out = E.gate_reclass(res)
+        self.assertEqual(out["reclass"]["recommended"], "maybe")
+        self.assertIn("what did survive: coverage", out["reclass"]["reason"])
+
+    def test_softening_note_when_nothing_survived(self):
+        res = {"flags": [self._major("engagement")],
+               "reclass": {"recommended": "yes", "reason": "r"}}
+        out = E.gate_reclass(res)
+        self.assertIn("no major coverage/correctness finding survived", out["reclass"]["reason"])
+        self.assertNotIn("what did survive", out["reclass"]["reason"])
+
+    # ── the reason is rewritten against surviving flags ──────────────────────
+    class _Msg:
+        class usage:
+            input_tokens = 10
+            output_tokens = 5
+        content = [type("B", (), {"type": "text", "text": json.dumps({
+            "feedback": "rewritten feedback",
+            "instructor_summary": "Rated 4.1. \n- One point + Fix: do this.",
+            "reclass_reason": "Only a moderate coverage gap survived; the PM should spot-check.",
+        })})()]
+
+    def _client(self):
+        outer = self
+
+        class Messages:
+            def __init__(self):
+                self.calls = []
+
+            def create(self, **kw):
+                self.calls.append(kw)
+                return outer._Msg()
+
+        class Client:
+            def __init__(self):
+                self.messages = Messages()
+
+        return Client()
+
+    def test_reason_is_rewritten_and_marked_when_softened(self):
+        result = {"flags": [{"flag": "coverage", "severity": "moderate", "confidence": "high",
+                             "evidence": [{"timestamp": "00:02:00", "quote": "q"}]}],
+                  "feedback": "old feedback",
+                  "instructor_summary": "old summary",
+                  "reclass": {"recommended": "maybe", "softened_from": "yes",
+                              "reason": "three provably incorrect statements"}}
+        changed = [{"flag": "correctness", "verdict": "drop", "from_severity": "major",
+                    "anchor_rule": "quote does not support", "reason": "instructor self-corrected"}]
+        out = E._reconcile_prose(self._client(), result, changed, E.Usage())
+        self.assertNotIn("three provably incorrect", out["reclass"]["reason"])
+        self.assertIn("moderate coverage gap", out["reclass"]["reason"])
+        self.assertTrue(out["reclass"]["reason"].startswith("[was 'yes' before verification]"))
+        self.assertEqual(out["reclass"]["recommended"], "maybe")     # code decides, prose does not
+
+    def test_reason_is_rewritten_without_the_marker_when_not_softened(self):
+        result = {"flags": [], "feedback": "f", "instructor_summary": "s",
+                  "reclass": {"recommended": "no", "reason": "old"}}
+        out = E._reconcile_prose(self._client(), result, [], E.Usage())
+        self.assertNotIn("[was 'yes'", out["reclass"]["reason"])
+        self.assertEqual(out["reclass"]["recommended"], "no")
+
+    def test_a_failed_rewrite_keeps_the_original_texts(self):
+        class Boom:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    raise RuntimeError("api down")
+
+        result = {"flags": [], "feedback": "f", "instructor_summary": "s",
+                  "reclass": {"recommended": "maybe", "reason": "original"}}
+        out = E._reconcile_prose(Boom(), result, [], E.Usage())
+        self.assertEqual(out["reclass"]["reason"], "original")
+        self.assertEqual(out["feedback"], "f")
 
 
 class TestSelectCandidates(unittest.TestCase):

@@ -468,13 +468,18 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
     if class_type == "ars":
         frame = ("   - Frame the points around the PROBLEMS reviewed (coverage, walkthrough depth, reasoning),\n"
                  "     not agenda items.\n")
-        yes_rule = ('     - "yes"   : assigned problems were skipped or badly rushed, OR a presented solution was\n'
-                    "                 technically wrong or so unclear that learners likely did not get it (learners\n"
-                    "                 treat reviewed solutions as canonical).\n")
+        yes_rule = ('     - "yes"   : ONLY for a provable MAJOR failure of coverage, correctness,\n'
+                    "                 problem_coverage or solution_walkthrough - an assigned problem skipped\n"
+                    "                 ENTIRELY, or a presented solution that is provably WRONG (learners treat\n"
+                    "                 reviewed solutions as canonical). Rushed or muddled but delivered is\n"
+                    "                 'maybe', not 'yes'.\n")
     else:
         frame = ""
-        yes_rule = ('     - "yes"   : important planned agenda content was not covered or was badly rushed, OR core\n'
-                    "                 concepts were explained incorrectly or so unclearly that learners likely did not get them.\n")
+        yes_rule = ('     - "yes"   : ONLY for a provable MAJOR failure of coverage or correctness - a planned\n'
+                    "                 core agenda item skipped ENTIRELY (or compressed so badly it cannot have\n"
+                    "                 landed), or a core concept taught PROVABLY WRONG and never corrected.\n"
+                    "                 Content that was rushed, muddled or thin but still delivered is\n"
+                    "                 'maybe', not 'yes'.\n")
     return (
         f"CLASS CONTEXT\n{ctx}\n\n"
         f"RAW FINDINGS collected from segment passes:\n{findings_json}\n\n"
@@ -731,8 +736,13 @@ def gate_reclass(result: dict) -> dict:
     if not has_support:
         rc["softened_from"] = "yes"
         rc["recommended"] = "maybe"
-        rc["reason"] = ("[auto-softened from 'yes': no confirmed major content-delivery flag "
-                        "survived verification] " + str(rc.get("reason", ""))).strip()
+        surviving = sorted({f.get("flag") for f in (result.get("flags") or [])
+                            if isinstance(f, dict) and f.get("flag") in CONTENT_DELIVERY_FLAGS
+                            and f.get("severity") in ("moderate", "major")})
+        note = ("[auto-softened from 'yes': no major coverage/correctness finding survived "
+                "verification" + (f"; what did survive: {', '.join(surviving)}" if surviving else "")
+                + "] ")
+        rc["reason"] = (note + str(rc.get("reason", ""))).strip()
     return result
 
 
@@ -1087,8 +1097,14 @@ RECONCILE_SYS = (
 
 
 def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") -> dict:
-    """After drops/downgrades, one call keeps the two prose outputs honest (they may still reference
-    a removed finding). Flags/severities/reclass stay exactly as code applied them."""
+    """After drops/downgrades, one call keeps the PROSE honest - it may still describe a finding
+    the verification deleted. That includes the RE-CLASS REASON, which is what the PM reads: a
+    "maybe" whose reason still recites three provably wrong statements that were all dropped is
+    worse than no reason at all. The recommendation itself (yes/no/maybe) is decided by code and
+    is not negotiable here; only the words explaining it are rewritten."""
+    rc = result.get("reclass") or {}
+    call = rc.get("recommended", "maybe")
+    softened = rc.get("softened_from") == "yes"
     user = (
         "REVIEW CHANGES (what the second-pass verification did):\n"
         + json.dumps(changed, ensure_ascii=False, indent=1)
@@ -1096,13 +1112,19 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
         + json.dumps(result.get("flags") or [], ensure_ascii=False, indent=1)
         + "\n\nCURRENT DETAILED FEEDBACK (internal):\n" + str(result.get("feedback", ""))
         + "\n\nCURRENT SUMMARY TO SEND THE INSTRUCTOR:\n" + str(result.get("instructor_summary", ""))
-        + '\n\nAdjust both texts per the review changes. Return JSON ONLY: '
-          '{"feedback":"...","instructor_summary":"..."}'
+        + "\n\nCURRENT RE-CLASS REASON (for the PM):\n" + str(rc.get("reason", ""))
+        + f"\n\nTHE RE-CLASS CALL IS ALREADY DECIDED BY CODE: {call!r}."
+        + ("  It was softened from 'yes' because no major coverage or correctness finding "
+           "survived verification.\n" if softened else "\n")
+        + "Rewrite all three texts so they describe ONLY what survived. The re-class reason must "
+          f"explain the {call!r} call in 1-2 sentences using surviving findings only; a claim that "
+          "was dropped or downgraded must not reappear. Never argue for a different call.\n"
+          'Return JSON ONLY: {"feedback":"...","instructor_summary":"...","reclass_reason":"..."}'
     )
 
     def _validate(obj: Any) -> list[str]:
         errs = []
-        for key in ("feedback", "instructor_summary"):
+        for key in ("feedback", "instructor_summary", "reclass_reason"):
             if not isinstance(obj.get(key), str) or not obj.get(key).strip():
                 errs.append(f"missing/empty '{key}'")
         return errs
@@ -1111,7 +1133,11 @@ def _reconcile_prose(client, result: dict, changed: list[dict], usage: "Usage") 
         obj = _call_json(client, RECONCILE_SYS, user, CFG.max_tokens_synth, _validate, usage)
         result["feedback"] = obj["feedback"].strip()
         result["instructor_summary"] = tidy_instructor_summary(obj["instructor_summary"])
-    except Exception:  # reconciliation is best-effort — never lose the analysis over prose polish
+        reason = obj["reclass_reason"].strip()
+        if softened:
+            reason = "[was 'yes' before verification] " + reason
+        result.setdefault("reclass", {})["reason"] = reason
+    except Exception:  # best-effort - never lose the analysis over prose polish
         log.exception("prose reconciliation failed; keeping the original texts")
     return result
 
@@ -1172,18 +1198,19 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
             log.info("skeptic review of %d finding(s)", len(candidates))
             try:
                 verdicts = skeptic_review(client, candidates, cues, transcript_text, ctx, usage)
-                if (result.get("reclass") or {}).get("recommended") == "yes":
-                    # highest-stakes output -> a second, narrower vote on the content-delivery majors
-                    content_majors = [c for c in candidates
-                                      if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
-                    if content_majors:
-                        log.info("re-class second vote on %d content major(s)", len(content_majors))
-                        try:
-                            vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx,
-                                                   usage, reclass_framing=True)
-                            verdicts = merge_conservative(verdicts, vote2)
-                        except Exception:  # the second vote is a bonus; never lose the first one
-                            log.exception("re-class second vote failed; keeping the first verdicts")
+                # A second, narrower vote on the findings that decide whether learners are asked
+                # to re-attend. It runs whenever such findings exist, not only when the call is
+                # already "yes" - the scrutiny must not depend on the answer it is scrutinising.
+                content_majors = [c for c in candidates
+                                  if c.get("flag") in CONTENT_DELIVERY_FLAGS and c.get("severity") == "major"]
+                if content_majors:
+                    log.info("re-class second vote on %d content major(s)", len(content_majors))
+                    try:
+                        vote2 = skeptic_review(client, content_majors, cues, transcript_text, ctx,
+                                               usage, reclass_framing=True)
+                        verdicts = merge_conservative(verdicts, vote2)
+                    except Exception:  # the second vote is a bonus; never lose the first one
+                        log.exception("re-class second vote failed; keeping the first verdicts")
                 result, review_records = apply_verdicts(result, verdicts, class_type)
             except Exception as e:  # noqa: BLE001
                 # The self-check is a quality ENHANCEMENT: if it cannot produce valid verdicts, keep the
