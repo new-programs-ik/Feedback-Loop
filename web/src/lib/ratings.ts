@@ -210,6 +210,34 @@ export type ClassesPageQuery = {
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 const quote = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
 
+/** How many classes fall in each band for this period and these filters, ignoring the band filter
+ *  itself - so the chips can say "Bad 12" while Bad is switched off. One narrow column, so this
+ *  stays cheap even over a year. */
+export async function fetchBandCounts(q: Omit<ClassesPageQuery, "band" | "sort" | "dir" | "page" | "perPage">):
+  Promise<Record<string, number>> {
+  const supabase = await createClient();
+  const out: Record<string, number> = {};
+  try {
+    let s = supabase.from("class_ratings").select("sentiment_band").gte("class_date", q.from).lte("class_date", q.to);
+    if (q.courseId) s = s.eq("course_id", q.courseId);
+    if (q.cohort) s = s.eq("cohort_text", q.cohort);
+    if (q.kind) s = s.eq("session_kind", q.kind);
+    if (q.instructor) {
+      if (isUuid(q.instructor)) s = s.eq("instructor_id", q.instructor);
+      else s = s.or(`instructor.eq.${quote(q.instructor)},instructor_canonical.eq.${quote(q.instructor)}`);
+    }
+    const { data, error } = await s.limit(5000);
+    if (error) return out;
+    for (const r of (data ?? []) as Array<{ sentiment_band: string | null }>) {
+      const k = r.sentiment_band ?? "none";
+      out[k] = (out[k] ?? 0) + 1;
+    }
+  } catch {
+    return out;                      // the chips simply show no counts
+  }
+  return out;
+}
+
 /** One page of the classes table — filtered, sorted and paged in SQL so it stays fast past a few
  *  thousand rows. Falls back to classic columns (and drops the band filter) while the v3 columns
  *  are still being added; `degraded` says so. */
@@ -248,8 +276,15 @@ export async function fetchClassesPage(q: ClassesPageQuery): Promise<{
       else s = s.eq("instructor", q.instructor);
     }
     if (q.band && v3) {
-      if (q.band === "none") s = s.is("sentiment_band", null);
-      else s = s.eq("sentiment_band", q.band);
+      // One band or several, comma separated. It used to accept only one, so "show me the bad ones
+      // and the average ones" was not a question the page could be asked.
+      const wanted = q.band.split(",").map((b) => b.trim()).filter(Boolean);
+      const withNone = wanted.includes("none");
+      const named = wanted.filter((b) => b !== "none");
+      if (withNone && named.length) s = s.or(`sentiment_band.is.null,sentiment_band.in.(${named.join(",")})`);
+      else if (withNone) s = s.is("sentiment_band", null);
+      else if (named.length === 1) s = s.eq("sentiment_band", named[0]);
+      else if (named.length) s = s.in("sentiment_band", named);
     }
     const col = CLASS_SORT_COLUMN[sort];
     const sortCol = v3 || !V3_COLUMNS.has(col) ? col : "class_date";

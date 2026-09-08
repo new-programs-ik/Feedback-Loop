@@ -9,11 +9,12 @@ import { ScorePill } from "@/components/score/score-pill";
 import { ClickRow } from "@/components/score/click-row";
 import { ClassDrawer } from "@/components/score/class-drawer";
 import { ClassDetail, loadClassDetail } from "@/components/score/class-detail";
-import { fetchClassesPage, instructorName, type ClassSortKey } from "@/lib/ratings";
+import { fetchClassesPage, instructorName, type ClassSortKey, fetchBandCounts } from "@/lib/ratings";
 import { coursePriors, courseKey, scoreRow } from "@/lib/class-score";
 import { getActiveConfig } from "@/lib/scoring";
-import { ACTION_LABEL, BAND_ORDER, BAND_META } from "@/lib/sentiment";
+import { ACTION_LABEL } from "@/lib/sentiment";
 import { voteLabel } from "@/lib/decision";
+import { BandChips, readBands, bandsToParam } from "@/components/analytics/band-chips";
 import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { hrefIn, resolveWorkspace } from "@/lib/workspace";
@@ -54,7 +55,7 @@ export default async function ClassesPage({
   const density = sp.density === "compact" ? "compact" : "normal";
 
   const supabase = await createClient();
-  const [result, active, cohortsRes, instructorsRes, detail] = await Promise.all([
+  const [result, active, cohortsRes, instructorsRes, detail, bandCounts] = await Promise.all([
     fetchClassesPage({
       courseId: ws.courseId, from, to, sort, dir, page, pageSize: 50,
       cohort: sp.cohort, kind: sp.kind, instructor: sp.instructor, band: sp.band, status: sp.status,
@@ -63,6 +64,7 @@ export default async function ClassesPage({
     ws.courseId ? supabase.from("cohorts").select("id, name").eq("course_id", ws.courseId).order("name") : Promise.resolve({ data: null }),
     supabase.from("instructors").select("id, name").order("name"),
     sp.class ? loadClassDetail(sp.class) : Promise.resolve(null),
+    fetchBandCounts({ from, to, courseId: ws.courseId, cohort: sp.cohort, kind: sp.kind, instructor: sp.instructor }),
   ]);
   const cfg = active.config;
   const priors = coursePriors(result.rows);
@@ -91,14 +93,6 @@ export default async function ClassesPage({
     { name: "cohort", label: "Cohort", value: sp.cohort, options: cohorts, className: "w-52" },
     { name: "kind", label: "Kind", value: sp.kind, options: KINDS.map((k) => ({ value: k, label: k })), all: "Live + review", className: "w-40" },
     { name: "instructor", label: "Instructor", value: sp.instructor, options: instructors, className: "w-48" },
-    {
-      name: "band",
-      label: "Band",
-      value: sp.band,
-      options: [...BAND_ORDER.map((b) => ({ value: b, label: BAND_META[b].label })), { value: "none", label: "No band" }],
-      all: "All bands",
-      className: "w-36",
-    },
   ];
   const filtered = !!(sp.cohort || sp.kind || sp.instructor || sp.band || sp.status || range !== "30d");
 
@@ -119,6 +113,12 @@ export default async function ClassesPage({
           {result.total} {result.total === 1 ? "class" : "classes"}
         </span>
       </FilterBar>
+
+      <BandChips
+        selected={readBands(sp.band)}
+        counts={bandCounts}
+        hrefFor={(bands) => href({ band: bandsToParam(bands), page: undefined })}
+      />
 
       {result.degraded && sp.band && (
         <p className="text-muted-foreground mb-3 text-xs">The band filter needs the scoring migration — showing every band until it lands.</p>
