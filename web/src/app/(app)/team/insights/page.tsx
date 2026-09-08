@@ -48,7 +48,7 @@ const SECTIONS: InsightSection[] = [
   { id: "right", n: 1, short: "Is the score right?", title: "Is the score right? The validation study, run live" },
   { id: "predict", n: 2, short: "The next class", title: "Does the band predict the next class?" },
   { id: "voices", n: 3, short: "Voices", title: "How many voices before a band is firm" },
-  { id: "vote", n: 4, short: "The vote", title: "The vote is not the rating" },
+  { id: "vote", n: 4, short: "Instructor approval", title: "Instructor approval is not the rating" },
   { id: "trend", n: 5, short: "The trend", title: "The trend leadership should watch" },
   { id: "courses", n: 6, short: "By course", title: "By course" },
   { id: "content", n: 7, short: "Content vs delivery", title: "Content vs delivery — the data can tell them apart" },
@@ -201,7 +201,7 @@ export default async function InsightsPage() {
     return { value: `${riskText(bad)} / ${riskText(exc)}`, note: `${bad.n.toLocaleString()} · ${exc.n.toLocaleString()} pairs` };
   };
   const fiveRows = [
-    { key: "flips", label: "Band flips on one vote", hint: "Share of classes whose band changes if one yes becomes a no, or one rater gives a point less.", v1: flipCell(whatV1), active: flipCell(whatActive), study: STUDY.flips },
+    { key: "flips", label: "Band flips if one learner answers differently", hint: "Share of classes whose band changes if one yes becomes a no, or one rater gives a point less.", v1: flipCell(whatV1), active: flipCell(whatActive), study: STUDY.flips },
     { key: "badAbove", label: "Bad classes actually rated 4.55+", hint: "Classes the band calls Bad although the room rated them on or above the line.", v1: badCell(mV1), active: badCell(mAct), study: STUDY.badAbove },
     { key: "comfort", label: "Low classes shown Good or Excellent", hint: "Rated under 4.55, or under 80% approval, with 5+ votes — yet a firm Good or Excellent band.", v1: comfortCell(mV1), active: comfortCell(mAct), study: STUDY.comfort },
     { key: "load", label: "Analyses a week", hint: "Videos plus transcript reads the band rule sends to the queue, averaged over the window.", v1: loadCell(whatV1), active: loadCell(whatActive), study: STUDY.load },
@@ -322,7 +322,7 @@ export default async function InsightsPage() {
           <Kpi label={`Classes · ${win.label}`} value={total.n.toLocaleString()} sub={`${fmt1(total.n / win.weeks)} a week`} />
           <Kpi label="Average score" value={<AvgScorePill score={total.avgScore} label="avg" />} sub={`${total.scored.toLocaleString()} with a band`} />
           <Kpi label="Shown Bad" value={<span className={cn(teamBadPct != null && teamBadPct >= 10 && "text-destructive")}>{pctText(teamBadPct)}</span>} sub={`${total.counts.bad.toLocaleString()} classes → video`} />
-          <Kpi label="Would have the instructor back" value={<span className={cn(total.approval != null && total.approval < 80 && "text-destructive")}>{fmtPct(total.approval)}</span>} sub="pooled over every vote" />
+          <Kpi label="Would have the instructor back" value={<span className={cn(total.approval != null && total.approval < 80 && "text-destructive")}>{fmtPct(total.approval)}</span>} sub="pooled over every approval answer" />
           <Kpi label={`Analyses a week · v${activeVersion}`} value={whatActive ? fmt1(whatActive.analyses_per_week) : "—"} sub={whatActive ? `${fmt1(whatActive.videos_per_week)} video · ${fmt1(whatActive.transcripts_per_week)} transcript` : "database function unavailable"} />
         </div>
       </header>
@@ -453,7 +453,7 @@ export default async function InsightsPage() {
             voices.
           </Lede>
           <ChartCard
-            title="Bands by vote count"
+            title="Bands by how many learners answered"
             subtitle="Every class in the window, grouped by how many voted · the label above each column is the class count"
             legend={[...BAND_ORDER.map((b) => ({ label: BAND_META[b].label, color: BAND_META[b].color })), { label: "No band", color: "var(--band-none)" }]}
             table={{
@@ -492,7 +492,7 @@ export default async function InsightsPage() {
                 hard lines instead of averaging them away.
               </Lede>
               <ChartCard
-                title="Every class with a vote"
+                title="Every class with an approval answer"
                 subtitle="Rating against the share who would have the instructor back · the 4.55 line and the 80% bar are the score's two hard lines · the shaded corner misses both"
                 legend={[
                   { label: "Clears both lines", color: "var(--chart-1)" },

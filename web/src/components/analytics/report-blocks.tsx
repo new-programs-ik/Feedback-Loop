@@ -146,7 +146,7 @@ export function HeadlineTiles({
       )}
       <Kpi label="Band mix" value={<BandStripOf counts={cur.counts} className="w-full" height="h-2" />} sub={`${cur.counts.excellent} · ${cur.counts.good} · ${cur.counts.average} · ${cur.counts.bad}`} />
       <Kpi label="Approval" value={<span className={cur.approval != null && cur.approval < 80 ? "text-destructive" : ""}>{fmtPct(cur.approval)}</span>} sub={<Delta value={cur.approval == null || prev.approval == null ? null : cur.approval - prev.approval} unit=" pts" />} />
-      <Kpi label="Reach" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || prev.reach == null ? null : cur.reach - prev.reach} unit=" pts" />} />
+      <Kpi label="Rated / attended" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || prev.reach == null ? null : cur.reach - prev.reach} unit=" pts" />} />
       <Kpi label="Flagged" value={queue.video + queue.transcript} sub={`${queue.video} video · ${queue.transcript} transcript`} />
     </div>
   );

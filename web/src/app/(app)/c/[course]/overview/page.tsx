@@ -167,7 +167,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
               value={<span className={cur.approval != null && cur.approval < 80 ? "text-destructive" : ""}>{fmtPct(cur.approval)}</span>}
               sub={<Delta value={cur.approval == null || before.approval == null ? null : cur.approval - before.approval} unit=" pts" suffix="bar 80%" />}
             />
-            <Kpi label="Reach" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || before.reach == null ? null : cur.reach - before.reach} unit=" pts" suffix="of the room rated" />} />
+            <Kpi label="Rated / attended" value={fmtPct(cur.reach)} sub={<Delta value={cur.reach == null || before.reach == null ? null : cur.reach - before.reach} unit=" pts" suffix="of those who attended rated" />} />
             <Kpi
               label="Attended per class"
               value={cur.avgAttended == null ? "—" : Math.round(cur.avgAttended)}
@@ -247,7 +247,7 @@ export default async function OverviewPage({ params, searchParams }: { params: P
                     <TableHead>Avg score</TableHead>
                     <TableHead>vs course</TableHead>
                     <TableHead className="text-right">Approval</TableHead>
-                    <TableHead className="text-right">Reach</TableHead>
+                    <TableHead className="text-right">Rated / attended</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -301,8 +301,8 @@ export default async function OverviewPage({ params, searchParams }: { params: P
           {/* ── reach vs score ── */}
           <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
             <ChartCard
-              title="Reach vs score"
-              subtitle="Are low scores just thin turnout? Every class by the share of the room that rated it"
+              title="Score against how many learners rated"
+              subtitle="Is a low score just a few people rating? Every class by how many of the learners who attended rated it"
               legend={[
                 { label: "Good / Excellent", color: "var(--chart-1)" },
                 { label: "Average / Bad", color: BAND_META.bad.color },
@@ -319,12 +319,12 @@ export default async function OverviewPage({ params, searchParams }: { params: P
                   bar={40}
                   cornerSide="left"
                   height={300}
-                  xLabel="share of attendees who rated the class"
-                  xValueLabel="reach"
+                  xLabel="learners who rated, out of those who attended"
+                  xValueLabel="rated"
                   yLabel="score"
                   lineLabel="score 60 — Bad below this"
-                  barLabel="40% reach"
-                  cornerLabel="low score on a thin turnout"
+                  barLabel="40% rated"
+                  cornerLabel="low score, and few people rated"
                   yLines={[
                     { at: 75, label: "Good" },
                     { at: 90, label: "Excellent" },

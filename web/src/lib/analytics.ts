@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { approvalOf, fetchRatings, instructorKey, instructorName, type ClassRating } from "@/lib/ratings";
+import { approvalOf, fetchRatings, instructorKey, instructorName, latestRatedDate, type ClassRating } from "@/lib/ratings";
 import { coursePriors, courseKey, scoreRow } from "@/lib/class-score";
 import { getActiveConfig } from "@/lib/scoring";
 import { bandOf, DEFAULT_CONFIG, type Action, type Band, type ComponentRow, type ScoringConfig } from "@/lib/sentiment";
@@ -90,9 +90,15 @@ export function deltaOf(cur: number | null | undefined, prev: number | null | un
 export type RangePreset = "7d" | "30d" | "90d" | "month" | "custom";
 export const RANGE_PRESETS: RangePreset[] = ["7d", "30d", "90d", "month", "custom"];
 
-export function rangeToDates(range: RangePreset, from?: string, to?: string) {
-  const now = new Date();
-  const t = iso(now);
+/** The date the presets count back from: today, or the last rated class when the sheet is
+ *  behind (a "last 7 days" that ends after the data does is an empty page, not a filter). */
+export function scopeAnchor(latest?: string | null): string {
+  const t = today();
+  return latest && /^\d{4}-\d{2}-\d{2}$/.test(latest) && latest < t ? latest : t;
+}
+
+export function rangeToDates(range: RangePreset, from?: string, to?: string, anchor?: string | null) {
+  const t = scopeAnchor(anchor);
   switch (range) {
     case "7d":
       return { from: addDays(t, -7), to: t };
@@ -114,6 +120,8 @@ export type Scope = {
   range: RangePreset;
   from: string;
   to: string;
+  /** Set when the presets end on the last rated class rather than today. */
+  anchor?: string;
   cohort?: string;
   kind?: "live" | "review";
   instructor?: string;
@@ -127,20 +135,27 @@ export const one = (sp: SearchParams, k: string) => {
   return Array.isArray(v) ? v[0] : v;
 };
 
-export function readScope(sp: SearchParams, defaultRange: RangePreset = "90d"): Scope {
+export function readScope(sp: SearchParams, defaultRange: RangePreset = "90d", latest?: string | null): Scope {
   const range = (RANGE_PRESETS.includes(one(sp, "range") as RangePreset) ? one(sp, "range") : defaultRange) as RangePreset;
-  const { from, to } = rangeToDates(range, one(sp, "from"), one(sp, "to"));
+  const anchor = scopeAnchor(latest);
+  const { from, to } = rangeToDates(range, one(sp, "from"), one(sp, "to"), anchor);
   const kind = one(sp, "kind");
   const band = one(sp, "band");
   return {
     range,
     from,
     to,
+    anchor: anchor < today() ? anchor : undefined,
     cohort: one(sp, "cohort") || undefined,
     kind: kind === "live" || kind === "review" ? kind : undefined,
     instructor: one(sp, "instructor") || undefined,
     band: band && BAND_SET.has(band) ? (band as Band) : undefined,
   };
+}
+
+/** The scope with its presets anchored on the course's (or the team's) last rated class. */
+export async function readScopeFor(sp: SearchParams, courseId?: string | null, defaultRange: RangePreset = "90d"): Promise<Scope> {
+  return readScope(sp, defaultRange, await latestRatedDate(courseId ?? null));
 }
 
 /** Query string for the scope (only what differs from the defaults), plus extras. */
@@ -713,9 +728,9 @@ export function classReason(r: ScoredRating): string {
   const under = r.approval_pct != null && r.approval_pct < 80;
   const rated = r.rating.toFixed(2);
   if (low && under) bits.push(`Rated ${rated} and only ${Math.round(r.approval_pct!)}% would have the instructor back`);
-  else if (low) bits.push(r.approval_pct != null ? `Rated ${rated}, though ${Math.round(r.approval_pct)}% would have the instructor back` : `Rated ${rated} with no vote recorded`);
+  else if (low) bits.push(r.approval_pct != null ? `Rated ${rated}, though ${Math.round(r.approval_pct)}% would have the instructor back` : `Rated ${rated} with no approval answer recorded`);
   else if (under) bits.push(`Rated ${rated} but only ${Math.round(r.approval_pct!)}% would have the instructor back`);
-  else bits.push(r.approval_pct != null ? `Rated ${rated} and ${Math.round(r.approval_pct)}% would have the instructor back` : `Rated ${rated} with no vote recorded`);
+  else bits.push(r.approval_pct != null ? `Rated ${rated} and ${Math.round(r.approval_pct)}% would have the instructor back` : `Rated ${rated} with no approval answer recorded`);
   if (r.num_ratings != null && r.num_ratings < 10) bits.push(`${r.num_ratings} rated it`);
   if (r.participation_pct != null && r.participation_pct < 40) bits.push(`${Math.round(r.participation_pct)}% of the room`);
   const a = effectiveAction(r);

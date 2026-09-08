@@ -258,7 +258,7 @@ export function NewAnalysisForm({
   const VerdictIcon = advice ? (VERDICT_ICON[advice.title] ?? CircleDashed) : CircleDashed;
 
   return (
-    <Card className="shadow-soft max-w-2xl">
+    <Card className="shadow-soft">
       <CardHeader>
         <CardTitle>Class details</CardTitle>
         <CardDescription>
@@ -285,7 +285,7 @@ export function NewAnalysisForm({
                       <span className="text-muted-foreground">would have the instructor back</span>
                     </>
                   ) : (
-                    <span className="text-muted-foreground">no vote recorded</span>
+                    <span className="text-muted-foreground">no approval answer recorded</span>
                   )}
                 </span>
                 <ScorePill variant="sm" score={prefill.score} band={prefill.band} action={prefill.action ?? undefined} />
@@ -373,6 +373,9 @@ export function NewAnalysisForm({
             </p>
           </div>
 
+          {/* two columns from lg: the class on the left, the recording and materials on the right */}
+          <div className="grid gap-7 lg:grid-cols-2 lg:gap-8">
+          <div className="space-y-7">
           <Section icon={FileText} title="The class">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -435,7 +438,8 @@ export function NewAnalysisForm({
                         placeholder="Paste the planned agenda — helps judge coverage & pacing." />
             </div>
           </Section>
-
+          </div>
+          <div className="space-y-7">
           <Section icon={Clapperboard} title="The recording">
             <div className="flex gap-4 text-sm">
               <label className="flex items-center gap-2">
@@ -484,6 +488,8 @@ export function NewAnalysisForm({
               for this analysis and <strong>never stored</strong>.
             </p>
           </Section>
+          </div>
+          </div>
 
           <AnimatePresence initial={false}>
             {state.error && (

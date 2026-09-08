@@ -148,7 +148,7 @@ export default async function ModulePage({ params, searchParams }: Props) {
               sub={<Delta value={fix.avgRating == null || course.avgRating == null ? null : fix.avgRating - course.avgRating} decimals={2} suffix="vs course" />}
             />
             <Kpi label="Attended per class" value={t.avgAttended == null ? "—" : Math.round(t.avgAttended)} sub={<Delta value={t.avgAttended == null || course.avgAttended == null ? null : t.avgAttended - course.avgAttended} suffix="vs course" />} />
-            <Kpi label="Reach" value={fmtPct(t.reach)} sub={<Delta value={t.reach == null || course.reach == null ? null : t.reach - course.reach} unit=" pts" suffix="of the room rated" />} />
+            <Kpi label="Rated / attended" value={fmtPct(t.reach)} sub={<Delta value={t.reach == null || course.reach == null ? null : t.reach - course.reach} unit=" pts" suffix="of those who attended rated" />} />
             <Kpi label="Approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes ? `${t.votes} votes` : "no votes"} />
             <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
           </div>

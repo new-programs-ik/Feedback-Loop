@@ -67,7 +67,7 @@ export type MapModule = {
 const METRICS: { value: MapMetric; label: string; title: string }[] = [
   { value: "rating", label: "Rating", title: "Tint by the rating alone" },
   { value: "attendance", label: "Attendance", title: "Tint by the room against the cohort's first class" },
-  { value: "reach", label: "Reach", title: "Tint by the share of the room that rated" },
+  { value: "reach", label: "Rated / attended", title: "Tint by the share of the room that rated" },
   { value: "score", label: "Score", title: "Tint by the Class Sentiment Score band" },
 ];
 

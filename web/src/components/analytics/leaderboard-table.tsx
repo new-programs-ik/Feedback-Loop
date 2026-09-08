@@ -53,7 +53,7 @@ export function LeaderboardTable({
           <SortButton sortKey="rating" {...th} align="right">Avg rating</SortButton>
           <SortButton sortKey="attended" {...th} align="right">Avg attended</SortButton>
           <SortButton sortKey="approval" {...th} align="right">Approval</SortButton>
-          <SortButton sortKey="reach" {...th} align="right">Reach</SortButton>
+          <SortButton sortKey="reach" {...th} align="right">Rated / attended</SortButton>
           <SortButton sortKey="delta" {...th} align="right" title="Sort by the change since the previous period">Δ</SortButton>
           <TableHead>vs {showCourses ? "team" : "course"}</TableHead>
           <SortButton sortKey="last" {...th} align="right">Last class</SortButton>

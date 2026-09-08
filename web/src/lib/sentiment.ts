@@ -150,7 +150,7 @@ export const COMPONENT_LABEL: Record<ComponentKey, string> = {
   rating: "Rating",
   approval: "Approval",
   sample: "Responses",
-  reach: "Reach",
+  reach: "Rated / attended",
   track: "Track record",
 };
 
@@ -465,7 +465,7 @@ export const FLAG_WORDS: Record<ScoreFlag, string> = {
   invalid_rating: "the rating is outside 0–5",
   no_rating: "no rating recorded",
   rating_zero: "the rating is 0",
-  no_vote: "no vote recorded",
+  no_vote: "no approval answer recorded",
   votes_ne_responses: "votes and responses do not add up",
   no_responses: "the response count is missing",
   zero_responses: "nobody responded",

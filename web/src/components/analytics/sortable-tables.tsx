@@ -76,7 +76,7 @@ export function CohortsTable({ rows, maxHeight }: { rows: CohortRowVM[]; maxHeig
           <SortButton sortKey="rating" {...th} align="right">Avg rating</SortButton>
           <SortButton sortKey="attended" {...th} align="right">Avg attended</SortButton>
           <SortButton sortKey="approval" {...th} align="right">Approval</SortButton>
-          <SortButton sortKey="reach" {...th} align="right">Reach</SortButton>
+          <SortButton sortKey="reach" {...th} align="right">Rated / attended</SortButton>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -111,7 +111,7 @@ export function ModulesTable({ rows, maxHeight }: { rows: ModuleRowVM[]; maxHeig
           <SortButton sortKey="rating" {...th} align="right">Avg rating</SortButton>
           <SortButton sortKey="attended" {...th} align="right">Avg attended</SortButton>
           <SortButton sortKey="approval" {...th} align="right">Approval</SortButton>
-          <SortButton sortKey="reach" {...th} align="right">Reach</SortButton>
+          <SortButton sortKey="reach" {...th} align="right">Rated / attended</SortButton>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -150,7 +150,7 @@ export function CoursesTable({ rows, maxHeight }: { rows: CourseRowVM[]; maxHeig
           <SortButton sortKey="rating" {...th} align="right">Avg rating</SortButton>
           <SortButton sortKey="attended" {...th} align="right">Avg attended</SortButton>
           <SortButton sortKey="approval" {...th} align="right">Approval</SortButton>
-          <SortButton sortKey="reach" {...th} align="right">Reach</SortButton>
+          <SortButton sortKey="reach" {...th} align="right">Rated / attended</SortButton>
           <SortButton sortKey="delta" {...th} align="right" title={DELTA_TITLE}>Δ</SortButton>
           <SortButton sortKey="bad" {...th} align="right">Bad</SortButton>
           <SortButton sortKey="average" {...th} align="right">Average</SortButton>

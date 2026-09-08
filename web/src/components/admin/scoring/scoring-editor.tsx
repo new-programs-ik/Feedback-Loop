@@ -78,7 +78,7 @@ export function ScoringEditor({
         </Row>
       </Section>
 
-      <Section title="Responses and reach" hint="How many learners rated, and what share of the room that was.">
+      <Section title="How many rated, and how many of those who attended" hint="How many learners rated, and what share of the room that was.">
         <Row>
           <Field label="Responses" help={FIELD_HELP.sampleMode}>
             <Select value={config.sample.mode} disabled={disabled} onChange={(e) => patch((c) => (c.sample.mode = e.target.value as ScoringConfig["sample"]["mode"]))} aria-label="Responses mode">
@@ -88,8 +88,8 @@ export function ScoringEditor({
             </Select>
           </Field>
           <Num label="Target" help={FIELD_HELP.sampleTarget} value={config.sample.target} step={1} min={1} disabled={disabled || config.sample.mode === "off"} onCommit={(v) => patch((c) => (c.sample.target = v))} />
-          <Field label="Reach" help={FIELD_HELP.reachMode}>
-            <Select value={config.reach.mode} disabled={disabled} onChange={(e) => patch((c) => (c.reach.mode = e.target.value as ScoringConfig["reach"]["mode"]))} aria-label="Reach mode">
+          <Field label="Rated / attended" help={FIELD_HELP.reachMode}>
+            <Select value={config.reach.mode} disabled={disabled} onChange={(e) => patch((c) => (c.reach.mode = e.target.value as ScoringConfig["reach"]["mode"]))} aria-label="Rated-of-attended mode">
               <option value="graded">Graded (share of attendees who rated)</option>
               <option value="off">Off</option>
             </Select>
@@ -146,7 +146,7 @@ export function ScoringEditor({
 
       <Section title="Small-sample guard" hint="Protects classes where only a handful of learners voted.">
         <Row>
-          <Num label="k (typical votes blended in)" help={FIELD_HELP.guardK} value={config.guard.k} step={1} min={0} disabled={disabled} onCommit={(v) => patch((c) => (c.guard.k = v))} />
+          <Num label="k (typical answers blended in)" help={FIELD_HELP.guardK} value={config.guard.k} step={1} min={0} disabled={disabled} onCommit={(v) => patch((c) => (c.guard.k = v))} />
           <Field label="Prior" help={FIELD_HELP.guardPrior}>
             <Select value={config.guard.prior} disabled={disabled || config.guard.k === 0} onChange={(e) => patch((c) => (c.guard.prior = e.target.value as ScoringConfig["guard"]["prior"]))} aria-label="Guard prior">
               <option value="course">This course&apos;s typical class</option>
@@ -156,7 +156,7 @@ export function ScoringEditor({
         </Row>
       </Section>
 
-      <Section title="Minimum votes" hint="Below these, the score is shown with care.">
+      <Section title="Minimum approval answers" hint="Below these, the score is shown with care.">
         <Row>
           <Num label="To show a band" help={FIELD_HELP.minVotesBand} value={config.min_votes.band} step={1} min={0} disabled={disabled} onCommit={(v) => patch((c) => (c.min_votes.band = v))} />
           <Num label="To trigger an analysis" help={FIELD_HELP.minVotesAction} value={config.min_votes.action} step={1} min={0} disabled={disabled} onCommit={(v) => patch((c) => (c.min_votes.action = v))} />
@@ -239,7 +239,7 @@ const COMPONENT_LABEL: Record<Component, string> = {
   rating: "Rating",
   approval: "Approval",
   sample: "Responses",
-  reach: "Reach",
+  reach: "Rated / attended",
   track: "Track record",
 };
 const ACTION_TEXT: Record<ActionKind, string> = {

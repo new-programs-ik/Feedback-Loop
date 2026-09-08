@@ -32,7 +32,7 @@ const OPTIONS: SortOption<Key>[] = [
   { key: "score", label: "Score", first: "asc" },
   { key: "date", label: "Date", first: "desc", words: DATE_WORDS },
   { key: "rating", label: "Rating", first: "asc" },
-  { key: "reach", label: "Reach", first: "asc" },
+  { key: "reach", label: "Rated / attended", first: "asc" },
   { key: "instructor", label: "Instructor", first: "asc", words: NAME_WORDS },
 ];
 

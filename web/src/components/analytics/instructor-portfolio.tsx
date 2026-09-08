@@ -158,7 +158,7 @@ export function InstructorPortfolio({
             <Kpi label="Avg score" value={<AvgScorePill score={t.avgScore} />} sub={courseAvg != null ? <Delta value={t.avgScore == null ? null : t.avgScore - courseAvg} suffix="vs course avg" /> : null} />
             <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
             <Kpi label="Approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes > 0 ? `${t.votes} votes · bar 80%` : "no votes"} />
-            <Kpi label="Reach" value={fmtPct(t.reach)} sub="share of the room that rated" />
+            <Kpi label="Rated / attended" value={fmtPct(t.reach)} sub="share of the room that rated" />
             <Kpi label="vs course" value={<CompareBullet value={t.avgScore} reference={courseAvg} width={110} />} sub={courseAvg != null ? `course avg ${fmtScore(courseAvg)}` : "no course average"} />
           </div>
 

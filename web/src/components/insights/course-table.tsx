@@ -64,7 +64,7 @@ export function CourseTable({ rows, teamBadPct, className }: { rows: CourseRow[]
             {head("rating", "Avg rating")}
             {head("attended", "In the room", "right", "Sort by average learners attended")}
             {head("approval", "Approval", "right", "Sort by the share who would have the instructor back")}
-            {head("reach", "Reach", "right", "Sort by the share of the room that rated")}
+            {head("reach", "Rated / attended", "right", "Sort by the share of the room that rated")}
             {head("bad", "Bad share")}
           </TableRow>
         </TableHeader>

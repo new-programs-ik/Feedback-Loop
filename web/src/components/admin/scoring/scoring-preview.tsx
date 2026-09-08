@@ -89,7 +89,7 @@ export function ScoringPreview({
           tone={stats.dropped > 0 ? "warn" : "default"}
         />
         <Tile
-          label="Flip on one vote"
+          label="Flips if one learner answers differently"
           value={loading ? "…" : fmtPct(stats.flipShare)}
           note={loading ? "" : `${stats.flips} of ${stats.n} classes · ${fmtPct(stats.flipShare10)} with 10+ votes`}
           tone={stats.flipShare != null && stats.flipShare > 0.1 ? "warn" : "default"}
@@ -209,7 +209,7 @@ export function ScoringPreview({
                 <Cmp label="Transcripts / week" a={stats.transcriptsPerWeek} b={db.summary.transcripts_per_week} decimals={1} />
                 <Cmp label="Classes that change" a={stats.changed.length} b={db.summary.changed_count} />
                 <Cmp label="Dropped from today's queue" a={stats.dropped} b={db.summary.dropped_count} />
-                <Cmp label="Flip on one vote" a={stats.flipShare == null ? null : stats.flipShare * 100} b={db.summary.flip_share == null ? null : db.summary.flip_share <= 1 ? db.summary.flip_share * 100 : db.summary.flip_share} decimals={1} suffix="%" />
+                <Cmp label="Flips if one learner answers differently" a={stats.flipShare == null ? null : stats.flipShare * 100} b={db.summary.flip_share == null ? null : db.summary.flip_share <= 1 ? db.summary.flip_share * 100 : db.summary.flip_share} decimals={1} suffix="%" />
               </tbody>
             </table>
           </div>

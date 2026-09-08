@@ -70,7 +70,7 @@ export function NoteDialog({
             <Stat label="Change band" value={String(summary.bandMoves)} />
             <Stat label="Analyses / week" value={`${fmt1(summary.analysesPerWeek)}`} sub={`${fmt1(summary.videosPerWeek)} v · ${fmt1(summary.transcriptsPerWeek)} t`} />
             <Stat label="Dropped today" value={String(summary.dropped)} />
-            <Stat label="Flip on one vote" value={fmtPct(summary.flipShare)} />
+            <Stat label="Flips if one learner answers differently" value={fmtPct(summary.flipShare)} />
             {rangeLabel && <p className="text-muted-foreground col-span-full text-[11px]">Over {rangeLabel}.</p>}
           </div>
         )}

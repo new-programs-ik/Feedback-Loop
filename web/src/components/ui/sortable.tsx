@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  *  a first click uses (numbers usually "desc" — the big ones first; names "asc"). `useSortable`
  *  keeps the state; `SortButton` draws the header the same way the URL-driven `SortHead` does, so
  *  a sortable column looks identical everywhere: darker when active, a chevron that flips for
- *  ascending, a ghost chevron on hover so the affordance is discoverable. Nulls always sort last. */
+ *  ascending, a faint chevron always, stronger on hover, so the affordance is visible. Nulls always sort last. */
 
 export type SortDir = "asc" | "desc";
 export type SortValue = number | string | boolean | null | undefined;
@@ -90,7 +90,7 @@ export function SortButton<K extends string>({
           aria-hidden
           className={cn(
             "size-3 shrink-0 transition-[opacity,transform] duration-200 ease-out",
-            active ? cn("text-primary opacity-100", dir === "asc" && "rotate-180") : "opacity-0 group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60",
+            active ? cn("text-primary opacity-100", dir === "asc" && "rotate-180") : "opacity-35 group-hover/sort:opacity-80 group-focus-visible/sort:opacity-80",
           )}
         />
       </button>

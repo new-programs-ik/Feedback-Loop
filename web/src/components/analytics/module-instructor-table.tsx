@@ -62,7 +62,7 @@ export function ModuleInstructorTable({ rows, moduleAvg }: { rows: ModuleInstruc
           <SortButton sortKey="score" state={state} onToggle={toggle}>Avg score</SortButton>
           <SortButton sortKey="rating" state={state} onToggle={toggle} align="right" title="Average rating (1–5)">Rating</SortButton>
           <SortButton sortKey="attended" state={state} onToggle={toggle} align="right" title="Learners in the room per class">Attended</SortButton>
-          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Reach</SortButton>
+          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Rated / attended</SortButton>
           <SortButton sortKey="delta" state={state} onToggle={toggle} align="right" title={moduleAvg != null ? `Against the module's ${moduleAvg.toFixed(2)} average` : "Against the module's average"}>vs module avg</SortButton>
           <SortButton sortKey="approval" state={state} onToggle={toggle} align="right">Approval</SortButton>
         </TableRow>

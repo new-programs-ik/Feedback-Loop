@@ -75,7 +75,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
 }
 
 /** A sortable column header: a link that carries the sort key in the URL. The active column reads
- *  darker with a chevron (flipped for ascending); inactive columns show a ghost chevron on hover so
+ *  darker with a chevron (flipped for ascending); inactive columns show a faint chevron always, stronger on hover, so
  *  the affordance is discoverable. `aria-sort` goes on the <th>. */
 function SortHead({
   href,
@@ -114,7 +114,7 @@ function SortHead({
             "size-3 shrink-0 transition-[opacity,transform] duration-200 ease-out",
             active
               ? cn("text-primary opacity-100", dir === "asc" && "rotate-180")
-              : "opacity-0 group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60",
+              : "opacity-35 group-hover/sort:opacity-80 group-focus-visible/sort:opacity-80",
           )}
         />
       </Link>

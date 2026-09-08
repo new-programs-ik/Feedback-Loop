@@ -134,7 +134,7 @@ export default async function CohortPage({ params, searchParams }: Props) {
         <Kpi label="Avg score" value={fmtScore(me.avgScore)} sub={refAvg != null ? <Delta value={me.avgScore == null ? null : me.avgScore - refAvg} suffix={refLabel} /> : "no earlier cohort"} />
         <Kpi label="Band mix" value={<BandStripOf counts={me.counts} className="w-full" height="h-2" />} sub={`${me.counts.bad} bad · ${me.counts.average} average`} />
         <Kpi label="Approval" value={<span className={me.approval != null && me.approval < 80 ? "text-destructive" : ""}>{fmtPct(me.approval)}</span>} sub={me.votes ? `${me.votes} votes` : "no votes"} />
-        <Kpi label="Reach" value={fmtPct(me.reach)} sub="share of the room that rated" />
+        <Kpi label="Rated / attended" value={fmtPct(me.reach)} sub="share of the room that rated" />
         <Kpi
           label="Avg attended"
           value={me.avgAttended == null ? "—" : Math.round(me.avgAttended)}
@@ -175,10 +175,10 @@ export default async function CohortPage({ params, searchParams }: Props) {
       </ChartCard>
 
       <ChartCard
-        title="Attendance and reach by week"
-        subtitle="How many learners came, and how many of them rated · the 40% reach bar dashed"
+        title="How many attended, and how many rated, by week"
+        subtitle="How many learners came, and how many of them rated · the 40% line dashed"
         table={{
-          headers: ["Week", "Attended", "Reach", "Classes"],
+          headers: ["Week", "Attended", "Rated / attended", "Classes"],
           rows: weeks.map((w, i) => [labels[i], attendedByWeek[i] == null ? "—" : Math.round(attendedByWeek[i]!), fmtPct(w.reach), w.n]),
         }}
       >
@@ -189,7 +189,7 @@ export default async function CohortPage({ params, searchParams }: Props) {
           </div>
           <div>
             <div className="text-muted-foreground px-1 pt-1 text-[11px] font-medium">Share of the room that rated</div>
-            <LineChart labels={labels} series={[{ name: "Reach", values: weeks.map((w) => w.reach) }]} threshold={40} thresholdLabel="40% bar" yDomain={[0, 100]} unit="%" decimals={0} height={190} colors={["var(--chart-3)"]} />
+            <LineChart labels={labels} series={[{ name: "Rated / attended", values: weeks.map((w) => w.reach) }]} threshold={40} thresholdLabel="40% bar" yDomain={[0, 100]} unit="%" decimals={0} height={190} colors={["var(--chart-3)"]} />
           </div>
         </div>
       </ChartCard>

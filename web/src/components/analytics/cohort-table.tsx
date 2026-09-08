@@ -78,7 +78,7 @@ export function CohortTable({ rows, showTrack = false }: { rows: CohortRow[]; sh
           <TableHead>Band mix</TableHead>
           <SortButton sortKey="rating" state={state} onToggle={toggle} align="right" title="Average rating (1–5)">Avg rating</SortButton>
           <SortButton sortKey="attended" state={state} onToggle={toggle} align="right" title="Learners in the room per class">Avg attended</SortButton>
-          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Reach</SortButton>
+          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Rated / attended</SortButton>
           <SortButton sortKey="retention" state={state} onToggle={toggle} align="right" title="Last module's room over the first module's room">Retention</SortButton>
           <TableHead title="Room size module by module">Attendance</TableHead>
         </TableRow>

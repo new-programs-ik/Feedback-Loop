@@ -201,7 +201,7 @@ export function explainV2(v: DecisionV2, i: DecideV2Input): string {
   if (v.decision === "none") {
     return back
       ? `Rated ${r} and ${back} — clears both bars, no analysis unless a PM asks.`
-      : `Rated ${r} with no vote recorded — above the line, no analysis unless a PM asks.`;
+      : `Rated ${r} with no approval answer recorded — above the line, no analysis unless a PM asks.`;
   }
   if (v.decision === "watch") {
     if (voices != null && voices < MIN_VOICES)
@@ -215,7 +215,7 @@ export function explainV2(v: DecisionV2, i: DecideV2Input): string {
       : lowRating
         ? back
           ? `Rated ${r}, though ${back}`
-          : `Rated ${r} with no vote recorded`
+          : `Rated ${r} with no approval answer recorded`
         : `Rated ${r} but only ${Math.round(approval!)}% would have the instructor back`;
   const how =
     v.healthBand === "urgent"

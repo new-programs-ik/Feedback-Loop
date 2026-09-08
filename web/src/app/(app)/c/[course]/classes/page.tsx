@@ -154,8 +154,8 @@ export default async function ClassesPage({
                 <SortHead href={sortHref("date")} active={sort === "date"} dir={dir}>Date</SortHead>
                 <SortHead href={sortHref("kind")} active={sort === "kind"} dir={dir} className="hidden md:table-cell">Kind</SortHead>
                 <SortHead href={sortHref("rating")} active={sort === "rating"} dir={dir} align="right">Rating</SortHead>
-                <SortHead href={sortHref("vote")} active={sort === "vote"} dir={dir} align="right" className="hidden md:table-cell">Vote</SortHead>
-                <SortHead href={sortHref("reach")} active={sort === "reach"} dir={dir} align="right" className="hidden xl:table-cell">Reach</SortHead>
+                <SortHead href={sortHref("vote")} active={sort === "vote"} dir={dir} align="right" className="hidden md:table-cell">Approval</SortHead>
+                <SortHead href={sortHref("reach")} active={sort === "reach"} dir={dir} align="right" className="hidden xl:table-cell">Rated / attended</SortHead>
                 <SortHead href={sortHref("action")} active={sort === "action"} dir={dir}>Action</SortHead>
               </TableRow>
             </TableHeader>

@@ -181,7 +181,7 @@ export function ClassDetail({
             </div>
             <div>
               <div className="flex items-baseline justify-between text-[13px]">
-                <span className="font-medium">Reach</span>
+                <span className="font-medium">Rated / attended</span>
                 <span className="text-muted-foreground" data-numeric>
                   {reach != null ? `${row.num_ratings} of ${row.attended} rated · ${Math.round(reach)}%` : "attendance unknown"}
                 </span>

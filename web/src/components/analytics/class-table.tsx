@@ -81,7 +81,7 @@ export function ClassTable({
           <SortButton sortKey="instructor" state={state} onToggle={toggle}>Instructor</SortButton>
           <SortButton sortKey="rating" state={state} onToggle={toggle} align="right" title="Rating · rated / attended">Rating</SortButton>
           {show.attended && <SortButton sortKey="attended" state={state} onToggle={toggle} align="right" title="Learners in the room">Attended</SortButton>}
-          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Reach</SortButton>
+          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Rated / attended</SortButton>
           {show.approval && <SortButton sortKey="approval" state={state} onToggle={toggle} align="right" title="Would have the instructor back">Approval</SortButton>}
           <SortButton sortKey="score" state={state} onToggle={toggle}>Score</SortButton>
         </TableRow>

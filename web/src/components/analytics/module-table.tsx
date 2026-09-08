@@ -99,7 +99,7 @@ export function ModuleTable({ rows }: { rows: ModuleRow[] }) {
           <TableHead>Band mix</TableHead>
           <SortButton sortKey="rating" state={state} onToggle={toggle} align="right" title="Average rating (1–5)">Avg rating</SortButton>
           <SortButton sortKey="attended" state={state} onToggle={toggle} align="right" title="Learners in the room per class">Avg attended</SortButton>
-          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Reach</SortButton>
+          <SortButton sortKey="reach" state={state} onToggle={toggle} align="right" title="Share of the room that rated">Rated / attended</SortButton>
           <SortButton sortKey="dropAttended" state={state} onToggle={toggle} align="right" title="Attendance against each cohort's previous module">Δ attendance</SortButton>
           <SortButton sortKey="dropRating" state={state} onToggle={toggle} align="right" title="Rating against each cohort's previous module">Δ rating</SortButton>
           <SortButton sortKey="approval" state={state} onToggle={toggle} align="right">Approval</SortButton>
