@@ -1,9 +1,10 @@
 """Run the AI analysis over a list of classes and record what it concluded, so the two formulas
 can be judged on our own recordings instead of on argument.
 
-Input: Formula-Test-Tracker.csv with a `vimeo_url` column filled in (any row without a link is
-skipped). Output: Formula-Test-Results.csv, one row per class, with the re-class call, the reason
-as the PM would read it, and every finding that survived verification.
+Input: the manager report ("Class Sentiment Score - What We Changed.docx"), section 9. Paste each
+class's recording link into the last column of either table; rows without a link are skipped.
+Output: Formula-Test-Results.csv, one row per class, with the re-class call, the reason as the PM
+would read it, and every finding that survived verification.
 
     python analysis/run_batch_analysis.py                  # transcript only
     python analysis/run_batch_analysis.py --video          # also sample the recording's frames
@@ -30,21 +31,51 @@ config.load_env()
 import engine as E  # noqa: E402
 import vimeo as V  # noqa: E402
 
-IN = os.environ.get("TRACKER_CSV") or os.path.join(ROOT, "Formula-Test-Tracker.csv")
+IN = os.environ.get("REPORT_DOCX") or os.path.join(ROOT, "Class Sentiment Score - What We Changed.docx")
 OUT = os.environ.get("RESULTS_CSV") or os.path.join(ROOT, "Formula-Test-Results.csv")
 
-FIELDS = ["test", "date", "course", "cohort", "module", "instructor", "kind", "rating",
-          "learners_who_rated", "learners_who_attended", "want_instructor_again",
-          "karthika_says", "karthika_action", "new_says", "new_action",
+FIELDS = ["test", "date", "class", "class_type", "instructor", "rating", "approval",
+          "karthika_says", "we_say",
           "reclass", "reclass_was", "reclass_reason", "major_findings", "all_findings",
           "who_was_right", "analysed_at", "cost_usd", "error", "class_id"]
 
 
+def read_report(path):
+    """Every class row from the report's two test tables, with whatever link was pasted in."""
+    from docx import Document
+    doc = Document(path)
+    out, test = [], "A"
+    for tb in doc.tables:
+        head = [c.text.strip().lower() for c in tb.rows[0].cells]
+        if "recording link" not in head or "class" not in head:
+            continue
+        col = {name: i for i, name in enumerate(head)}
+        for r in tb.rows[1:]:
+            cells = [c.text.strip() for c in r.cells]
+            if not cells[col["class"]]:
+                continue
+            out.append({
+                "test": test,
+                "date": cells[col["date"]],
+                "class": cells[col["class"]],
+                "class_type": cells[col["type"]],
+                "instructor": cells[col["instructor"]],
+                "rating": cells[col["rating"]],
+                "approval": cells[col.get("instructor approval", 0)],
+                "karthika_says": cells[col.get("before", 0)],
+                "we_say": cells[col.get("now", 0)],
+                "vimeo_url": cells[col["recording link"]],
+                "class_id": f"{cells[col['date']]}|{cells[col['class']]}|{cells[col['instructor']]}",
+            })
+        test = "B"
+    return out
+
+
 def context_of(row):
     return {
-        "course": row.get("course") or "(unspecified)",
+        "course": row.get("course_and_cohort") or row.get("course") or "(unspecified)",
         "cohort": row.get("cohort") or "(unspecified)",
-        "topic": row.get("module") or "(unspecified)",
+        "topic": row.get("class") or row.get("module") or "(unspecified)",
         "instructor": row.get("instructor") or "(unspecified)",
         "rating": row.get("rating") or "(unspecified)",
         "num_ratings": row.get("learners_who_rated") or None,
@@ -92,12 +123,12 @@ def main():
     ap.add_argument("--redo", action="store_true", help="re-analyse classes already done")
     args = ap.parse_args()
 
-    with open(IN, encoding="utf-8-sig") as fh:
-        todo = list(csv.DictReader(fh))
-    if "vimeo_url" not in (todo[0] if todo else {}):
-        print(f"No 'vimeo_url' column in {os.path.basename(IN)}.")
-        print("Add one, paste each class's recording link, and run this again.")
+    todo = read_report(IN)
+    if not todo:
+        print(f"No class tables found in {os.path.basename(IN)}.")
         return
+    with_links = [r for r in todo if r["vimeo_url"]]
+    print(f"{len(todo)} classes listed, {len(with_links)} with a recording link")
     done = {} if args.redo else load_done()
     rows_out = list(done.values())
 
@@ -112,7 +143,7 @@ def main():
           + (" · with video frames" if args.video else " · transcript only"))
 
     for n, row in enumerate(queue, 1):
-        label = f"{row['module'][:44]} · {row['instructor']} · {row['date']}"
+        label = f"{row.get('class', row.get('module',''))[:44]} · {row['instructor']} · {row['date']}"
         print(f"\n[{n}/{len(queue)}] {label}")
         out = {k: row.get(k, "") for k in FIELDS if k in row}
         out["analysed_at"] = ""
@@ -121,7 +152,7 @@ def main():
             info = V.fetch_transcript(row["vimeo_url"].strip())
             cues = E.parse_cues(info["text"])
             print(f"    transcript: {len(info['text']):,} chars, {len(cues)} cues")
-            kind = "ars" if "review" in (row.get("kind") or "").lower() else "live_class"
+            kind = "ars" if "review" in (row.get("class_type") or row.get("kind") or "").lower() else "live_class"
             result, meta = E.analyse_cues(cues, ctx_string(row), kind)
             rc = result.get("reclass") or {}
             flags = result.get("flags") or []

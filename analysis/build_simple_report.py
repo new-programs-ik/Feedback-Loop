@@ -383,15 +383,39 @@ note("The one decision this needs",
 
 # ── 9 ────────────────────────────────────────────────────────────────────────
 doc.add_heading("9. How we will know for certain", level=1)
-para("The two formulas disagree about 389 classes. On these, the old formula says nobody needs to "
-     "look and the new one says watch the recording. We are running the video analysis on each.",
-     after=6)
-table(["Class", "Instructor", "Date", "Rating", "Instructor approval", "Before", "Now"],
-      [[d["module"][:28], d["instructor"][:15], d["date"], f"{d['rating']:.2f}",
-        f"{d['want_instructor_again']} ({d['want_instructor_again_pct']}%)",
-        f"{d['karthika_score']:.0f} {d['karthika_says']}", f"{d['new_score']:.0f} {d['new_says']}"]
-       for d in TIER1],
-      widths=[3.9, 2.5, 1.9, 1.2, 3.2, 1.9, 1.7], size=9)
+para("The two formulas disagree about 389 classes. We are running the video analysis on the ones "
+     "where they disagree most, in both directions. The analysis already tells us whether a class "
+     "should be re-taught, so it settles the question from our own recordings.", after=6)
+
+
+def _kind(d):
+    return "Test Review (ARS)" if "review" in (d.get("kind") or "").lower() else "Live Class"
+
+
+def _test_table(group):
+    table(["#", "Date", "Class", "Type", "Instructor", "Rating", "Instructor approval",
+           "Before", "Now", "Recording link"],
+          [[i, d["date"], d["module"][:26], _kind(d), d["instructor"][:14], f"{d['rating']:.2f}",
+            f"{d['want_instructor_again']} ({d['want_instructor_again_pct']}%)",
+            f"{d['karthika_score']:.0f} {d['karthika_says']}",
+            f"{d['new_score']:.0f} {d['new_says']}", ""]
+           for i, d in enumerate(group, 1)],
+          widths=[0.6, 1.6, 3.4, 1.9, 1.9, 1.0, 2.2, 1.5, 1.5, 2.0], size=8.5)
+
+
+doc.add_heading("Test A — the new formula says watch the recording, the old one says nobody looks",
+                level=2)
+para("If the analysis asks for a re-class on any of these, the old formula was hiding real problems.",
+     color=MUTED, after=6)
+_test_table(TIER1)
+
+doc.add_heading("Test B — the old formula spends a video, the new one says it is not needed", level=2)
+para("These were rated 4.6 or better and judged by a handful of learners. If the analysis finds "
+     "nothing wrong, the old formula is spending videos it does not need to.", color=MUTED, after=6)
+_test_table(TIER3[:8])
+
+para("Paste each class's recording link into the last column and the analysis can be run on all of "
+     "them in one go.", size=10, color=MUTED, after=8)
 note("What the answer will mean",
      ["If the analysis asks for a re-class on any of these, the old formula was hiding real problems, "
       "because it told us nobody needed to look.",
