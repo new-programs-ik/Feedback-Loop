@@ -24,6 +24,7 @@ import base64
 import io
 import json as _json
 import logging
+import hmac
 import os
 from typing import Literal, Optional
 
@@ -49,11 +50,27 @@ app = FastAPI(title="Ratings Analysis Worker", version="2.0")
 WORKER_API_KEY = os.environ.get("WORKER_API_KEY") or None
 
 
+# Set this only for a local machine that is not reachable from outside.
+ALLOW_NO_AUTH = (os.environ.get("WORKER_ALLOW_NO_AUTH") or "").strip().lower() in ("1", "true", "yes")
+
+
 def require_worker_auth(authorization: Optional[str] = Header(default=None)) -> None:
-    """If WORKER_API_KEY is configured, require it as a Bearer token (server→server)."""
+    """Require WORKER_API_KEY as a Bearer token.
+
+    This used to return early when no key was configured - which is the shipped default - so a
+    deployed worker with the variable unset accepted every request from anyone who found its
+    address: analyses written against any class, and the Anthropic bill paid by us. Missing
+    configuration now refuses the request instead of disabling the lock. Set WORKER_ALLOW_NO_AUTH=1
+    to run without a key on a machine that is not reachable from the internet.
+    """
     if not WORKER_API_KEY:
-        return
-    if authorization != f"Bearer {WORKER_API_KEY}":
+        if ALLOW_NO_AUTH:
+            return
+        raise HTTPException(
+            status_code=503,
+            detail="worker is not configured: set WORKER_API_KEY (or WORKER_ALLOW_NO_AUTH=1 for "
+                   "a local, unreachable machine)")
+    if not authorization or not hmac.compare_digest(authorization, f"Bearer {WORKER_API_KEY}"):
         raise HTTPException(status_code=401, detail="invalid worker credentials")
 
 

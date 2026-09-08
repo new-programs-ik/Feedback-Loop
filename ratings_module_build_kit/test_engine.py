@@ -352,8 +352,57 @@ class TestReclassReasonIsHonest(unittest.TestCase):
         res = {"flags": [self._major("engagement")],
                "reclass": {"recommended": "yes", "reason": "r"}}
         out = E.gate_reclass(res)
-        self.assertIn("no major coverage/correctness finding survived", out["reclass"]["reason"])
+        # The note must not claim a verification happened - it is written by the gate, which runs
+        # whether or not the skeptic ever did.
+        self.assertIn("no major content finding was left standing", out["reclass"]["reason"])
+        self.assertNotIn("survived verification", out["reclass"]["reason"])
         self.assertNotIn("what did survive", out["reclass"]["reason"])
+
+    def test_a_hedged_finding_cannot_ask_learners_to_re_attend(self):
+        """A major the model itself marked low-confidence is not enough for a re-teach."""
+        f = self._major("coverage")
+        f["confidence"] = "low"
+        out = E.gate_reclass({"flags": [f], "reclass": {"recommended": "yes", "reason": "r"}})
+        self.assertEqual(out["reclass"]["recommended"], "maybe")
+        self.assertIn("low confidence", out["reclass"]["reason"])
+
+    def test_a_confident_finding_still_carries_a_yes(self):
+        out = E.gate_reclass({"flags": [self._major("coverage")],
+                              "reclass": {"recommended": "yes", "reason": "r"}})
+        self.assertEqual(out["reclass"]["recommended"], "yes")
+
+    def test_deciding_flags_never_name_a_deleted_finding(self):
+        res = {"flags": [self._major("coverage")],
+               "reclass": {"recommended": "yes", "reason": "r",
+                           "deciding_flags": ["coverage", "correctness"]}}
+        out = E.gate_reclass(res)
+        self.assertEqual(out["reclass"]["deciding_flags"], ["coverage"])
+
+    def test_the_floor_applies_on_the_way_in(self):
+        """An ARS correctness finding that arrives below the floor is raised to it."""
+        f = self._major("correctness")
+        f["severity"] = "moderate"
+        out = E.apply_floors({"flags": [f]}, "ars")
+        self.assertEqual(out["flags"][0]["severity"], "major")
+        self.assertEqual(out["flags"][0]["floor_applied_from"], "moderate")
+
+    def test_a_floored_finding_cannot_be_dropped_on_a_judgement_call(self):
+        res = {"flags": [self._major("correctness")],
+               "reclass": {"recommended": "yes", "reason": "r"}}
+        out, rev = E.apply_verdicts(
+            res, [{"id": 0, "verdict": "drop", "anchor_rule": "severity",
+                   "reason": "this feels harsher than the moment deserves"}], "ars")
+        self.assertEqual(len(out["flags"]), 1)          # kept
+        self.assertEqual(rev[0]["verdict"], "uphold")
+
+    def test_a_floored_finding_can_still_be_dropped_on_attribution(self):
+        res = {"flags": [self._major("correctness")],
+               "reclass": {"recommended": "yes", "reason": "r"}}
+        out, rev = E.apply_verdicts(
+            res, [{"id": 0, "verdict": "drop", "anchor_rule": "attribution",
+                   "reason": "the quote is a learner speaking, not the instructor"}], "ars")
+        self.assertEqual(out["flags"], [])
+        self.assertEqual(rev[0]["verdict"], "drop")
 
     # ── the reason is rewritten against surviving flags ──────────────────────
     class _Msg:
@@ -460,8 +509,6 @@ class TestResultValidationReview(unittest.TestCase):
         self.assertTrue(E.validate_result(r))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestVerificationIsNonFatal(unittest.TestCase):
@@ -669,3 +716,188 @@ class TestMaterialsAgent(unittest.TestCase):
         self.assertIn("Markdown", s)
         self.assertIn("never invent", s)
         self.assertIn("never silently drop a whole section", s)
+
+
+
+class TestTranscriptIsNeverSilentlyLost(unittest.TestCase):
+    """Every one of these used to discard most or all of a class with no error at all."""
+
+    @staticmethod
+    def _vtt(rows):
+        out = ["WEBVTT", ""]
+        for a, b, t in rows:
+            out += [f"{a} --> {b}", t, ""]
+        return "\n".join(out)
+
+    def test_one_out_of_order_cue_does_not_discard_the_class(self):
+        rows = [(f"00:{i:02d}:00.000", f"00:{i:02d}:30.000", f"line {i}") for i in range(0, 50, 2)]
+        rows.append(("00:00:15.000", "00:00:20.000", "thanks for joining, see you next week"))
+        cues = E.parse_cues(self._vtt(rows))
+        covered = {id(c) for w in E.chunk_by_time(cues) for c in w}
+        self.assertEqual(len(covered), len(cues))
+
+    def test_every_cue_lands_in_exactly_one_window(self):
+        cues = [E.Cue(i, i * 60, i * 60 + 30, f"t{i}") for i in range(200)]
+        windows = E.chunk_by_time(cues)
+        seen = [c.idx for w in windows for c in w]
+        self.assertEqual(sorted(set(seen)), [c.idx for c in cues])
+
+    def test_hours_are_optional_in_webvtt(self):
+        cues = E.parse_cues(self._vtt([("00:50.500", "00:53.200", "the gradient of relu at zero")]))
+        self.assertEqual(len(cues), 1)
+        self.assertAlmostEqual(cues[0].start, 50.5)
+
+    def test_a_bare_seconds_timestamp_parses(self):
+        self.assertAlmostEqual(E._ts_to_seconds("12.250"), 12.25)
+
+    def test_a_nonsense_timestamp_is_rejected_loudly(self):
+        with self.assertRaises(ValueError):
+            E._ts_to_seconds("1:2:3:4")
+
+    def test_blocks_without_blank_lines_still_split(self):
+        raw = ("WEBVTT\n1\n00:00:00.000 --> 00:00:05.000\nfirst\n"
+               "2\n00:00:05.000 --> 00:00:10.000\nsecond\n"
+               "3\n00:00:10.000 --> 00:00:15.000\nthird\n")
+        cues = E.parse_cues(raw)
+        self.assertEqual([c.text for c in cues], ["first", "second", "third"])
+
+    def test_teaching_words_are_not_people(self):
+        rows = [("00:00:00.000", "00:00:05.000", "Note: the derivative of x squared is 2x."),
+                ("00:00:05.000", "00:00:10.000", "Output: 42"),
+                ("00:00:10.000", "00:00:15.000", "Note: remember to scale the features."),
+                ("00:00:15.000", "00:00:20.000", "Output: 108"),
+                ("00:00:20.000", "00:00:25.000", "Priya: I am lost on recursion."),
+                ("00:00:25.000", "00:00:30.000", "Priya: could you repeat that?")]
+        cues = E.parse_cues(self._vtt(rows))
+        self.assertEqual(sorted({c.speaker for c in cues if c.speaker}), ["Priya"])
+        self.assertIn("Note:", cues[0].text)          # the word is not deleted from the transcript
+
+    def test_the_session_map_covers_the_whole_class(self):
+        cues = [E.Cue(i, i * 4, i * 4 + 4, "a fairly ordinary sentence of teaching " * 3)
+                for i in range(2000)]
+        slices = E._map_slices(cues)
+        self.assertEqual(slices[-1][-1].end, cues[-1].end)
+        self.assertEqual(sum(len(s) for s in slices), len(cues))
+
+
+class TestTheNoteTheInstructorReceives(unittest.TestCase):
+
+    FLAGS = [{"flag": "camera", "severity": "minor"}, {"flag": "pace", "severity": "minor"},
+             {"flag": "structure", "severity": "minor"}, {"flag": "logistics", "severity": "minor"},
+             {"flag": "engagement", "severity": "minor"},
+             {"flag": "correctness", "severity": "major"}]
+
+    NOTE = ("Averaged 4.1 out of 5.\n"
+            "- Camera was off for the first ten minutes. Fix: turn it on.\n"
+            "- The pace was quick in places. Fix: slow down.\n"
+            "- The structure could be clearer. Fix: signpost each part.\n"
+            "- There was a logistics hiccup. Fix: pre-open the notebook.\n"
+            "- Engagement was low. Fix: check in every ten minutes.\n"
+            "- You said quicksort is O(n log n) in the worst case, which is incorrect.\n"
+            "  Fix: correct the record next class.\n")
+
+    def test_the_serious_point_survives_the_cap(self):
+        out = E.tidy_instructor_summary(self.NOTE, self.FLAGS)
+        self.assertIn("quicksort", out)
+
+    def test_the_cap_still_holds(self):
+        out = E.tidy_instructor_summary(self.NOTE, self.FLAGS)
+        self.assertEqual(sum(1 for l in out.splitlines() if l.strip().startswith("- ")),
+                         E.SUMMARY_MAX_BULLETS)
+
+    def test_numbered_bullets_are_counted(self):
+        note = "Averaged 4.1.\n" + "".join(f"{i}. Point {i}.\n" for i in range(1, 9))
+        kept = [l for l in E.tidy_instructor_summary(note).splitlines() if l.strip()[:1].isdigit()]
+        self.assertEqual(len(kept), E.SUMMARY_MAX_BULLETS)
+
+    def test_en_dash_bullets_are_counted(self):
+        note = "Averaged 4.1.\n" + "".join(f"\u2013 Point {i}.\n" for i in range(1, 9))
+        kept = [l for l in E.tidy_instructor_summary(note).splitlines()
+                if l.strip().startswith("\u2013")]
+        self.assertEqual(len(kept), E.SUMMARY_MAX_BULLETS)
+
+    def test_a_trimmed_bullet_takes_its_fix_line_with_it(self):
+        note = "Averaged 4.1.\n" + "".join(
+            f"- Point {i} about delivery.\n  Fix: do thing {i}.\n" for i in range(1, 9))
+        out = E.tidy_instructor_summary(note)
+        for i in (6, 7, 8):
+            self.assertNotIn(f"do thing {i}", out)
+        for i in (1, 2, 3, 4, 5):
+            self.assertIn(f"do thing {i}", out)
+
+    def test_the_re_class_decision_never_reaches_the_instructor(self):
+        note = ("- This class will be re-taught to the cohort. Fix: prepare a make-up session.\n"
+                "- The recap was skipped. Fix: leave two minutes.")
+        out = E.tidy_instructor_summary(note)
+        self.assertNotIn("re-taught", out.lower())
+        self.assertNotIn("make-up session", out.lower())
+        self.assertIn("recap", out)
+
+    def test_ordinary_numbers_are_not_mistaken_for_timestamps(self):
+        for sentence in ("Apply the 80:20 rule and cover the core path first.",
+                         "The class was scheduled at 10:30 but you started late.",
+                         "This session averaged 4:55 out of 5."):
+            self.assertEqual(E.tidy_instructor_summary(sentence), sentence)
+
+    def test_real_timestamps_are_still_removed(self):
+        self.assertEqual(E.tidy_instructor_summary("You paused at [00:12:34] for a long time."),
+                         "You paused for a long time.")
+        self.assertNotIn("00:12:34",
+                         E.tidy_instructor_summary("The gap ran 00:12:34-00:15:02 with no audio."))
+
+
+class TestPromptsOnlyAskForFlagsTheClassCanReturn(unittest.TestCase):
+    """Derived from the flag sets, so it survives any rewording - unlike asserting prompt prose."""
+
+    def test_no_prompt_names_an_illegal_flag(self):
+        import re as _re
+        every = set(E.FLAGS_LIVE) | set(E.FLAGS_ARS)
+        for ct in sorted(E.CLASS_TYPES):
+            legal = set(E.flags_for(ct))
+            for has_video in (False, True):
+                for label, prompt in (
+                        ("extract", E.build_extract_user("ctx", "seg", ct, has_video)),
+                        ("synth", E.build_synth_user("ctx", "[]", ct, has_video))):
+                    named = {f for f in every if _re.search(r"\b" + f + r"\b", prompt)}
+                    self.assertEqual(named - legal, set(),
+                                     f"{label} prompt for {ct} (video={has_video}) names a flag "
+                                     f"the class cannot return")
+
+    def test_no_placeholder_is_left_unresolved(self):
+        for ct in sorted(E.CLASS_TYPES):
+            for has_video in (False, True):
+                self.assertNotIn("[[", E.build_extract_user("ctx", "seg", ct, has_video))
+
+    def test_the_deciding_flags_exist_for_the_class(self):
+        for ct in sorted(E.CLASS_TYPES):
+            self.assertTrue(E.content_delivery_flags(ct))
+            self.assertLessEqual(E.content_delivery_flags(ct), set(E.flags_for(ct)))
+
+
+class TestTheContextTellsTheTruth(unittest.TestCase):
+
+    def test_a_well_rated_class_is_not_called_low_rated(self):
+        ctx = E.build_context("C", "T", "I", "4.87", "(not provided)")
+        self.assertIn("NOT flagged", ctx)
+        self.assertNotIn("below the 4.55 line, which is why", ctx)
+
+    def test_a_low_rated_class_still_says_so(self):
+        self.assertIn("below the 4.55 line", E.build_context("C", "T", "I", "3.30", "(not provided)"))
+
+    def test_an_unknown_rating_makes_no_claim(self):
+        ctx = E.build_context("C", "T", "I", "(unspecified)", "(not provided)")
+        self.assertIn("not known", ctx)
+
+    def test_a_missing_agenda_forbids_coverage_judgements(self):
+        ctx = E.build_context("C", "T", "I", "3.3", "(not provided)")
+        self.assertIn("NOT PROVIDED", ctx)
+        self.assertIn("do not judge whether", ctx)
+
+    def test_a_real_agenda_is_passed_through(self):
+        ctx = E.build_context("C", "T", "I", "3.3", "1. Recap 45m\n2. RAG 45m")
+        self.assertIn("RAG 45m", ctx)
+        self.assertNotIn("NOT PROVIDED", ctx)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -177,7 +177,14 @@ def sample_times(duration_s: float, cfg: VideoConfig = VCFG) -> list[float]:
         return []
     if duration_s > cfg.max_duration_s:
         duration_s = cfg.max_duration_s
-    interval = max(cfg.min_interval_s, min(cfg.target_interval_s, duration_s / cfg.max_frames))
+    # The interval used to be floored at min_interval_s, so on a long class the frame budget ran
+    # out before the recording did: a four-hour class was sampled only to 2h29m and the summary
+    # still said "60/60 frames", while the rubric treats the visual track as ground truth about
+    # what was on screen. Spread the frames we have across the whole class instead.
+    interval = min(cfg.target_interval_s, duration_s / cfg.max_frames)
+    interval = max(interval, cfg.min_interval_s)
+    if interval * cfg.max_frames < duration_s:
+        interval = duration_s / cfg.max_frames        # cover the end, at a coarser spacing
     t = interval / 2
     out = []
     while t < duration_s and len(out) < cfg.max_frames:
@@ -323,7 +330,9 @@ def _state_of(o: dict) -> tuple:
     return (o.get("camera_on"), o.get("screen_shared"), o.get("content_type"))
 
 
-def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_s: float) -> str:
+def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_s: float,
+                            duration_s: float | None = None,
+                            last_sampled_s: float | None = None) -> str:
     """Merge consecutive same-state observations into timestamped spans; list legible slide titles
     in order; list anomalies. Ends with an honesty line about sampling gaps."""
     if not observations:
@@ -357,8 +366,16 @@ def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_
     if anomalies:
         lines.append("ANOMALIES:")
         lines.extend(anomalies[:15])
+    covered = ""
+    if duration_s and last_sampled_s is not None and duration_s - last_sampled_s > 120:
+        def _ts(x):
+            return f"{int(x // 3600):02d}:{int(x % 3600 // 60):02d}:{int(x % 60):02d}"
+        covered = (f" SAMPLING STOPPED AT {_ts(last_sampled_s)} of a {_ts(duration_s)} recording — "
+                   f"NOTHING after that point was looked at, so do not treat the visual track as "
+                   f"evidence about it.")
     lines.append(f"SAMPLED: {len(observations)}/{n_sampled} frames at ~{int(interval_s)}s intervals — "
-                 "states between samples are interpolated; short events can fall between frames.")
+                 "states between samples are interpolated; short events can fall between frames."
+                 + covered)
     return "\n".join(lines)
 
 
@@ -413,7 +430,9 @@ def analyze_video(vimeo_url: Optional[str], video_url: Optional[str],
         if not observations:
             return fail("frame descriptions failed — no usable visual observations")
         interval = times[1] - times[0] if len(times) > 1 else float(duration)
-        track = compress_to_visual_track(observations, len(times), interval)
+        track = compress_to_visual_track(observations, len(times), interval,
+                                         duration_s=float(duration),
+                                         last_sampled_s=times[-1] if times else None)
         meta.update({
             "video_used": True, "frames_analyzed": len(observations),
             "video_tokens_in": usage.input_tokens, "video_tokens_out": usage.output_tokens,

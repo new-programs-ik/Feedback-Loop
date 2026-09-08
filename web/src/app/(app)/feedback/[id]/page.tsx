@@ -32,6 +32,18 @@ type Result = {
   review?: ReviewRecord[];
   video?: VideoMeta;
   reclass?: { recommended?: string; reason?: string; deciding_flags?: string[]; softened_from?: string };
+  // How much of the analysis was actually checked. Written by the engine into the result itself so
+  // it reaches the database; a failed self-check used to be invisible here.
+  verification?: {
+    enabled?: boolean;
+    ran?: boolean;
+    findings_checked?: number;
+    error?: string | null;
+    second_vote_error?: string | null;
+    prose_reconciled?: boolean;
+    windows_lost?: number;
+    replies_cut_off?: number;
+  };
 };
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
@@ -86,6 +98,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const reclass = result.reclass;
   const flags = result.flags ?? [];
   const review = result.review ?? [];
+  // Whether the self-check actually ran. Written into the result by the engine, so it
+  // survives into the database - it used to live only in the worker's memory.
+  const verification = result.verification;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -112,11 +127,39 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 </Badge>
               )
             )}
-            {review.length > 0 && (
-              <Badge variant="secondary" title="Every serious finding got a second, adversarial review">
-                ✓ Self-checked
+            {analysis && (
+              verification?.ran ? (
+                <Badge variant="secondary"
+                       title={`${verification.findings_checked} finding(s) went through a second, adversarial review`}>
+                  ✓ Self-checked
+                </Badge>
+              ) : verification?.error ? (
+                <Badge variant="destructive"
+                       title={`The self-check could not run: ${verification.error}. The findings below were NOT double-checked.`}>
+                  Not self-checked
+                </Badge>
+              ) : verification && verification.findings_checked === 0 ? (
+                <Badge variant="outline" title="No finding was serious enough to need a second review">
+                  Nothing to self-check
+                </Badge>
+              ) : review.length > 0 ? (
+                <Badge variant="secondary" title="Every serious finding got a second, adversarial review">
+                  ✓ Self-checked
+                </Badge>
+              ) : null
+            )}
+            {verification?.prose_reconciled === false && (
+              <Badge variant="warning"
+                     title="The tidy-up that removes wording resting on a dropped finding did not run. Read the draft against the self-check list before sending it.">
+                Draft not tidied
               </Badge>
             )}
+            {verification?.windows_lost ? (
+              <Badge variant="warning"
+                     title={`${verification.windows_lost} part(s) of the class could not be read, so they were not analysed.`}>
+                {verification.windows_lost} part(s) of the class unread
+              </Badge>
+            ) : null}
           </div>
           <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-sm">
             <span>
@@ -226,6 +269,24 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
               </CardContent>
             </Card>
           </Reveal>
+
+          {verification?.error && (
+            <Reveal>
+              <Card className="border-destructive/40 shadow-soft">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">The self-check did not run</CardTitle>
+                </CardHeader>
+                <CardContent className="text-muted-foreground space-y-1 text-sm">
+                  <p>
+                    Every finding below is the first draft. Nothing challenged it, so a finding may
+                    rest on a misread quote or on something a learner said rather than the
+                    instructor. Read it before you act on it, and re-run the analysis if you can.
+                  </p>
+                  <p className="font-mono text-xs">{verification.error}</p>
+                </CardContent>
+              </Card>
+            </Reveal>
+          )}
 
           {review.length > 0 && (
             <Reveal>

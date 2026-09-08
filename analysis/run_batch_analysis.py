@@ -37,6 +37,7 @@ OUT = os.environ.get("RESULTS_CSV") or os.path.join(ROOT, "Formula-Test-Results.
 FIELDS = ["test", "date", "class", "class_type", "instructor", "rating", "approval",
           "karthika_says", "we_say",
           "reclass", "reclass_was", "reclass_reason", "major_findings", "all_findings",
+          "verified", "checks_upheld", "checks_dropped",
           "who_was_right", "analysed_at", "cost_usd", "error", "class_id"]
 
 
@@ -165,11 +166,16 @@ def main():
                 "major_findings": "; ".join(majors) or "none",
                 "all_findings": "; ".join(
                     f"{f.get('flag')}:{f.get('severity')}" for f in flags if isinstance(f, dict)),
+                "verified": "yes" if meta.get("review_ran") else "NO - the verification step failed",
+                "checks_upheld": meta.get("flags_upheld", ""),
+                "checks_dropped": meta.get("flags_dropped", ""),
                 "who_was_right": verdict(row, rc.get("recommended", "")),
                 "analysed_at": dt.datetime.now().isoformat(timespec="seconds"),
                 "cost_usd": f"{meta.get('cost_usd', 0):.2f}" if meta.get("cost_usd") else "",
                 "error": "",
             })
+            if not meta.get("review_ran"):
+                print(f"    !! verification did NOT run: {meta.get('review_error')}")
             print(f"    re-class: {out['reclass']}"
                   + (f"  (was '{out['reclass_was']}' before verification)" if out["reclass_was"] else "")
                   + f"   majors: {out['major_findings']}")

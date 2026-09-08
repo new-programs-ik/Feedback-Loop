@@ -7,10 +7,14 @@ DATABASE_URL. Only the async path uses this.
 """
 from __future__ import annotations
 
+import logging
 import os
 
 import psycopg2
 from psycopg2.extras import Json
+
+
+log = logging.getLogger("store")
 
 
 def _connect():
@@ -51,16 +55,38 @@ def persist_analysis(class_id: str, result: dict, meta: dict, transcript_text: s
         conn.close()
 
 
-def mark_failed(class_id: str, message: str) -> None:
-    """Flag a class whose background analysis failed, so the UI can show it (recoverable — retry)."""
+def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> None:
+    """Flag a class whose background analysis failed, so the UI can show it (recoverable — retry).
+
+    Two things used to go wrong here. Every error was swallowed with a bare `pass` and no log, so a
+    class deleted while its analysis was running left no record anywhere that money had been spent.
+    And `conn.close()` sat inside the `try`, so the connection leaked on exactly those failures.
+    The status update is also guarded now: a stale job must not drag a class that a newer run has
+    already finished back to 'failed'.
+    """
+    conn = None
     try:
         conn = _connect()
         cur = conn.cursor()
-        cur.execute("update classes set status='failed', updated_at=now() where id=%s", (class_id,))
+        cur.execute("update classes set status='failed', updated_at=now() "
+                    "where id=%s and status='analyzing'", (class_id,))
+        moved = cur.rowcount
+        detail = {"where": "analyze", "message": str(message)[:400]}
+        if cost_usd:
+            detail["cost_usd"] = round(float(cost_usd), 4)
+        if not moved:
+            detail["note"] = "class was no longer 'analyzing'; status left as it was"
         cur.execute(
             "insert into audit_log(class_id, actor_label, action, detail) values (%s,'worker','error',%s)",
-            (class_id, Json({"where": "analyze", "message": str(message)[:400]})))
+            (class_id, Json(detail)))
         conn.commit()
-        conn.close()
     except Exception:
-        pass
+        # Nothing here can be allowed to raise into the caller, but it must not vanish either.
+        log.exception("could not record the failure of class %s (message was: %s)",
+                      class_id, str(message)[:200])
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                log.exception("could not close the connection after marking class %s failed", class_id)
