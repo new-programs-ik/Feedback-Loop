@@ -30,11 +30,12 @@ Google account.
 1. **Pulls every rated class from the team's ratings sheet, once an hour.** No typing classes in.
    The sheet stays the source; the app keeps a scored copy.
 2. **Gives each class one number: the Class Sentiment Score (0–100).** It combines the star rating,
-   the "would you have this instructor back?" vote, how many learners responded and how much of
-   the room they represent. The score has four bands: **Excellent** (90 and up), **Good** (75–89),
-   **Average** (60–74), **Bad** (under 60).
-3. **Lets the band decide the work.** Bad → video analysis. Average → transcript analysis.
-   Good or Excellent → nothing, unless a PM asks. Too few votes → watch. That is the
+   instructor approval (would learners have this instructor back), how many learners rated the
+   class, and how many of those who attended that represents. Four bands: **Excellent** (90 and
+   up), **Good** (75–89), **Average** (60–74), **Bad** (under 60).
+3. **Lets the band decide how deep we look.** Bad gets the full check: the transcript *and* sampled
+   frames from the recording. Average gets the transcript only. Good and Excellent get nothing
+   unless a PM asks. Too few learners answered, no band, so it goes on the watch list. That is the
    *Needs analysis* queue, per course and across the team.
 4. **Tells the right people on Slack.** A flagged class posts a card that names the course's
    people, says why in plain words, and links straight into the queue.
@@ -47,6 +48,14 @@ Google account.
 7. **Keeps the scoring rules as data, not code.** Every setting is a stored, numbered version.
    An admin previews a change on a month of real classes, activates it (every class is re-scored
    in one step), and can roll back. Any PM can try a what-if and propose it.
+
+**Which version is live, and how that was decided.** Version 1, the manager's original
+(60 / 30 / 6 / 4, pass-fail approval), is active. We built an alternative meant to be fairer to
+classes judged by only a handful of learners, found the classes where the two disagree most, and
+settled it on our own recordings rather than by argument: twelve classes, both directions, scored
+against rules written down before any result existed ([docs/FORMULA_TEST_RULES.md](docs/FORMULA_TEST_RULES.md)).
+The original was right on seven of the twelve, so it stays. The report that explains this to a
+manager or a VP is built by `analysis/build_decision_report.py`.
 
 ---
 
@@ -75,8 +84,8 @@ flowchart LR
 
 | Where | What |
 |---|---|
-| `/c/<course>/overview` | The course in one screen: KPIs vs the previous period, the weekly score line, band mix, worst classes, instructors, cohorts, modules, reach vs score, a calendar. |
-| `/c/<course>/classes` | Every class, scored. Click a row for the drawer: the score's arithmetic, the vote, the instructor's recent classes, what the rule says and why, the actions. |
+| `/c/<course>/overview` | The course in one screen: KPIs vs the previous period, the weekly score line, band mix, worst classes, instructors, cohorts, modules, score against how many learners rated, a calendar. |
+| `/c/<course>/classes` | Every class, scored, with colour chips above the table that say what each band means and filter by one or several at once. Click a row for the drawer: the score's arithmetic, instructor approval, the instructor's recent classes, what the rule says and why, the actions. |
 | `/c/<course>/queue` | **Needs analysis**: Bad → video, Average → transcript, Watch. The reason under each row, the week's cost at the top, Confirm · Dismiss · Escalate · Analyze. |
 | `/c/<course>/instructors`, `/cohorts`, `/modules` | Leaderboard and portfolios; the curriculum map (every cohort × every module: rating, rated/attended, attendance drops, who lifts a module) with journeys; module diagnostics and the module × instructor matrix. Every table sorts. |
 | `/c/<course>/feedback` | This course's AI analyses. The engine itself is unchanged at `/feedback/new` and `/feedback/<id>`. |
@@ -100,7 +109,7 @@ already sent keep working. `⌘K` (Ctrl-K) jumps anywhere.
 | [`ratings_module_build_kit/`](ratings_module_build_kit/) | The worker — FastAPI. `ratings_sync.py`, `sheet_source.py`, `cohort_parse.py`, `instructor_match.py`, `notify.py` (the sync); `engine.py`, `video.py`, `vimeo.py` (the AI engine). Ships as a Docker container (Render). Its own [README](ratings_module_build_kit/README.md) lists every file and endpoint. |
 | [`supabase/`](supabase/) | The database: `migrations/` (0001 → 0023, applied in order by `apply_migrations.py`), `fixtures/` (the scoring contract: six configurations, 94 cases), `test_scoring_sql.py`. |
 | [`analysis/`](analysis/) | The scoring reference (`sentiment_score.py`), the validation study (`sentiment_*.py`, `sentiment_run_all.py`), and local tools (`db_backup.py`, `resync_from_workbook.py`). Outputs go to `analysis/out/` (not committed). |
-| [`docs/`](docs/) | User guide, how it works, executive summary, run-local, Render setup, [Google Sheet setup](docs/GOOGLE_SHEET_SYNC_SETUP.md), [Vimeo video access](docs/VIMEO_VIDEO_ACCESS.md), [learner-data contract](docs/LEARNER_INGEST_CONTRACT.md), the AI prompts. |
+| [`docs/`](docs/) | User guide, how it works, executive summary, run-local, Render setup, [Google Sheet setup](docs/GOOGLE_SHEET_SYNC_SETUP.md), [Vimeo video access](docs/VIMEO_VIDEO_ACCESS.md), [learner-data contract](docs/LEARNER_INGEST_CONTRACT.md), the AI prompts, [what the analysis got wrong and how it was fixed](docs/ENGINE_AUDIT.md), [how the two formulas were judged](docs/FORMULA_TEST_RULES.md). |
 | [`DEPLOY.md`](DEPLOY.md) | How the three pieces are deployed, the v3 release steps, and how to roll back. |
 
 Confidential things never live here: the ratings workbook, the study PDFs and Word documents,
@@ -122,11 +131,15 @@ key files and `.env` files are all gitignored.
   hot-spots, "content problem vs delivery problem" tags, the best-known SME per module.
 - **People and ownership** — course members (owner · PM · viewer), exactly one handler per course,
   hand-over with a note, Slack routing to the course's people.
-- **Configurable scoring** — six stored versions; draft → preview on a month → activate → roll back;
-  what-if for PMs.
+- **Configurable scoring** — seven stored versions; draft → preview on a month → activate → roll
+  back; what-if for PMs. Version 1 is live.
 - **Reports** per course and across the team: weekly / monthly / custom, print, CSV, share link.
 - **The AI feedback engine** — transcript and optional video analysis, the self-check pass, two
-  outputs (the note to send and the internal detail), a PM-only re-teach call. Unchanged in v3.
+  outputs (the note to send and the internal detail), a PM-only re-teach call. Substantially
+  repaired in September 2026 after seven independent reviews: the whole-class summary used to cover
+  only the first part of a long class, a single out-of-order caption line could discard a class
+  silently, and a failed self-check looked identical to a clean one. Every defect and the evidence
+  for it is in [docs/ENGINE_AUDIT.md](docs/ENGINE_AUDIT.md).
 - **Audit log** of every meaningful action, and a health check that names the live build and the
   active scoring version.
 
@@ -148,6 +161,10 @@ report, anything.
 ## For developers
 
 Run it locally (details in [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)):
+The worker refuses to serve without `WORKER_API_KEY` set — it used to accept anything when the
+key was missing, which was the shipped default. On a local machine that nothing outside can reach,
+`WORKER_ALLOW_NO_AUTH=1` is the explicit opt-out.
+
 ```bash
 # Worker (needs ratings_module_build_kit/.env — see .env.example for the variable names)
 cd ratings_module_build_kit && ./.venv/Scripts/python -m uvicorn service:app --port 8000
@@ -158,8 +175,8 @@ cd web && npm install && npm run dev
 
 Tests:
 ```bash
-cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest      # 285 tests, offline
-cd web && npm test                                                     # 107 tests: the score mirror vs the fixtures, and the report window
+cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest      # 339 tests, offline
+cd web && npm test                                                     # 138 tests: the score mirror vs the fixtures, and the report window
 ./ratings_module_build_kit/.venv/Scripts/python supabase/test_scoring_sql.py   # the SQL function vs the same fixtures (needs DATABASE_URL)
 cd web && npx tsc --noEmit                                             # type-check
 ```
@@ -169,6 +186,10 @@ Local tools (run with the worker's Python, `./ratings_module_build_kit/.venv/Scr
 (push the local workbook copy through the worker's sync path), and `node web/scripts/shots.mjs`
 (screenshots of every page, light and dark).
 
-Deploy: see **[DEPLOY.md](DEPLOY.md)** — only on Bishal's word, after his local review. Secrets live
-in `.env` / `.env.local` (gitignored) and in Vercel / Render / Supabase Vault settings, never in the
-code.
+**Deployed.** The website runs on Vercel at https://feedback-loop-ten.vercel.app and the worker on
+Render. The worker's `/health` names the live commit and the active scoring version, which is the
+quickest way to tell whether a deploy landed. Render's free plan lets the worker sleep when idle, so
+the first request after a quiet spell can take up to a minute; that is not a fault.
+
+See **[DEPLOY.md](DEPLOY.md)** for the release steps and how to roll back. Secrets live in `.env` /
+`.env.local` (gitignored) and in Vercel / Render / Supabase Vault settings, never in the code.
