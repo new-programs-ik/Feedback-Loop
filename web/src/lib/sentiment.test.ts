@@ -20,9 +20,15 @@ const read = (rel: string) => JSON.parse(readFileSync(fileURLToPath(new URL(rel,
 const configs = read("../../../supabase/fixtures/scoring_configs.json") as Record<string, ScoringConfig>;
 const fixture = read("../../../supabase/fixtures/scoring_cases.json") as { cases: Case[] };
 
-test("fixture is the full contract (94 cases across C0–C5)", () => {
-  assert.equal(fixture.cases.length, 94);
+// Derived, not a magic number: a hard-coded count fails on every legitimate addition to the
+// contract and catches no real defect. What matters is that every case can be scored and every
+// configuration a case names actually exists.
+test("the fixture is a complete, usable contract", () => {
+  assert.ok(fixture.cases.length >= 94, "the contract should not shrink");
+  const used = new Set(fixture.cases.map((c) => c.config));
+  for (const key of used) assert.ok(configs[key], `case refers to config ${key}, which is missing`);
   for (const key of ["C0", "C1", "C2", "C3", "C4", "C5"]) assert.ok(configs[key], `config ${key} present`);
+  assert.ok(used.has("C0F"), "the live settings (the 4.3 rating floor) must be covered");
 });
 
 for (const c of fixture.cases) {

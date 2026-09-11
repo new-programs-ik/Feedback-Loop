@@ -70,6 +70,12 @@ CONFIGS = {
                    track={"mode": "on"}, weights={"rating": 60, "approval": 25, "sample": 0, "reach": 0, "track": 15},
                    guard={"k": 5}, min_votes={"band": 3, "action": 5},
                    missing={"approval": "neutral", "reach": "neutral"}),
+    # The live settings: the manager's original with one safety net added. A class rated below the
+    # floor is forced down to Average, which means somebody reads the transcript, however good the
+    # approval looks. Asked for by Sreejit on 10 Sep 2026 because the classification was leaning
+    # entirely on approval when the raw rating was very low.
+    "C0F": _variant(MANAGER_ORIGINAL, "Original + the 4.3 rating floor",
+                    caps={"rating_line": 4.3}),
     "C5": _variant(MANAGER_ORIGINAL, "Two lines + graded score", rating={"mode": "knee"},
                    approval={"mode": "graded"}, sample={"mode": "off"}, reach={"mode": "off"},
                    track={"mode": "on"}, weights={"rating": 60, "approval": 25, "sample": 0, "reach": 0, "track": 15},

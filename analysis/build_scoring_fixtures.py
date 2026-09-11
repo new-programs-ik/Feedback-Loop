@@ -118,6 +118,25 @@ def main():
     add_case(cases, "C5", "webinar 200 attended, 5 happy raters -> provisional, never bad", {"rating": 4.9, "num_ratings": 5, "attended": 200, "yes_votes": 5, "no_votes": 0, **C5})
     add_case(cases, "C5", "big room says no: 40 of 100 -> bad", {"rating": 4.6, "num_ratings": 100, "attended": 200, "yes_votes": 40, "no_votes": 60, **C5})
     add_case(cases, "C5", "no vote recorded, rating under the line -> average", {"rating": 4.2, "num_ratings": 10, "attended": 20, "yes_votes": None, "no_votes": None, **C5})
+    # ---- the 4.3 rating floor (the live settings) -------------------------------------------
+    # The point of the floor is that approval cannot rescue a badly rated class, so each of these
+    # has approval high enough to be called Good without it.
+    C0F = {"attended": 20}
+    add_case(cases, "C0F", "rated 3.92, seven of eight approve -> transcript, not nothing",
+             {"rating": 3.92, "num_ratings": 8, "yes_votes": 7, "no_votes": 1, **C0F})
+    add_case(cases, "C0F", "rated 4.29, everyone approves -> still transcript",
+             {"rating": 4.29, "num_ratings": 12, "yes_votes": 12, "no_votes": 0, **C0F})
+    add_case(cases, "C0F", "rated 4.30 exactly -> the floor does not bite",
+             {"rating": 4.30, "num_ratings": 12, "yes_votes": 12, "no_votes": 0, **C0F})
+    add_case(cases, "C0F", "rated 4.31 -> nothing, as before",
+             {"rating": 4.31, "num_ratings": 12, "yes_votes": 12, "no_votes": 0, **C0F})
+    add_case(cases, "C0F", "already bad stays bad, the floor never softens",
+             {"rating": 3.10, "num_ratings": 12, "yes_votes": 3, "no_votes": 9, **C0F})
+    add_case(cases, "C0F", "one happy learner in a small room is still read",
+             {"rating": 4.00, "num_ratings": 1, "yes_votes": 1, "no_votes": 0, **C0F})
+    add_case(cases, "C0F", "no approval answer at all, low rating -> still read",
+             {"rating": 4.10, "num_ratings": 9, "yes_votes": None, "no_votes": None, **C0F})
+
     add_case(cases, "C5", "bad track record, fine class -> good not excellent", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, "track_avg": 4.0, **C5})
     add_case(cases, "C5", "first class, no track -> neutral", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, **C5})
     add_case(cases, "C5", "exactly on both lines -> good", {"rating": 4.55, "num_ratings": 10, "attended": 20, "yes_votes": 8, "no_votes": 2, "track_avg": 4.6, **C5})

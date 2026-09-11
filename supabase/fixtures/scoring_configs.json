@@ -319,6 +319,70 @@
    "no_data": "watch"
   }
  },
+ "C0F": {
+  "name": "Original + the 4.3 rating floor",
+  "rating": {
+   "mode": "linear",
+   "scale": 5,
+   "floor": 3.55,
+   "line": 4.55,
+   "line_value": 75
+  },
+  "approval": {
+   "mode": "cliff",
+   "bar": 80,
+   "floor": 40
+  },
+  "sample": {
+   "mode": "cliff",
+   "target": 10
+  },
+  "reach": {
+   "mode": "graded"
+  },
+  "track": {
+   "mode": "off",
+   "floor": 4.05,
+   "line": 4.55,
+   "min_classes": 3
+  },
+  "weights": {
+   "rating": 60,
+   "approval": 30,
+   "sample": 6,
+   "reach": 4,
+   "track": 0
+  },
+  "guard": {
+   "k": 0,
+   "prior": "course"
+  },
+  "min_votes": {
+   "band": 0,
+   "action": 0
+  },
+  "caps": {
+   "rating_line": 4.3,
+   "approval_bar": null
+  },
+  "bands": {
+   "excellent": 90,
+   "good": 75,
+   "average": 60
+  },
+  "missing": {
+   "approval": "zero",
+   "reach": "zero",
+   "track": "neutral"
+  },
+  "actions": {
+   "bad": "video",
+   "average": "transcript",
+   "good": "none",
+   "excellent": "none",
+   "no_data": "watch"
+  }
+ },
  "C5": {
   "name": "Two lines + graded score",
   "rating": {
