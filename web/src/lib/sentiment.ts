@@ -48,7 +48,9 @@ export type ScoreFlag =
   | "under_approval_bar"
   | "thin_no_band"
   | "thin_provisional"
-  | "escalated";
+  | "escalated"
+  | "thin_approval_not_counted"
+  | "thin_under_rating_line";
 
 export type ScoringConfig = {
   name?: string;
@@ -64,6 +66,10 @@ export type ScoringConfig = {
   bands: { excellent: number; good: number; average: number };
   missing: { approval: MissingMode; reach: MissingMode; track?: MissingMode };
   actions: Record<Band | "no_data", Action>;
+  /** Fewer than `min_answers` approval answers: a passing approval does not count, and the rating
+   *  must clear `rating_line` on its own or the band is capped at Average. Optional, so every
+   *  stored configuration written before this keeps working unchanged. */
+  thin?: { min_answers: number | null; rating_line: number | null } | null;
 };
 
 /** Anything the sheet can hand us: numbers, numeric strings, blanks, nulls. */
@@ -322,6 +328,17 @@ export function scoreClass(inputs: ScoreInputs, cfg: ScoringConfig = DEFAULT_CON
     comps.approval = clamp(((adjApproval - Number(a.floor)) / (Number(a.bar) - Number(a.floor))) * 100.0);
   else comps.approval = adjApproval >= Number(a.bar) ? 100.0 : 0.0;
 
+  // Too few approval answers: approval may warn, never vouch. A failing approval from a small group
+  // still counts, because those classes mostly had a real content problem when checked against the
+  // recording. A passing one from the same small group no longer lifts the score.
+  const thin = cfg.thin ?? null;
+  const thinMin = thin?.min_answers != null ? Number(thin.min_answers) : null;
+  const isThin = thinMin != null && votes != null && votes < thinMin;
+  if (isThin && adjApproval != null && adjApproval >= Number(a.bar)) {
+    comps.approval = null;
+    flags.push("thin_approval_not_counted");
+  }
+
   const s = cfg.sample;
   if (s.mode === "off") comps.sample = null;
   else if (n == null) comps.sample = 0.0;
@@ -375,6 +392,13 @@ export function scoreClass(inputs: ScoreInputs, cfg: ScoringConfig = DEFAULT_CON
   }
   if (missed === 1) band = BAND_ORDER[Math.max(BAND_RANK[band], BAND_RANK.average)];
   else if (missed >= 2) band = "bad";
+
+  // With approval untrustworthy the rating carries the decision alone. Below the line the class is
+  // read. Caps at Average, never pushes to Bad, so video does not grow.
+  if (isThin && thin?.rating_line != null && adjRating < Number(thin.rating_line)) {
+    if (BAND_RANK[band] < BAND_RANK.average) band = "average";
+    flags.push("thin_under_rating_line");
+  }
 
   const voices = votes != null ? votes : n || 0;
   let provisional = false;
@@ -458,6 +482,8 @@ export function explainClass(inputs: ScoreInputs, result: ScoreResult, _config: 
 /** The stored flags as words — for rows that carry a score from the database but no inputs
  *  worth re-scoring (and for the drawer's "why" list). Order follows the flags. */
 export const FLAG_WORDS: Record<ScoreFlag, string> = {
+  thin_approval_not_counted: "too few learners answered the approval question for a yes to count",
+  thin_under_rating_line: "too few approval answers to rely on, and the rating alone is below the line",
   invalid_num_ratings: "the response count is negative",
   invalid_attended: "the attendance is negative",
   invalid_yes_votes: "the yes-vote count is negative",

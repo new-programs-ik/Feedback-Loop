@@ -31,6 +31,8 @@ FLAG_WORDS = {
     "thin_provisional": "few votes",
     "thin_no_band": "few votes",
     "escalated": "escalated by a PM",
+    "thin_approval_not_counted": "too few approval answers for a yes to count",
+    "thin_under_rating_line": "too few approval answers, rating under 4.6",
     "rating_vote_disagree": "rating and vote disagree",
     "no_vote": "no vote recorded",
     "votes_ne_responses": "votes and responses differ",

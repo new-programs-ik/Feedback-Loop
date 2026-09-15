@@ -34,6 +34,9 @@ export type ScoringConfig = {
   bands: { excellent: number; good: number; average: number };
   missing: { approval: MissingPolicy; reach: MissingPolicy; track: MissingPolicy };
   actions: { bad: ActionKind; average: ActionKind; good: ActionKind; excellent: ActionKind; no_data: ActionKind };
+  /** Fewer than min_answers approval answers: a passing approval does not count, and the rating must
+   *  clear rating_line on its own or the class is capped at Average. Absent = off. */
+  thin?: { min_answers: number | null; rating_line: number | null };
 };
 
 /** C0 — the manager's method exactly as written (60/30/6/4, pass/fail). Mirrors
@@ -107,6 +110,7 @@ export function normalizeConfig(raw: unknown, base: ScoringConfig = MANAGER_ORIG
   const rating = sub("rating"), approval = sub("approval"), sample = sub("sample"), reach = sub("reach");
   const track = sub("track"), weights = sub("weights"), guard = sub("guard"), mv = sub("min_votes");
   const caps = sub("caps"), bands = sub("bands"), missing = sub("missing"), actions = sub("actions");
+  const thin = sub("thin");
   return {
     ...(typeof r.name === "string" ? { name: r.name } : base.name ? { name: base.name } : {}),
     rating: {
@@ -159,6 +163,11 @@ export function normalizeConfig(raw: unknown, base: ScoringConfig = MANAGER_ORIG
       excellent: pick(actions.excellent, ACTIONS, base.actions.excellent),
       no_data: pick(actions.no_data, ACTIONS, base.actions.no_data),
     },
+    ...(isObj(r.thin)
+      ? { thin: { min_answers: numOrNull(thin.min_answers, null), rating_line: numOrNull(thin.rating_line, null) } }
+      : base.thin
+        ? { thin: { ...base.thin } }
+        : {}),
   };
 }
 
@@ -203,6 +212,10 @@ export function validateConfig(cfg: ScoringConfig): string[] {
     errs.push("The hard rating line must sit inside the rating scale.");
   if (cfg.caps.approval_bar != null && !(cfg.caps.approval_bar > 0 && cfg.caps.approval_bar <= 100))
     errs.push("The hard approval bar must be between 1 and 100.");
+  if (cfg.thin?.min_answers != null && !(cfg.thin.min_answers >= 0))
+    errs.push("The minimum approval answers cannot be negative.");
+  if (cfg.thin?.rating_line != null && !(cfg.thin.rating_line > 0 && cfg.thin.rating_line <= r.scale))
+    errs.push("The rating a thin class must clear has to sit inside the rating scale.");
   for (const c of COMPONENTS) if (!(cfg.weights[c] >= 0)) errs.push(`Weight for ${c} cannot be negative.`);
   if (includedComponents(cfg).length === 0) errs.push("At least one component needs a positive weight.");
   return errs;
@@ -238,6 +251,8 @@ const LABELS: Record<string, string> = {
   "min_votes.action": "Minimum votes · to trigger an analysis",
   "caps.rating_line": "Hard line · rating",
   "caps.approval_bar": "Hard line · approval",
+  "thin.min_answers": "Approval counts from · answers",
+  "thin.rating_line": "Fewer answers · rating must clear",
   "bands.excellent": "Band edge · Excellent from",
   "bands.good": "Band edge · Good from",
   "bands.average": "Band edge · Average from",
@@ -302,6 +317,8 @@ export const FIELD_HELP = {
   minVotesAction: "Fewer voices than this → the class is watched, never analysed (unless a PM escalates).",
   capRating: "With enough votes, a class under this rating can never sit above Average — under both lines it is Bad.",
   capApproval: "With enough votes, a class under this approval can never sit above Average — under both lines it is Bad.",
+  thinMinAnswers: "Below this many approval answers, a passing approval adds no points (a failing one still counts).",
+  thinRatingLine: "Below that many approval answers, a class under this rating is capped at Average, so its transcript is read.",
   bands: "Lower edge of each band, read from the score rounded to two decimals. Everything under the Average edge is Bad.",
   missing: "Neutral: the component is left out and the others re-scaled (never a penalty). Zero: it scores 0.",
   actions: "What each band triggers in the queue. Too few voices uses the last row.",

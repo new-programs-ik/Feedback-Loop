@@ -137,6 +137,25 @@ def main():
     add_case(cases, "C0F", "no approval answer at all, low rating -> still read",
              {"rating": 4.10, "num_ratings": 9, "yes_votes": None, "no_votes": None, **C0F})
 
+    # ---- approval is trusted only from six answers (the live settings) ------------------------
+    C0T = {"attended": 11}
+    add_case(cases, "C0T", "rated 4.40, 3 of 3 approve -> the 3 yeses do not count, rating under 4.6 -> read",
+             {"rating": 4.40, "num_ratings": 3, "yes_votes": 3, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.80, 3 of 3 approve -> yeses do not count, but the rating clears 4.6",
+             {"rating": 4.80, "num_ratings": 3, "yes_votes": 3, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.87, 2 of 3 approve -> a failing approval still warns -> video",
+             {"rating": 4.87, "num_ratings": 3, "yes_votes": 2, "no_votes": 1, **C0T})
+    add_case(cases, "C0T", "rated 4.40, 6 of 6 approve -> six answers is enough, approval counts",
+             {"rating": 4.40, "num_ratings": 6, "yes_votes": 6, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.59, 5 of 5 approve -> five is not enough, under 4.6 -> read",
+             {"rating": 4.59, "num_ratings": 5, "yes_votes": 5, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.60 exactly, 5 of 5 -> the rating line does not bite",
+             {"rating": 4.60, "num_ratings": 5, "yes_votes": 5, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.20, 3 of 3 -> under the 4.3 floor as well, still Average not Bad",
+             {"rating": 4.20, "num_ratings": 3, "yes_votes": 3, "no_votes": 0, **C0T})
+    add_case(cases, "C0T", "rated 4.50, nobody answered approval -> the rule does not apply, as before",
+             {"rating": 4.50, "num_ratings": 8, "yes_votes": None, "no_votes": None, **C0T})
+
     add_case(cases, "C5", "bad track record, fine class -> good not excellent", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, "track_avg": 4.0, **C5})
     add_case(cases, "C5", "first class, no track -> neutral", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, **C5})
     add_case(cases, "C5", "exactly on both lines -> good", {"rating": 4.55, "num_ratings": 10, "attended": 20, "yes_votes": 8, "no_votes": 2, "track_avg": 4.6, **C5})
