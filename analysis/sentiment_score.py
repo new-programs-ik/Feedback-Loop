@@ -23,6 +23,8 @@ A configuration is a plain dict (stored as JSON in scoring_configs.config):
   thin      fewer than min_answers approval answers: a passing approval does not count, and the
             rating must clear rating_line on its own or the band is capped at Average. Either
             value null switches that half off.
+  min_votes.low_rating_line  under the band floor a class normally gets no band; one rated below
+            this line is still banded Average, so its transcript is read. Absent/null = off.
 """
 from __future__ import annotations
 
@@ -84,6 +86,10 @@ CONFIGS = {
     # warn but never vouch, and that such a class must clear 4.6 on its rating alone.
     "C0T": _variant(MANAGER_ORIGINAL, "Original + 4.3 floor + trust approval from 6 answers",
                     caps={"rating_line": 4.3}, thin={"min_answers": 6, "rating_line": 4.6}),
+    # Live from 16 Sep 2026: under 6 responses the class is "too few" and gets no band, unless it
+    # is rated below 4.3, in which case its transcript is still read. 6+ responses: v8 as before.
+    "C06": _variant(MANAGER_ORIGINAL, "Original + 4.3 floor + too few below 6 responses",
+                    caps={"rating_line": 4.3}, min_votes={"band": 6, "action": 6, "low_rating_line": 4.3}),
     "C5": _variant(MANAGER_ORIGINAL, "Two lines + graded score", rating={"mode": "knee"},
                    approval={"mode": "graded"}, sample={"mode": "off"}, reach={"mode": "off"},
                    track={"mode": "on"}, weights={"rating": 60, "approval": 25, "sample": 0, "reach": 0, "track": 15},
@@ -279,8 +285,14 @@ def score(inputs: dict, cfg: dict) -> dict:
 
     voices = votes if votes is not None else (n or 0)
     provisional = False
-    if voices < float(mv.get("band", 0) or 0):
-        band_out: Optional[str] = None
+    low_line = _num(mv.get("low_rating_line"))
+    under_band_floor = voices < float(mv.get("band", 0) or 0)
+    if under_band_floor and low_line is not None and adj_rating < low_line:
+        # Too few responses to judge the class, but rated low enough that the transcript is read anyway.
+        band_out: Optional[str] = "average"
+        flags.append("thin_low_rating_read")
+    elif under_band_floor:
+        band_out = None
         flags.append("thin_no_band")
     else:
         band_out = band

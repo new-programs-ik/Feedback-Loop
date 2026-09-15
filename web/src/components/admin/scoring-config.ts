@@ -29,7 +29,8 @@ export type ScoringConfig = {
   track: { mode: TrackMode; floor: number; line: number; min_classes: number };
   weights: Record<Component, number>;
   guard: { k: number; prior: "course" | "global" };
-  min_votes: { band: number; action: number };
+  /** low_rating_line: under the band floor a class rated below this is still read (Average). */
+  min_votes: { band: number; action: number; low_rating_line?: number | null };
   caps: { rating_line: number | null; approval_bar: number | null };
   bands: { excellent: number; good: number; average: number };
   missing: { approval: MissingPolicy; reach: MissingPolicy; track: MissingPolicy };
@@ -141,7 +142,11 @@ export function normalizeConfig(raw: unknown, base: ScoringConfig = MANAGER_ORIG
       track: num(weights.track, base.weights.track),
     },
     guard: { k: num(guard.k, base.guard.k), prior: pick(guard.prior, ["course", "global"], base.guard.prior) },
-    min_votes: { band: num(mv.band, base.min_votes.band), action: num(mv.action, base.min_votes.action) },
+    min_votes: {
+      band: num(mv.band, base.min_votes.band),
+      action: num(mv.action, base.min_votes.action),
+      ...(mv.low_rating_line != null ? { low_rating_line: numOrNull(mv.low_rating_line, null) } : {}),
+    },
     caps: {
       rating_line: numOrNull(caps.rating_line, base.caps.rating_line),
       approval_bar: numOrNull(caps.approval_bar, base.caps.approval_bar),
@@ -205,6 +210,8 @@ export function validateConfig(cfg: ScoringConfig): string[] {
   if (cfg.track.mode === "on" && !(cfg.track.min_classes >= 0)) errs.push("Track-record minimum classes cannot be negative.");
   if (!(cfg.guard.k >= 0)) errs.push("Guard k cannot be negative.");
   if (!(cfg.min_votes.band >= 0 && cfg.min_votes.action >= 0)) errs.push("Minimum votes cannot be negative.");
+  if (cfg.min_votes.low_rating_line != null && !(cfg.min_votes.low_rating_line > 0 && cfg.min_votes.low_rating_line <= r.scale))
+    errs.push("The rating that still gets a thin class read has to sit inside the rating scale.");
   const b = cfg.bands;
   if (!(b.excellent > b.good && b.good > b.average && b.average > 0 && b.excellent <= 100))
     errs.push("Band edges must descend: Excellent > Good > Average > 0 (and Excellent ≤ 100).");
@@ -249,6 +256,7 @@ const LABELS: Record<string, string> = {
   "guard.prior": "Small-sample guard · prior",
   "min_votes.band": "Minimum votes · to show a band",
   "min_votes.action": "Minimum votes · to trigger an analysis",
+  "min_votes.low_rating_line": "Too few responses · still read if rated below",
   "caps.rating_line": "Hard line · rating",
   "caps.approval_bar": "Hard line · approval",
   "thin.min_answers": "Approval counts from · answers",
@@ -315,6 +323,7 @@ export const FIELD_HELP = {
   guardPrior: "Where the typical values come from — this course's own classes, or every course.",
   minVotesBand: "Fewer voices than this → no band is shown (“— · too few voices”).",
   minVotesAction: "Fewer voices than this → the class is watched, never analysed (unless a PM escalates).",
+  minVotesLowRating: "Even with too few responses, a class rated below this is banded Average, so its transcript is read.",
   capRating: "With enough votes, a class under this rating can never sit above Average — under both lines it is Bad.",
   capApproval: "With enough votes, a class under this approval can never sit above Average — under both lines it is Bad.",
   thinMinAnswers: "Below this many approval answers, a passing approval adds no points (a failing one still counts).",

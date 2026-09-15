@@ -33,6 +33,7 @@ FLAG_WORDS = {
     "escalated": "escalated by a PM",
     "thin_approval_not_counted": "too few approval answers for a yes to count",
     "thin_under_rating_line": "too few approval answers, rating under 4.6",
+    "thin_low_rating_read": "too few responses, but rated below 4.3, so the transcript is read",
     "rating_vote_disagree": "rating and vote disagree",
     "no_vote": "no vote recorded",
     "votes_ne_responses": "votes and responses differ",

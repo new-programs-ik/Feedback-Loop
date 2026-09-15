@@ -14,7 +14,8 @@
  *    track     "on" (0 at floor → 100 at line) or "off"
  *    weights   points per component; only INCLUDED components count, the rest are re-scaled
  *    guard     k > 0 blends few votes toward the course's typical vote/rating (shrinkage)
- *    min_votes band: fewer votes → no band; action: fewer votes → never an analysis
+ *    min_votes band: fewer votes → no band; action: fewer votes → never an analysis;
+ *              low_rating_line: under the band floor, a class rated below it is still read (Average)
  *    caps      hard lines: under rating_line or approval_bar (with ≥ min_votes.action votes)
  *              caps the band at Average; both missed caps it at Bad
  *    bands     lower edges of Excellent / Good / Average; the band reads the ROUNDED score
@@ -50,7 +51,8 @@ export type ScoreFlag =
   | "thin_provisional"
   | "escalated"
   | "thin_approval_not_counted"
-  | "thin_under_rating_line";
+  | "thin_under_rating_line"
+  | "thin_low_rating_read";
 
 export type ScoringConfig = {
   name?: string;
@@ -61,7 +63,7 @@ export type ScoringConfig = {
   track: { mode: "on" | "off"; floor: number; line: number; min_classes?: number };
   weights: Record<ComponentKey, number>;
   guard: { k: number; prior?: string };
-  min_votes: { band: number; action: number };
+  min_votes: { band: number; action: number; low_rating_line?: number | null };
   caps: { rating_line: number | null; approval_bar: number | null };
   bands: { excellent: number; good: number; average: number };
   missing: { approval: MissingMode; reach: MissingMode; track?: MissingMode };
@@ -377,7 +379,7 @@ export function scoreClass(inputs: ScoreInputs, cfg: ScoringConfig = DEFAULT_CON
   // ---- band, caps, vote floor ------------------------------------------------------------------
   let band = bandOf(sc, cfg);
 
-  const mv = cfg.min_votes ?? { band: 0, action: 0 };
+  const mv: ScoringConfig["min_votes"] = cfg.min_votes ?? { band: 0, action: 0 };
   const actionFloor = Number(mv.action ?? 0) || 0;
   const enoughForAction = (votes != null ? votes : n || 0) >= actionFloor;
   const caps = cfg.caps ?? { rating_line: null, approval_bar: null };
@@ -403,7 +405,13 @@ export function scoreClass(inputs: ScoreInputs, cfg: ScoringConfig = DEFAULT_CON
   const voices = votes != null ? votes : n || 0;
   let provisional = false;
   let bandOut: Band | null;
-  if (voices < (Number(mv.band ?? 0) || 0)) {
+  const lowLine = mv.low_rating_line != null ? Number(mv.low_rating_line) : null;
+  const underBandFloor = voices < (Number(mv.band ?? 0) || 0);
+  if (underBandFloor && lowLine != null && adjRating < lowLine) {
+    // Too few responses to judge the class, but rated low enough that the transcript is read anyway.
+    bandOut = "average";
+    flags.push("thin_low_rating_read");
+  } else if (underBandFloor) {
     bandOut = null;
     flags.push("thin_no_band");
   } else {
@@ -484,6 +492,7 @@ export function explainClass(inputs: ScoreInputs, result: ScoreResult, _config: 
 export const FLAG_WORDS: Record<ScoreFlag, string> = {
   thin_approval_not_counted: "too few learners answered the approval question for a yes to count",
   thin_under_rating_line: "too few approval answers to rely on, and the rating alone is below the line",
+  thin_low_rating_read: "too few responses to judge, but rated below 4.3, so the transcript is read",
   invalid_num_ratings: "the response count is negative",
   invalid_attended: "the attendance is negative",
   invalid_yes_votes: "the yes-vote count is negative",

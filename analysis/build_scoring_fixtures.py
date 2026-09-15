@@ -156,6 +156,31 @@ def main():
     add_case(cases, "C0T", "rated 4.50, nobody answered approval -> the rule does not apply, as before",
              {"rating": 4.50, "num_ratings": 8, "yes_votes": None, "no_votes": None, **C0T})
 
+    # ---- under 6 responses the class is too few, unless it is rated below 4.3 (live settings) ----
+    C06 = {"attended": 20}
+    add_case(cases, "C06", "Tom Mac 27 Aug: rated 4.67 by 3, 2 of 3 approve -> too few, no analysis",
+             {"rating": 4.67, "num_ratings": 3, "yes_votes": 2, "no_votes": 1, **C06, "attended": 8})
+    add_case(cases, "C06", "rated 4.40 by 3, all approve -> too few, no analysis",
+             {"rating": 4.40, "num_ratings": 3, "yes_votes": 3, "no_votes": 0, **C06})
+    add_case(cases, "C06", "rated 4.20 by 4 -> too few, but under 4.3 so the transcript is read",
+             {"rating": 4.20, "num_ratings": 4, "yes_votes": 4, "no_votes": 0, **C06})
+    add_case(cases, "C06", "rated 3.50 by 5, 1 of 5 approve -> transcript, not video",
+             {"rating": 3.50, "num_ratings": 5, "yes_votes": 1, "no_votes": 4, **C06})
+    add_case(cases, "C06", "rated 4.30 exactly by 5 -> the low-rating line does not bite",
+             {"rating": 4.30, "num_ratings": 5, "yes_votes": 5, "no_votes": 0, **C06})
+    add_case(cases, "C06", "rated 4.40 by 6, all approve -> six is enough, scored as usual",
+             {"rating": 4.40, "num_ratings": 6, "yes_votes": 6, "no_votes": 0, **C06})
+    add_case(cases, "C06", "rated 4.87 by 6, 4 of 6 approve -> six is enough, approval fails -> video",
+             {"rating": 4.87, "num_ratings": 6, "yes_votes": 4, "no_votes": 2, **C06})
+    add_case(cases, "C06", "rated 4.20 by 8, all approve -> the 4.3 floor applies as before",
+             {"rating": 4.20, "num_ratings": 8, "yes_votes": 8, "no_votes": 0, **C06})
+    add_case(cases, "C06", "rated 4.90 by 3, escalated by a PM -> video",
+             {"rating": 4.90, "num_ratings": 3, "yes_votes": 3, "no_votes": 0, "escalated": True, **C06})
+    add_case(cases, "C06", "rated 4.80 by 4, nobody answered approval -> too few",
+             {"rating": 4.80, "num_ratings": 4, "yes_votes": None, "no_votes": None, **C06})
+    add_case(cases, "C06", "rated 4.10 by 5, nobody answered approval -> transcript",
+             {"rating": 4.10, "num_ratings": 5, "yes_votes": None, "no_votes": None, **C06})
+
     add_case(cases, "C5", "bad track record, fine class -> good not excellent", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, "track_avg": 4.0, **C5})
     add_case(cases, "C5", "first class, no track -> neutral", {"rating": 4.7, "num_ratings": 12, "attended": 20, "yes_votes": 11, "no_votes": 1, **C5})
     add_case(cases, "C5", "exactly on both lines -> good", {"rating": 4.55, "num_ratings": 10, "attended": 20, "yes_votes": 8, "no_votes": 2, "track_avg": 4.6, **C5})
