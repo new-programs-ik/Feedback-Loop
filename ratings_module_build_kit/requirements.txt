@@ -13,3 +13,8 @@ python-docx>=1.1,<2.0
 imageio-ffmpeg>=0.5,<1.0    # static ffmpeg binary (with https) for the video-frames stage
 google-auth>=2.29,<3.0      # service-account token for the ratings-sheet sync (token only; the
                             # Sheets call itself goes through httpx so tests can MockTransport it)
+requests>=2.31,<3.0         # google-auth refreshes that token through its "requests transport", which
+                            # imports this package. Missing here, the container built fine and every
+                            # sync died with "The requests library is not installed" (14 + 16 Sep 2026).
+                            # The tests never reach it (the token provider is faked), so only a real
+                            # sync catches it.
