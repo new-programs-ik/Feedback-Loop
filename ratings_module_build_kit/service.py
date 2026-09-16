@@ -14,6 +14,8 @@ Endpoints:
   POST /transcript       -> {text, video_id, language, chars}   (fetch captions from a Vimeo URL)
   POST /analyze          -> {result, meta, transcript_source}   (needs ANTHROPIC_API_KEY)
   POST /sync-ratings     -> {status: accepted}                   (one ratings sync, in the background)
+  While a background job runs the worker pings its own /health (RENDER_EXTERNAL_URL or SELF_URL)
+  so a free instance is not spun down mid-analysis.
   POST /sync-learners    -> 501 until a learner-level source exists (learner_source.py)
 
 Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorization: Bearer <it>`.
@@ -26,6 +28,7 @@ import json as _json
 import logging
 import hmac
 import os
+import threading
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
@@ -314,23 +317,69 @@ def _merge_video_meta(result: dict, meta: dict, video_meta: dict) -> None:
     result["video"] = video_meta
 
 
+def self_url() -> str:
+    """This worker's own public address, or "" when it does not know it (local runs, tests)."""
+    return (os.environ.get("SELF_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+
+
+class KeepAwake:
+    """Ping our own /health every `every_s` seconds until the work is done.
+
+    A hosted instance with no inbound traffic is put to sleep, and a background analysis is exactly
+    that: ten to fifteen minutes of silence. The ping is the traffic. It is best-effort - a failed
+    ping is logged once and never touches the analysis - and it stops itself when the job ends.
+    """
+
+    def __init__(self, every_s: int = 240, timeout_s: int = 10):
+        self.every_s = every_s
+        self.timeout_s = timeout_s
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def _loop(self, url: str) -> None:
+        import httpx
+        while not self._stop.wait(self.every_s):
+            try:
+                with httpx.Client(timeout=self.timeout_s) as client:
+                    client.get(url)
+            except Exception:                              # pragma: no cover - network
+                log.warning("keep-awake ping failed (%s); the instance may sleep", url, exc_info=True)
+
+    def __enter__(self) -> "KeepAwake":
+        base = self_url()
+        if not base:
+            log.info("keep-awake: no SELF_URL/RENDER_EXTERNAL_URL, not pinging")
+            return self
+        self._thread = threading.Thread(target=self._loop, args=(base + "/health",),
+                                        name="keep-awake", daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        return None
+
+
 def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
     """The background job: fetch transcript + digest materials (+ sample video) + analyze + save."""
     try:
-        transcript_text = req.transcript
-        source = "upload"
-        if not (transcript_text and transcript_text.strip()):
-            info = V.fetch_transcript(req.vimeo_url)  # type: ignore[arg-type]
-            transcript_text = info["text"]
-            source = "vimeo"
-        materials = gather_materials(req)
-        cues = E.parse_cues(transcript_text)
-        visual_track, video_meta = _run_video_stage(req, cues)
-        result, meta = E.analyse_cues(cues, req.context(), req.class_type, materials,
-                                      visual_track=visual_track)
-        _merge_video_meta(result, meta, video_meta)
-        ST.persist_analysis(req.class_id, result, meta, transcript_text, source)
-        logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
+        with KeepAwake():
+            transcript_text = req.transcript
+            source = "upload"
+            if not (transcript_text and transcript_text.strip()):
+                info = V.fetch_transcript(req.vimeo_url)  # type: ignore[arg-type]
+                transcript_text = info["text"]
+                source = "vimeo"
+            materials = gather_materials(req)
+            cues = E.parse_cues(transcript_text)
+            visual_track, video_meta = _run_video_stage(req, cues)
+            result, meta = E.analyse_cues(cues, req.context(), req.class_type, materials,
+                                          visual_track=visual_track)
+            _merge_video_meta(result, meta, video_meta)
+            ST.persist_analysis(req.class_id, result, meta, transcript_text, source)
+            logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
         logging.exception("async analysis failed for class %s", req.class_id)
         ST.mark_failed(req.class_id, str(e))

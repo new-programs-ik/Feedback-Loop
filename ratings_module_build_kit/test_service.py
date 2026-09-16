@@ -6,6 +6,7 @@ Run:  python -m unittest test_service -v
 import base64
 import json
 import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -305,6 +306,67 @@ class TestOneAnalysisPerClass(unittest.TestCase):
         with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"):
             r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
             self.assertEqual(r.json()["status"], "accepted")
+
+
+class TestTheWorkerStaysAwakeWhileItWorks(unittest.TestCase):
+    """A hosted instance with no inbound traffic is put to sleep, and a background analysis is ten
+    to fifteen minutes of exactly that: the job died silently and the class sat on "analyzing"
+    (8-16 Sep 2026). While work is in flight the worker now calls its own /health."""
+
+    def test_it_pings_its_own_health_until_the_work_is_done(self):
+        seen = []
+
+        class FakeClient:
+            def __init__(self, **kw):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return None
+
+            def get(self, url):
+                seen.append(url)
+
+        with patch.dict(os.environ, {"SELF_URL": "https://worker.example.com/"}), \
+                patch("httpx.Client", FakeClient):
+            with service.KeepAwake(every_s=0.01):
+                deadline = time.time() + 2
+                while not seen and time.time() < deadline:
+                    time.sleep(0.01)
+        self.assertTrue(seen, "no ping was sent while the job ran")
+        self.assertEqual(seen[0], "https://worker.example.com/health")
+
+    def test_it_stops_pinging_once_the_work_is_done(self):
+        with patch.dict(os.environ, {"SELF_URL": "https://worker.example.com"}):
+            keeper = service.KeepAwake(every_s=30)
+            with keeper:
+                thread = keeper._thread
+                self.assertIsNotNone(thread)
+        self.assertFalse(thread.is_alive(), "the ping thread outlived the analysis")
+
+    def test_without_an_address_it_simply_does_not_ping(self):
+        env = {k: v for k, v in os.environ.items() if k not in ("SELF_URL", "RENDER_EXTERNAL_URL")}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(service.self_url(), "")
+            with service.KeepAwake(every_s=0.01) as keeper:
+                self.assertIsNone(keeper._thread)
+
+    def test_a_failed_ping_never_touches_the_analysis(self):
+        def explode(**kw):
+            raise RuntimeError("network down")
+
+        with patch.dict(os.environ, {"SELF_URL": "https://worker.example.com"}), \
+                patch("httpx.Client", explode):
+            with service.KeepAwake(every_s=0.01):
+                time.sleep(0.05)      # the loop raises in its own thread; nothing reaches us
+
+    def test_the_platform_address_is_used_when_no_override_is_set(self):
+        env = {k: v for k, v in os.environ.items() if k != "SELF_URL"}
+        env["RENDER_EXTERNAL_URL"] = "https://feedback-loop-worker.onrender.com/"
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(service.self_url(), "https://feedback-loop-worker.onrender.com")
 
 
 if __name__ == "__main__":
