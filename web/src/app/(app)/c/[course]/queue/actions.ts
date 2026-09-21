@@ -46,7 +46,8 @@ export async function dismissRating(formData: FormData) {
   const { error } = await supabase
     .from("class_ratings")
     .update({ review_status: "dismissed", updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .in("review_status", ["new", "notified", "confirmed"]);   // not one already being analysed
   if (error) throw new Error(error.message);
   await audit(supabase, user.id, "rating_dismissed", { class_rating_id: id });
   revalidateQueue();
@@ -63,10 +64,10 @@ export async function escalateRating(formData: FormData) {
     .update({
       escalated: true,
       decision: "video",
-      review_status: "new",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .in("review_status", ["new", "notified", "confirmed"]);   // a dismissed or analysed row is left alone
   if (error) throw new Error(error.message);
   await audit(supabase, user.id, "rating_escalated", { class_rating_id: id });
   revalidateQueue();
@@ -77,10 +78,10 @@ export async function mapCourseLabel(formData: FormData) {
   const user = await requirePm();
   const alias = String(formData.get("alias") ?? "").trim();
   const courseId = String(formData.get("course_id") ?? "");
-  if (!alias || !courseId) throw new Error("Pick a course for the label.");
+  if (!alias || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(courseId)) throw new Error("Pick a course for the label.");
   const supabase = await createClient();
   const ins = await supabase.from("course_aliases").insert({ alias, course_id: courseId });
-  if (ins.error && !ins.error.message.includes("duplicate")) throw new Error(ins.error.message);
+  if (ins.error && ins.error.code !== "23505") throw new Error(ins.error.message);   // 23505 = already mapped, fine
   const upd = await supabase
     .from("class_ratings")
     .update({ course_id: courseId, updated_at: new Date().toISOString() })

@@ -15,7 +15,10 @@ const OAUTH_ERRORS: Record<string, string> = {
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const rawNext = params.get("next") || "/";
+  // Only a path inside this app: `next=https://elsewhere` (or `//host`) would send a fresh
+  // sign-in straight off-site.
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);

@@ -8,6 +8,34 @@ import { hrefIn } from "@/lib/workspace-shared";
 
 export type AnalyzeState = { error?: string };
 
+const VIMEO_HOSTS = ["vimeo.com", "player.vimeo.com"];
+
+/** A link the worker may fetch: https, a real host name (no localhost, no bare IP), and when
+ *  `hosts` is given, one of them or a subdomain. The worker fetches these server-side, so anything
+ *  else is a way to make it call an address of the caller's choosing. */
+function isAllowedUrl(raw: string, hosts?: string[]): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase();
+  if (u.protocol !== "https:" || !host.includes(".") || /^[\d.]+$/.test(host) || host.endsWith(".local")) return false;
+  return !hosts || hosts.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
+const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+
+/** Statuses a class can be retried from, plus a stuck job (scheduled for 10+ min, analysing for
+ *  30+ min) that the sweep has not released yet. */
+const RETRYABLE = new Set(["failed", "discarded", "draft_ready", "approved", "no_action"]);
+function isStuck(status: string, updatedAt: unknown): boolean {
+  const ageMin = (Date.now() - new Date(String(updatedAt ?? 0)).getTime()) / 60000;
+  return (status === "scheduled" && ageMin > 10) || (status === "analyzing" && ageMin > 30);
+}
+const RUNNING_MSG = "An analysis is already running for this class — give it a few minutes.";
+
 function safeDetail(s: string): string {
   try {
     const j = JSON.parse(s);
@@ -37,11 +65,15 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
   const agenda = String(formData.get("agenda") ?? "").trim();
   const vimeo_url = String(formData.get("vimeo_url") ?? "").trim();
   const file = formData.get("file") as File | null;
+  if (file && file.size > MAX_TRANSCRIPT_BYTES) return { error: "The transcript file is too large (keep it under 20 MB)." };
   const transcript = file && file.size ? await file.text() : "";
   const materials_text = String(formData.get("materials_text") ?? "").trim();
   const materials_url = String(formData.get("materials_url") ?? "").trim();
   const analyze_video = formData.get("analyze_video") === "on";
   const video_url = String(formData.get("video_url") ?? "").trim();
+  if (vimeo_url && !isAllowedUrl(vimeo_url, VIMEO_HOSTS)) return { error: "The recording link must be a Vimeo link (https://vimeo.com/…)." };
+  if (video_url && !isAllowedUrl(video_url)) return { error: "The direct video link must start with https://." };
+  if (materials_url && !isAllowedUrl(materials_url)) return { error: "The materials link must start with https://." };
   const materials_files: { filename: string; b64: string }[] = [];
   let materialsTotal = 0;
   for (const f of formData.getAll("materials") as File[]) {
@@ -153,7 +185,9 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 
   let res: Response;
   try {
-    res = await fetch(`${workerUrl}/analyze-async`, { method: "POST", headers, body: JSON.stringify(payload) });
+    res = await fetch(`${workerUrl}/analyze-async`, {
+      method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(60_000),
+    });
   } catch {
     return failStart("worker-start", { message: "unreachable" },
       "Could not reach the analysis service — try again in a moment (it may be waking up).");
@@ -219,9 +253,11 @@ export async function approveFeedback(formData: FormData) {
       status: "approved",
       approved_by: user.id,
       approved_at: new Date().toISOString(),
-    })
-    .eq("id", fb.id);
+    }, { count: "exact" })
+    .eq("id", fb.id)
+    .in("status", ["draft", "approved"]);          // a note already sent cannot be changed
   if (upd.error) throw new Error("Could not approve: " + upd.error.message);
+  if (!upd.count) throw new Error("This feedback was already sent to the instructor — it can no longer be changed.");
 
   await supabase.from("classes").update({ status: "approved" }).eq("id", classId);
   if (changed || summaryChanged) {
@@ -247,6 +283,11 @@ export async function discardFeedback(formData: FormData) {
   if (!classId) throw new Error("Missing class.");
 
   const supabase = await createClient();
+  const { data: cls } = await supabase.from("classes").select("status, updated_at").eq("id", classId).maybeSingle();
+  const st = String(cls?.status ?? "");
+  if ((st === "scheduled" || st === "analyzing") && !isStuck(st, cls?.updated_at)) {
+    throw new Error("The analysis is still running — wait for it to finish before discarding.");
+  }
   const fb = await latestFeedbackId(supabase, classId);
   if (fb) await supabase.from("feedback").update({ status: "discarded" }).eq("id", fb.id);
   await supabase.from("classes").update({ status: "discarded" }).eq("id", classId);
@@ -299,6 +340,7 @@ export async function reviseDraft(
     res = await fetch(`${workerUrl}/revise`, {
       method: "POST",
       headers,
+      signal: AbortSignal.timeout(180_000),
       body: JSON.stringify({ feedback: currentText, instruction, context: contextStr, flags_json: flagsJson, kind }),
     });
   } catch {
@@ -319,7 +361,7 @@ export async function reviseDraft(
 /** Re-run a failed (or lost) analysis using what the class row still knows.
  *  Materials and the video toggle are not stored (by design), so a retry runs transcript-only —
  *  delete + recreate the analysis if you need those. */
-export async function retryAnalysis(formData: FormData) {
+export async function retryAnalysis(formData: FormData): Promise<AnalyzeState | void> {
   const user = await getCurrentUser();
   if (!user || (user.role !== "admin" && user.role !== "pm")) throw new Error("Not authorized.");
   const classId = String(formData.get("class_id") ?? "");
@@ -328,10 +370,13 @@ export async function retryAnalysis(formData: FormData) {
 
   const { data: klass } = await supabase
     .from("classes")
-    .select("topic, agenda, rating, session_type, vimeo_link, courses(name), instructors(name)")
+    .select("topic, agenda, rating, session_type, vimeo_link, status, updated_at, courses(name), instructors(name)")
     .eq("id", classId)
     .single();
   if (!klass?.vimeo_link) throw new Error("This class has no Vimeo link stored — delete it and create a new analysis.");
+  // Only a finished, failed or genuinely stuck class can be retried; a running one is left alone.
+  const previous = String(klass.status ?? "failed");
+  if (!RETRYABLE.has(previous) && !isStuck(previous, klass.updated_at)) return { error: RUNNING_MSG };
 
   // `scheduled`, not `analyzing`: the worker's lock refuses a class already in `analyzing`.
   await supabase.from("classes").update({ status: "scheduled", updated_at: new Date().toISOString() }).eq("id", classId);
@@ -342,7 +387,7 @@ export async function retryAnalysis(formData: FormData) {
   if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
   try {
     const res = await fetch(`${workerUrl}/analyze-async`, {
-      method: "POST", headers,
+      method: "POST", headers, signal: AbortSignal.timeout(60_000),
       body: JSON.stringify({
         class_id: classId,
         vimeo_url: klass.vimeo_link,
@@ -355,7 +400,9 @@ export async function retryAnalysis(formData: FormData) {
       }),
     });
     if (res.status === 409) {
-      // A job is already running for this class; leave it to finish.
+      // The worker already holds a job for this class: put the row back as it was and say so.
+      await supabase.from("classes").update({ status: previous }).eq("id", classId);
+      return { error: RUNNING_MSG };
     } else if (!res.ok) {
       throw new Error(`worker rejected the retry (${res.status})`);
     } else {
@@ -398,13 +445,17 @@ export async function deleteClass(formData: FormData) {
   const supabase = await createClient();
 
   const back = await feedbackListFor(supabase, classId);          // before the row is gone
-  const { data: klass } = await supabase.from("classes").select("topic").eq("id", classId).maybeSingle();
+  const { data: klass } = await supabase.from("classes").select("topic, status, updated_at").eq("id", classId).maybeSingle();
+  const st = String(klass?.status ?? "");
+  if ((st === "scheduled" || st === "analyzing") && !isStuck(st, klass?.updated_at)) {
+    throw new Error("The analysis is still running — wait for it to finish before deleting.");
+  }
+  const del = await supabase.from("classes").delete().eq("id", classId);
+  if (del.error) throw new Error("Could not delete: " + del.error.message);
   await supabase.from("audit_log").insert({
     actor_id: user.id, action: "deleted",
     detail: { class_id: classId, topic: klass?.topic ?? null },
   });
-  const del = await supabase.from("classes").delete().eq("id", classId);
-  if (del.error) throw new Error("Could not delete: " + del.error.message);
 
   revalidatePath("/", "layout");
   redirect(back);

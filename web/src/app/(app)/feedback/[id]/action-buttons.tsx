@@ -24,10 +24,14 @@ type Msg = { ok: { title: string; description?: string }; fail: string };
 
 function useServerAction() {
   const [pending, startTransition] = React.useTransition();
-  const run = (fn: (fd: FormData) => Promise<void>, fd: FormData, msg: Msg) =>
+  const run = (fn: (fd: FormData) => Promise<void | { error?: string }>, fd: FormData, msg: Msg) =>
     startTransition(async () => {
       try {
-        await fn(fd);
+        const result = await fn(fd);
+        if (result && typeof result === "object" && result.error) {
+          toast.error(msg.fail, { description: result.error });
+          return;
+        }
         toast.success(msg.ok.title, { description: msg.ok.description });
       } catch (e) {
         if (isRedirect(e)) {

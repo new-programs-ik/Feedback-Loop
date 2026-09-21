@@ -1,4 +1,5 @@
 import { Link2Off } from "lucide-react";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { fetchShareRows, getCourses, getShareByToken, shareState, type ShareClassRow } from "@/lib/admin";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -27,7 +28,8 @@ function pooledApproval(rows: ShareClassRow[]) {
 /** /share/[token] — the read-only report behind a share link: no filters, no actions, no
  *  drawer. Checks revocation and expiry; still needs an IK sign-in (the route group's layout). */
 export default async function SharedReportPage({ params }: { params: Promise<{ token: string }> }) {
-  await requireUser();
+  const viewer = await requireUser();
+  if (viewer.role !== "admin" && viewer.role !== "pm") redirect("/");   // course data is staff-only
   const { token } = await params;
   const share = await getShareByToken(token);
   const state = share ? shareState(share) : null;

@@ -88,6 +88,22 @@ async function nextVersion(supabase: Awaited<ReturnType<typeof createClient>>): 
   return ((data as { version: number } | null)?.version ?? 0) + 1;
 }
 
+/** Insert a scoring row with the next free version. Two admins creating a draft in the same
+ *  minute used to collide on the unique version and see a raw "23505"; now the loser simply
+ *  takes the next number. */
+async function insertWithFreshVersion(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  insert: (version: number) => PromiseLike<{ data: unknown; error: { code?: string; message: string } | null }>,
+): Promise<{ data: { id: string; version: number } | null; error: string | null }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const version = await nextVersion(supabase);
+    const { data, error } = await insert(version);
+    if (!error) return { data: data as { id: string; version: number }, error: null };
+    if (error.code !== "23505") return { data: null, error: error.message };
+  }
+  return { data: null, error: "Someone else created a version at the same moment — try again." };
+}
+
 const slug = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40);
 
 /** New draft from the active version, any stored version, or one of the two presets. */
@@ -120,22 +136,22 @@ export async function createScoringDraft(input: {
     baseKey = row.key;
   }
   const name = (input.name?.trim() || `${baseName} (draft)`).slice(0, 120);
-  const version = await nextVersion(supabase);
-  const { data, error } = await supabase
-    .from("scoring_configs")
-    .insert({
-      version,
-      key: baseKey ? `${baseKey}-v${version}` : slug(name) || `v${version}`,
-      name,
-      status: "draft",
-      config: { ...config, name },
-      note: null,
-      created_by: user.id,
-    })
-    .select("id, version")
-    .single();
-  if (error) return fail(error.message);
-  const row = data as { id: string; version: number };
+  const { data: row, error } = await insertWithFreshVersion(supabase, (version) =>
+    supabase
+      .from("scoring_configs")
+      .insert({
+        version,
+        key: baseKey ? `${baseKey}-v${version}` : slug(name) || `v${version}`,
+        name,
+        status: "draft",
+        config: { ...config, name },
+        note: null,
+        created_by: user.id,
+      })
+      .select("id, version")
+      .single(),
+  );
+  if (error || !row) return fail(error ?? "Could not create the draft.");
   await auditLog(supabase, user, "scoring_draft_created", { config_id: row.id, version: row.version, from: input.fromConfigId ?? input.preset ?? "active" });
   revalidatePath("/admin/scoring");
   return done(row);
@@ -224,8 +240,10 @@ export async function deleteScoringDraft(input: { id: string }): Promise<ActionR
 /** A PM's what-if, saved as a draft for an admin to review. Written with the service role AFTER
  *  the staff check, because scoring_configs is admin-writable under RLS. */
 export async function proposeScoringDraft(input: { name: string; note: string; config: ScoringConfig }): Promise<ActionResult<{ id: string; version: number }>> {
-  const user = await requireStaff();
-  if (!user) return fail(NOT_STAFF);
+  // Drafts are admin-only in the database; this used to write with the service role for any
+  // staff member, letting a PM insert unlimited config rows.
+  const user = await requireAdmin();
+  if (!user) return fail(NOT_ADMIN);
   const name = input.name.trim().slice(0, 120);
   if (!name) return fail("Give your proposal a name.");
   const note = input.note.trim().slice(0, 2000);
@@ -234,23 +252,22 @@ export async function proposeScoringDraft(input: { name: string; note: string; c
   const errs = validateConfig(cfg);
   if (errs.length) return fail(errs[0]);
   const supabase = await createClient();
-  const admin = createAdminClient();
-  const version = await nextVersion(supabase);
-  const { data, error } = await admin
-    .from("scoring_configs")
-    .insert({
-      version,
-      key: `proposal-${slug(name) || version}`,
-      name,
-      status: "draft",
-      config: { ...cfg, name },
-      note: `Proposed by ${user.name} (${user.email}): ${note}`,
-      created_by: user.id,
-    })
-    .select("id, version")
-    .single();
-  if (error) return fail(error.message);
-  const row = data as { id: string; version: number };
+  const { data: row, error } = await insertWithFreshVersion(supabase, (version) =>
+    supabase
+      .from("scoring_configs")
+      .insert({
+        version,
+        key: `proposal-${slug(name) || version}`,
+        name,
+        status: "draft",
+        config: { ...cfg, name },
+        note: `Proposed by ${user.name} (${user.email}): ${note}`,
+        created_by: user.id,
+      })
+      .select("id, version")
+      .single(),
+  );
+  if (error || !row) return fail(error ?? "Could not save the proposal.");
   await auditLog(supabase, user, "scoring_proposed", { config_id: row.id, version: row.version, name, note });
   revalidatePath("/admin/scoring");
   return done(row);
@@ -497,6 +514,7 @@ export async function createShareLink(input: {
   const user = await requireStaff();
   if (!user) return fail(NOT_STAFF);
   if (input.courseId && !UUID.test(input.courseId)) return fail("Pick a course.");
+  if (!input.courseId && user.role !== "admin") return fail("Only an admin can share a report across all courses.");
   const p = input.period;
   if (!p || !ISO_DATE.test(p.from) || !ISO_DATE.test(p.to) || p.from > p.to) return fail("Pick a valid period.");
   const days = Math.min(365, Math.max(1, Math.round(Number(input.expiresInDays ?? 30)) || 30));

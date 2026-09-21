@@ -206,7 +206,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                       : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
               </p>
               {stuck && canRetry && <RetryButton classId={String(klass.id)} />}
-              <AutoRefresh />
+              {!stuck && <AutoRefresh />}
             </CardContent>
           </Card>
         ) : (
