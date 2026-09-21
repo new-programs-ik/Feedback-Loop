@@ -770,15 +770,25 @@ type LoopRow = {
 /** Every analysed class with its loop timestamps (the AI engine's tables). */
 export const loadLoop = cache(async (courseId?: string | null): Promise<LoopClass[]> => {
   const supabase = await createClient();
-  let q = supabase
-    .from("classes")
-    .select("id, topic, class_date, created_at, status, course_id, instructor_id, instructors(name), analyses(created_at, cost_usd), feedback(approved_at, sent_at, status)")
-    .order("class_date", { ascending: false })
-    .limit(2000);
-  if (courseId) q = q.eq("course_id", courseId);
-  const { data, error } = await q;
-  if (error) return [];
-  return ((data ?? []) as unknown as LoopRow[]).map((c) => {
+  // Paged, not capped: a `.limit(2000)` used to under-count the funnel silently once the archive
+  // passed it. A query error is an error, not an empty loop.
+  const PAGE = 1000;
+  const rows: LoopRow[] = [];
+  for (let page = 0; page < 50; page++) {
+    let q = supabase
+      .from("classes")
+      .select("id, topic, class_date, created_at, status, course_id, instructor_id, instructors(name), analyses(created_at, cost_usd), feedback(approved_at, sent_at, status)")
+      .order("class_date", { ascending: false })
+      .order("id", { ascending: false })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (courseId) q = q.eq("course_id", courseId);
+    const { data, error } = await q;
+    if (error) throw new Error("Could not load the analysed classes: " + error.message);
+    const batch = (data ?? []) as unknown as LoopRow[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+  }
+  return rows.map((c) => {
     const inst = Array.isArray(c.instructors) ? c.instructors[0] : c.instructors;
     const analyses = [...(c.analyses ?? [])].sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
     const fb = [...(c.feedback ?? [])].sort((a, b) => (a.approved_at ?? "").localeCompare(b.approved_at ?? ""));

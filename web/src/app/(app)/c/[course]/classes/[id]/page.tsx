@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ClassPage({ params }: Props) {
   const { course, id } = await params;
   const [ws] = await Promise.all([resolveWorkspace(course), requireUser()]);
-  const [detail, active] = await Promise.all([loadClassDetail(id), getActiveConfig()]);
+  const [detail, active] = await Promise.all([loadClassDetail(id, ws.courseId), getActiveConfig()]);
   if (!detail) notFound();
   const classesHref = hrefIn(ws.slug, "/classes");
 

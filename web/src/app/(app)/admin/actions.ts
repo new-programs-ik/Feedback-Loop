@@ -294,17 +294,30 @@ export async function acceptSuggestionsAbove(threshold: number): Promise<ActionR
   const t = Number(threshold);
   if (!(t >= 0.5 && t <= 1)) return fail("Threshold must be between 0.5 and 1.");
   const supabase = await createClient();
-  const { data, error } = await supabase.from("instructor_match_suggestions").select("id").eq("status", "pending").gte("score", t).limit(500);
-  if (error) return fail(error.message);
-  let accepted = 0, failed = 0;
-  for (const row of (data ?? []) as { id: string }[]) {
-    const { error: e } = await supabase.rpc("accept_instructor_suggestion", { p_id: row.id });
-    if (e) failed += 1;
-    else accepted += 1;
+  // In pages, with a budget: a single `.limit(500)` used to stop silently with more waiting, and a
+  // long run could die mid-way. What is left is reported, never hidden.
+  const PAGE = 200;
+  const BUDGET = 1500;
+  let accepted = 0, failed = 0, seen = 0;
+  const started = Date.now();
+  while (seen < BUDGET && Date.now() - started < 40_000) {
+    const { data, error } = await supabase.from("instructor_match_suggestions").select("id").eq("status", "pending").gte("score", t).order("score", { ascending: false }).limit(PAGE);
+    if (error) return fail(error.message);
+    const page = (data ?? []) as { id: string }[];
+    if (!page.length) break;
+    for (const row of page) {
+      const { error: e } = await supabase.rpc("accept_instructor_suggestion", { p_id: row.id });
+      if (e) failed += 1;
+      else accepted += 1;
+      seen += 1;
+    }
+    if (page.length < PAGE) break;
   }
-  await auditLog(supabase, user, "instructor_suggestions_bulk_accepted", { threshold: t, accepted, failed });
+  const { count } = await supabase.from("instructor_match_suggestions").select("id", { count: "exact", head: true }).eq("status", "pending").gte("score", t);
+  const remaining = count ?? 0;
+  await auditLog(supabase, user, "instructor_suggestions_bulk_accepted", { threshold: t, accepted, failed, remaining });
   revalidatePath("/", "layout");
-  return done({ accepted, failed });
+  return done({ accepted, failed, remaining });
 }
 
 async function backfillAlias(supabase: Awaited<ReturnType<typeof createClient>>, alias: string, instructorId: string) {

@@ -14,13 +14,13 @@ export const maxDuration = 60;
 export default async function NewAnalysisPage({
   searchParams,
 }: {
-  searchParams: Promise<{ prefill?: string }>;
+  searchParams: Promise<{ prefill?: string; course?: string }>;
 }) {
   const user = await requireUser();
   if (user.role === "learner") redirect("/");   // the root picks their workspace
 
   const supabase = await createClient();
-  const { prefill: prefillId } = await searchParams;
+  const { prefill: prefillId, course: courseParam } = await searchParams;
   const [{ data: courses }, { data: instructors }, prefillRes, active] = await Promise.all([
     supabase.from("courses").select("id, name").order("name"),
     supabase.from("instructors").select("name").order("name"),
@@ -81,7 +81,7 @@ export default async function NewAnalysisPage({
           </p>
         </div>
       </div>
-      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill}  scoring={{ version: active.version, config: active.config }} />
+      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill} defaultCourseId={courseParam} scoring={{ version: active.version, config: active.config }} />
     </div>
   );
 }

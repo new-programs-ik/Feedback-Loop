@@ -64,8 +64,8 @@ export default async function ClassesPage({
     getActiveConfig(),
     ws.courseId ? supabase.from("cohorts").select("id, name").eq("course_id", ws.courseId).order("name") : Promise.resolve({ data: null }),
     supabase.from("instructors").select("id, name").order("name"),
-    sp.class ? loadClassDetail(sp.class) : Promise.resolve(null),
-    fetchBandCounts({ from, to, courseId: ws.courseId, cohort: sp.cohort, kind: sp.kind, instructor: sp.instructor }),
+    sp.class ? loadClassDetail(sp.class, ws.courseId) : Promise.resolve(null),
+    fetchBandCounts({ from, to, courseId: ws.courseId, cohort: sp.cohort, kind: sp.kind, instructor: sp.instructor, status: sp.status }),
   ]);
   const cfg = active.config;
   const priors = coursePriors(result.rows);

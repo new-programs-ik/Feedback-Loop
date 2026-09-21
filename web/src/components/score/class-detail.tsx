@@ -29,11 +29,14 @@ export type ClassDetailData = {
 };
 
 /** Everything the drawer and the class page show, in four parallel reads. */
-export async function loadClassDetail(id: string): Promise<ClassDetailData | null> {
+export async function loadClassDetail(id: string, courseId?: string | null): Promise<ClassDetailData | null> {
   const row = await fetchClass(id);
   if (!row) return null;
+  // A course's pages show that course's classes only: /c/course-a/classes/<id from course-b>
+  // used to render course B's class inside course A's shell, actions and all.
+  if (courseId && row.course_id !== courseId) return null;
   const [recent, topicRows, history, pings] = await Promise.all([
-    fetchInstructorRecent(row),
+    fetchInstructorRecent(row, 6, courseId),
     fetchTopicRows(row),
     fetchScoreHistory(id),
     fetchPings(id),

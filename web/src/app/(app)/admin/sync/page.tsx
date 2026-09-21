@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { getCourses, listPendingSuggestions, listSyncRuns, listUnmappedLabels, listUnresolvedNames } from "@/lib/admin";
+import { getCourses, listPendingSuggestions, listSyncRuns,
+  listUnspentTriggers, listUnmappedLabels, listUnresolvedNames } from "@/lib/admin";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow } from "@/components/ui/table";
@@ -24,14 +25,19 @@ const n = (v: number | null | undefined) => (v == null ? "—" : String(v));
 export default async function SyncPage() {
   const user = await requireUser();
   if (user.role !== "admin") redirect("/");
-  const [runs, labels, courses, unresolved, suggestions] = await Promise.all([
+  const [runs, labels, courses, unresolved, suggestions, unspent] = await Promise.all([
     listSyncRuns(25),
     listUnmappedLabels(),
     getCourses(),
     listUnresolvedNames(),
     listPendingSuggestions(),
+    listUnspentTriggers(),
   ]);
   const last = runs.rows[0];
+  const lastLine = last
+    ? [`${last.rows_fetched ?? 0} read`, `${last.rows_upserted ?? 0} written`,
+       last.rows_unchanged != null ? `${last.rows_unchanged} unchanged` : null].filter(Boolean).join(" · ")
+    : "";
 
   return (
     <div className="animate-in-up">
@@ -39,8 +45,8 @@ export default async function SyncPage() {
         title="Sync"
         description={
           last
-            ? `Last run ${when(last.finished_at ?? last.started_at)} (${last.trigger}) · ${last.status}${last.rows_upserted != null ? ` · ${last.rows_upserted} rows` : ""}`
-            : "No sync has run yet — the hourly schedule starts at deploy; use Sync now to pull manually."
+            ? `Last run ${when(last.finished_at ?? last.started_at)} (${last.trigger}) · ${last.status} · ${lastLine}`
+            : "No sync has run yet — it runs at 10:00, 12:00 and 14:00 India time; use Sync now to pull manually."
         }
         actions={<SyncNowButton />}
       />
@@ -50,6 +56,7 @@ export default async function SyncPage() {
         <Stat label="Unmapped course labels" value={labels.length} href={undefined} note="map them below" tone={labels.length ? "warn" : "ok"} />
         <Stat label="Unresolved instructor names" value={unresolved.rows.length} href="/admin/identity" note="link or create on Identity" tone={unresolved.rows.length ? "warn" : "ok"} />
         <Stat label="Suggestions waiting" value={suggestions.rows.length} href="/admin/identity" note="review on Identity" tone={suggestions.rows.length ? "warn" : "ok"} />
+        <Stat label="Scheduled runs not picked up" value={unspent.length} href={undefined} note={unspent.length ? `last ${when(unspent[0].created_at)} — the worker did not answer; check Render` : "the worker answered every scheduled run in the last 2 days"} tone={unspent.length ? "warn" : "ok"} />
       </div>
 
       <section className="bg-card shadow-soft mb-5 overflow-hidden rounded-xl border" aria-labelledby="runs-title">

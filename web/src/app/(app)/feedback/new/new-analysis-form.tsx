@@ -24,6 +24,7 @@ const field =
 const prettyDate = (isoDate: string) =>
   new Date(isoDate + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" });
 
+const MAX_MATERIALS_BYTES = 4 * 1024 * 1024;
 const fmtSize = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
@@ -95,7 +96,20 @@ function MaterialsDropZone() {
   const [dragging, setDragging] = useState(false);
   const [files, setFiles] = useState<{ name: string; size: number }[]>([]);
 
-  const readFiles = (list: FileList | null) => setFiles(Array.from(list ?? []).map((f) => ({ name: f.name, size: f.size })));
+  const [sizeError, setSizeError] = useState<string | null>(null);
+  const readFiles = (list: FileList | null) => {
+    const picked = Array.from(list ?? []);
+    const total = picked.reduce((a, f) => a + f.size, 0);
+    if (total > MAX_MATERIALS_BYTES) {
+      // Checked here, before the upload: the server used to reject only after everything was sent.
+      setSizeError(`Materials are ${fmtSize(total)} together — keep the total under 4 MB (export the deck as PDF, or paste the key content instead).`);
+      if (inputRef.current) inputRef.current.value = "";
+      setFiles([]);
+      return;
+    }
+    setSizeError(null);
+    setFiles(picked.map((f) => ({ name: f.name, size: f.size })));
+  };
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     if (!dragging) setDragging(true);
@@ -155,6 +169,7 @@ function MaterialsDropZone() {
           onChange={(e) => readFiles(e.target.files)}
         />
       </motion.label>
+      {sizeError && <p className="text-destructive text-xs" role="alert">{sizeError}</p>}
       <AnimatePresence initial={false}>
         {files.length > 0 && (
           <motion.ul
@@ -187,17 +202,19 @@ export function NewAnalysisForm({
   courses,
   instructorNames,
   prefill,
+  defaultCourseId,
   scoring,
 }: {
   courses: { id: string; name: string }[];
   instructorNames: string[];
   prefill?: Prefill;
+  defaultCourseId?: string | null;
   /** The active scoring version — the helper scores what you type with the same rule as the queue. */
   scoring: { version: number | null; config: ScoringConfig };
 }) {
   const reduce = useReducedMotion();
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
-  const [courseId, setCourseId] = useState(prefill?.courseId ?? "");
+  const [courseId, setCourseId] = useState(prefill?.courseId ?? defaultCourseId ?? "");   // the link from a course carries it
   const [classType, setClassType] = useState<"live_class" | "ars">(prefill?.classType ?? "live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
   const [analyzeVideo, setAnalyzeVideo] = useState(prefill?.video ?? false);
@@ -293,22 +310,12 @@ export function NewAnalysisForm({
             </Reveal>
           )}
           <div className="bg-accent/40 space-y-3 rounded-xl border p-4">
-            <div className="text-sm font-semibold">🧭 Not sure which analysis? Answer a few things:</div>
+            <div className="text-sm font-semibold">🧭 Not sure which analysis? Fill in the rating and count above, then a few more things:</div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">Class rating</label>
-                <input type="number" step="0.01" min="0" max="5" value={hRating}
-                       onChange={(e) => setHRating(e.target.value)} placeholder="4.3" className={field} />
-              </div>
               <div className="space-y-1">
                 <label className="text-muted-foreground text-xs font-medium">Learners attended</label>
                 <input type="number" min="0" value={hAttended}
                        onChange={(e) => setHAttended(e.target.value)} placeholder="10" className={field} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">Learners who rated</label>
-                <input type="number" min="0" value={hRated}
-                       onChange={(e) => setHRated(e.target.value)} placeholder="8" className={field} />
               </div>
               <div className="space-y-1">
                 <label className="text-muted-foreground text-xs font-medium">Would have them back — Yes</label>
@@ -423,12 +430,12 @@ export function NewAnalysisForm({
                 <div className="space-y-1.5">
                   <label htmlFor="rating" className={label}>Class rating (of 5)</label>
                   <Input id="rating" name="rating" type="number" step="0.01" min="0" max="5" placeholder="4.2"
-                         defaultValue={prefill?.rating} />
+                         value={hRating} onChange={(e) => setHRating(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
                   <label htmlFor="num_ratings" className={label}>Learners who rated</label>
                   <Input id="num_ratings" name="num_ratings" type="number" min="0" placeholder="18"
-                         defaultValue={prefill?.numRatings} />
+                         value={hRated} onChange={(e) => setHRated(e.target.value)} />
                 </div>
               </div>
             </div>

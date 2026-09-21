@@ -23,26 +23,25 @@ export function parseRange(v: string | undefined | null, fallback: RangePreset =
 }
 
 export function rangeToDates(range: RangePreset, from?: string, to?: string) {
-  const today = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const daysAgo = (n: number) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - n);
-    return d;
-  };
+  // UTC throughout, like lib/analytics and lib/report-period: mixing a local "today" with UTC
+  // ISO strings made "this month" start a day early on any non-UTC machine.
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const daysAgo = (n: number) => todayUtc - n * 86_400_000;
   switch (range) {
     case "7d":
-      return { from: iso(daysAgo(7)), to: iso(today) };
+      return { from: iso(daysAgo(7)), to: iso(todayUtc) };
     case "30d":
-      return { from: iso(daysAgo(30)), to: iso(today) };
+      return { from: iso(daysAgo(30)), to: iso(todayUtc) };
     case "45d":
-      return { from: iso(daysAgo(45)), to: iso(today) };
+      return { from: iso(daysAgo(45)), to: iso(todayUtc) };
     case "90d":
-      return { from: iso(daysAgo(90)), to: iso(today) };
+      return { from: iso(daysAgo(90)), to: iso(todayUtc) };
     case "month":
-      return { from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), to: iso(today) };
+      return { from: iso(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), to: iso(todayUtc) };
     case "custom":
-      return { from: from || iso(daysAgo(30)), to: to || iso(today) };
+      return { from: from || iso(daysAgo(30)), to: to || iso(todayUtc) };
   }
 }
 

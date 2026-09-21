@@ -47,6 +47,9 @@ const first = (sp: SearchParamsLike, k: string) => {
   return Array.isArray(v) ? v[0] : v;
 };
 
+/** The longest custom window a report or export will run: fifteen months, like the what-if preview. */
+export const MAX_CUSTOM_DAYS = 460;
+
 export function reportPeriod(sp: SearchParamsLike, latest?: string | null, todayIso?: string): ReportWindow {
   const raw = first(sp, "period");
   const period: ReportPeriod = raw === "month" || raw === "custom" ? raw : "week";
@@ -60,7 +63,10 @@ export function reportPeriod(sp: SearchParamsLike, latest?: string | null, today
     const t0 = first(sp, "to");
     const f = f0 && ISO.test(f0) ? f0 : addDays(t, -30);
     const tt = t0 && ISO.test(t0) ? t0 : t;
-    const [from, to] = f <= tt ? [f, tt] : [tt, f];
+    let [from, to] = f <= tt ? [f, tt] : [tt, f];
+    // Bounded: `from=1900-01-01&to=2100-01-01` used to read the whole archive twice in one request.
+    if (to > t) to = t;
+    if (from < addDays(to, -MAX_CUSTOM_DAYS)) from = addDays(to, -MAX_CUSTOM_DAYS);
     return { period, from, to, label: "Custom", anchor, prev: null, next: null, stale: false };
   }
 

@@ -150,7 +150,8 @@ export async function fetchRatings(opts: { from: string; to: string; courseId?: 
       .order("id", { ascending: false })
       .range(page * PAGE, page * PAGE + PAGE - 1);
     if (opts.courseId) q = q.eq("course_id", opts.courseId);
-    const { data } = await q;
+    const { data, error } = await q;
+    if (error) throw new Error("Could not load the rated classes: " + error.message);   // not a silent empty period
     const batch = (data ?? []) as unknown as Raw[];
     all.push(...batch);
     if (batch.length < PAGE) break;
@@ -217,21 +218,37 @@ export async function fetchBandCounts(q: Omit<ClassesPageQuery, "band" | "sort" 
   Promise<Record<string, number>> {
   const supabase = await createClient();
   const out: Record<string, number> = {};
-  try {
-    let s = supabase.from("class_ratings").select("sentiment_band").gte("class_date", q.from).lte("class_date", q.to);
+  // Five counted queries with exactly the filters the table applies (status, cohort by id or by
+  // text, instructor), so a chip never says "Bad 12" above a table showing 3. Counting in the
+  // database also removes the 5,000-row cap that truncated a long period.
+  const filtered = () => {
+    let s = supabase.from("class_ratings").select("id", { count: "exact", head: true }).gte("class_date", q.from).lte("class_date", q.to);
     if (q.courseId) s = s.eq("course_id", q.courseId);
-    if (q.cohort) s = s.eq("cohort_text", q.cohort);
     if (q.kind) s = s.eq("session_kind", q.kind);
+    if (q.status) {
+      if (q.status === "open") s = s.in("review_status", ["new", "notified", "confirmed"]);
+      else s = s.eq("review_status", q.status);
+    }
+    if (q.cohort) {
+      if (isUuid(q.cohort)) s = s.or(`cohort_id.eq.${q.cohort},cohort_ids.cs.{${q.cohort}}`);
+      else s = s.ilike("cohort_text", `%${q.cohort.replace(/[%_]/g, "")}%`);
+    }
     if (q.instructor) {
       if (isUuid(q.instructor)) s = s.eq("instructor_id", q.instructor);
       else s = s.or(`instructor.eq.${quote(q.instructor)},instructor_canonical.eq.${quote(q.instructor)}`);
     }
-    const { data, error } = await s.limit(5000);
-    if (error) return out;
-    for (const r of (data ?? []) as Array<{ sentiment_band: string | null }>) {
-      const k = r.sentiment_band ?? "none";
-      out[k] = (out[k] ?? 0) + 1;
-    }
+    return s;
+  };
+  try {
+    const bands = ["excellent", "good", "average", "bad"] as const;
+    const results = await Promise.all([
+      ...bands.map((b) => filtered().eq("sentiment_band", b)),
+      filtered().is("sentiment_band", null),
+    ]);
+    results.forEach((r, i) => {
+      if (r.error) return;
+      out[i < bands.length ? bands[i] : "none"] = r.count ?? 0;
+    });
   } catch {
     return out;                      // the chips simply show no counts
   }
@@ -309,6 +326,7 @@ export async function fetchClassesPage(q: ClassesPageQuery): Promise<{
 export async function fetchInstructorRecent(
   row: Pick<ClassRating, "instructor" | "instructor_id" | "instructor_canonical" | "class_date" | "id">,
   limit = 6,
+  courseId?: string | null,
 ): Promise<ClassRating[]> {
   const supabase = await createClient();
   const name = row.instructor_canonical || row.instructor;
@@ -320,6 +338,7 @@ export async function fetchInstructorRecent(
     .neq("id", row.id)
     .order("class_date", { ascending: false })
     .limit(limit);
+  if (courseId) s = s.eq("course_id", courseId);         // inside a course, that course's classes
   if (row.instructor_id) s = s.eq("instructor_id", row.instructor_id);
   else s = s.eq("instructor", name);
   const { data, error } = await s;

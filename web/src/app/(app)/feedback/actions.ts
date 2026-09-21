@@ -110,6 +110,9 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
 
   const rating = ratingRaw ? Number(ratingRaw) : null;
   const num_ratings = numRaw ? Number(numRaw) : null;
+  // A typo used to reach the database as NaN and blank the rating without a word.
+  if (rating != null && !(Number.isFinite(rating) && rating >= 0 && rating <= 5)) return { error: "Enter the class rating as a number between 0 and 5." };
+  if (num_ratings != null && !(Number.isInteger(num_ratings) && num_ratings >= 0 && num_ratings <= 100_000)) return { error: "Enter how many learners rated as a whole number." };
   const classTypeRaw = String(formData.get("class_type") ?? "live_class");
   const class_type = classTypeRaw === "ars" ? "ars" : "live_class";
 

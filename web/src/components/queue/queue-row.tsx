@@ -121,7 +121,7 @@ export function QueueRow({
   id: string;
   status: ReviewStatus;
   focus: boolean;
-  analyzeHref: string;
+  analyzeHref: string | null;                  // null = this account cannot start an analysis
   escalated?: boolean;
   children: React.ReactNode;
 }) {
@@ -176,9 +176,11 @@ export function QueueRow({
       </TableCell>
       <TableCell>
         <div className={cn(ACTIONS, busy && "opacity-100")}>
-          <Button asChild size="sm">
-            <Link href={analyzeHref}>Analyze</Link>
-          </Button>
+          {analyzeHref && (
+            <Button asChild size="sm">
+              <Link href={analyzeHref}>Analyze</Link>
+            </Button>
+          )}
           {view.status !== "confirmed" && (
             <Button variant="outline" size="sm" type="button" disabled={pending} aria-busy={busy === "confirm"} onClick={() => run("confirm")}>
               {busy === "confirm" && <Loader2 className="size-3.5 animate-spin" aria-hidden />}

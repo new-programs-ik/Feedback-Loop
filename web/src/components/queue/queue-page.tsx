@@ -143,6 +143,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
   const syncedAgo = run?.finished_at ? Math.round((nowMs - +new Date(run.finished_at)) / 60000) : null;
   const total = video.length + transcript.length + watch.length;
   const filtered = !!(cohortQ || kindQ || instrQ || (statusQ !== "open") || courseQ || range !== "45d");
+  const canAnalyze = user.role === "admin" || user.role === "pm";   // the button, not only the server, says no
 
   return (
     <div className="with-filter-bar">
@@ -225,7 +226,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
               {video.length === 0 ? (
                 <Quiet>No class needs a video analysis.</Quiet>
               ) : (
-                <QueueTable entries={video} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
+                <QueueTable canAnalyze={canAnalyze} entries={video} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
               )}
             </Section>
           </QueueSort>
@@ -240,7 +241,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
               {transcript.length === 0 ? (
                 <Quiet>No class needs a transcript analysis.</Quiet>
               ) : (
-                <QueueTable entries={transcript} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
+                <QueueTable canAnalyze={canAnalyze} entries={transcript} slug={slug} isTeam={isTeam} focusId={focusId} version={active.version} />
               )}
             </Section>
           </QueueSort>
@@ -350,7 +351,7 @@ function Quiet({ children }: { children: React.ReactNode }) {
 
 /** The first 60 rows of a section, rendered here and handed to `QueueRows` with the values the
  *  section sorts on — worst first until the PM picks another order. */
-function QueueTable({ entries, slug, isTeam, focusId, version }: { entries: Entry[]; slug: string; isTeam: boolean; focusId?: string; version: number | null }) {
+function QueueTable({ entries, slug, isTeam, focusId, version, canAnalyze }: { entries: Entry[]; slug: string; isTeam: boolean; focusId?: string; version: number | null; canAnalyze: boolean }) {
   const MAX = 60;
   const rows: QueueSortRow[] = entries.slice(0, MAX).map(({ row, scored }) => ({
     ...sortValues(row, scored),
@@ -360,7 +361,7 @@ function QueueTable({ entries, slug, isTeam, focusId, version }: { entries: Entr
         status={row.review_status === "notified" || row.review_status === "confirmed" ? row.review_status : "new"}
         focus={row.id === focusId}
         escalated={row.escalated}
-        analyzeHref={`/feedback/new?prefill=${row.id}`}
+        analyzeHref={canAnalyze ? `/feedback/new?prefill=${row.id}` : null}
       >
         <TableCell className="w-24 py-2">
           <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" breakdown={{ rows: scored.rows, version, reason: scored.reason }} action={scored.action} />

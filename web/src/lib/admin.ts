@@ -693,6 +693,7 @@ export type SyncRunRow = {
   status: string;
   rows_fetched: number | null;
   rows_upserted: number | null;
+  rows_unchanged?: number | null;
   rows_flagged: number | null;
   rows_scored?: number | null;
   scoring_config_version?: number | null;
@@ -715,6 +716,27 @@ export async function listSyncRuns(limit = 25, db?: Db): Promise<{ rows: SyncRun
   const { data, error } = await supabase.from("sync_runs").select("*").order("started_at", { ascending: false }).limit(limit);
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as SyncRunRow[], error: null };
+}
+
+/** Scheduled runs the worker never took: a token was minted for them but never spent. Read
+ *  with the service role (the table has no policies on purpose). */
+export async function listUnspentTriggers(hours = 48): Promise<{ trigger: string; created_at: string }[]> {
+  try {
+    const admin = createAdminClient();
+    const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+    const { data, error } = await admin
+      .from("sync_triggers")
+      .select("trigger, created_at")
+      .is("used_at", null)
+      .gte("created_at", since)
+      .lt("created_at", new Date(Date.now() - 2 * 60_000).toISOString())   // give a fresh one two minutes
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) return [];
+    return (data ?? []) as { trigger: string; created_at: string }[];
+  } catch {
+    return [];
+  }
 }
 
 export async function listUnmappedLabels(db?: Db): Promise<{ label: string; classes: number }[]> {
