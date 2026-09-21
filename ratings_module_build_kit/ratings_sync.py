@@ -113,7 +113,8 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
     run_id = ST.start_run(cur, src_name, trigger)
     conn.commit()                                   # make the guard row visible immediately
 
-    fetched = upserted = scored = flagged = notified = unchanged = 0
+    fetched = upserted = scored = flagged = notified = unchanged = retired = 0
+    seen_keys: set = set()
     unmapped: list[str] = []
     bands: Counter = Counter()
     stats: Counter = Counter()
@@ -162,6 +163,7 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
             if instructor_id:
                 context[instructor_id].append(ref)
 
+            seen_keys.add(ST.row_key(row))
             # Nothing about this class changed on the sheet: keep its stored verdict in the totals
             # and move on without touching the database.
             known = state.get(ST.row_key(row))
@@ -191,6 +193,14 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
             if res.decision in ("video", "transcript"):
                 flagged += 1
         conn.commit()
+
+        # Rows the sheet no longer has (a corrected spelling makes a new row) go, unless someone
+        # acted on them. Only when the sheet actually answered: an empty fetch must not empty the table.
+        if fetched:
+            retired = ST.retire_rows_missing_from_sheet(cur, seen_keys, src.name)
+            if retired:
+                log.warning("removed %d row(s) the sheet no longer has", retired)
+            conn.commit()
 
         # Duplicate-name suggestions for the spellings nobody resolved (a human accepts them).
         if unresolved:
@@ -235,8 +245,8 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
                 conn.commit()
 
         duration_ms = int((time.monotonic() - t0) * 1000)
-        log.info("sync: %d rows from the sheet, %d written, %d unchanged, %.1fs",
-                 fetched, upserted, unchanged, duration_ms / 1000)
+        log.info("sync: %d rows from the sheet, %d written, %d unchanged, %d retired, %.1fs",
+                 fetched, upserted, unchanged, retired, duration_ms / 1000)
         ST.finish_run(cur, run_id, status="ok", rows_fetched=fetched, rows_upserted=upserted,
                       rows_flagged=flagged, notifications_sent=notified, unmapped_labels=unmapped,
                       rows_scored=scored, scoring_config_version=config_version,
@@ -249,7 +259,7 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
 
         summary = {
             "status": "ok", "run_id": run_id, "rows_fetched": fetched, "rows_upserted": upserted,
-            "rows_unchanged": unchanged,
+            "rows_unchanged": unchanged, "rows_retired": retired,
             "rows_scored": scored, "rows_flagged": flagged, "notifications_sent": notified,
             "unmapped_labels": sorted(set(unmapped)), "scoring_config_version": config_version,
             "band_counts": dict(bands), "cohorts_created": stats["cohorts_created"],

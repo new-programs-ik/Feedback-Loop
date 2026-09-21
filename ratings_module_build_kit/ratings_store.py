@@ -369,6 +369,26 @@ def mark_stale_runs(cur, older_than_minutes: int = 10) -> int:
     return len(cur.fetchall())
 
 
+def retire_rows_missing_from_sheet(cur, seen_keys: set, source: str = "sheet") -> int:
+    """Rows this source wrote that the sheet no longer has, and nobody touched, are removed.
+
+    A corrected instructor spelling on the sheet makes a new row (the spelling is part of the key)
+    and used to leave the old one behind forever: the same class twice, one instructor under two
+    names, on every page and in every report (123 such rows by 21 Sep 2026). Rows a person has
+    acted on - reviewed, linked to an analysis, overridden, escalated - are never touched.
+    """
+    cur.execute("select id, class_date, topic, instructor, session_kind from class_ratings "
+                " where source = %s and review_status = 'new' and class_id is null "
+                "   and decision_override is null and not coalesce(escalated, false)", (source,))
+    gone = [str(rid) for rid, d, t, i, k in cur.fetchall() if (d, t, i or "", k) not in seen_keys]
+    if not gone:
+        return 0
+    cur.execute("delete from class_ratings where id = any(%s::uuid[])", (gone,))
+    cur.execute("insert into audit_log(actor_label, action, detail) values ('worker', 'stale_rows_removed', %s)",
+                (json.dumps({"count": len(gone), "reason": "no longer on the sheet; untouched"}),))
+    return len(gone)
+
+
 def running_run_exists(cur, max_age_minutes: int = 10) -> bool:
     """Concurrent-run guard: a 'running' row younger than the cutoff means skip this trigger."""
     cur.execute(

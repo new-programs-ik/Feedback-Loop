@@ -215,6 +215,8 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_st.row_fingerprint = ST.row_fingerprint     # the real ones: the skip test relies on them
         fake_st.row_key = ST.row_key
         fake_st.load_row_state.return_value = state or {}
+        fake_st.retire_rows_missing_from_sheet.side_effect = lambda cur, keys, source="sheet": (
+            calls.__setitem__("seen_keys", set(keys)) or 0)
 
         def upsert_cohorts(cur, parsed, course_id, **kw):
             calls["cohorts"].append([p.raw_label for p in parsed])
@@ -273,6 +275,14 @@ class TestSyncOrchestration(unittest.TestCase):
         self.assertEqual(summary["band_counts"].get("excellent"), 1)
         self.assertEqual(summary["rows_scored"], 2)
         self.assertEqual(calls["finish"]["rows_unchanged"], 1)
+
+    def test_every_sheet_row_is_reported_as_seen_so_the_rest_can_be_retired(self):
+        same = self._row(topic="Same", rating=4.9, yes=10, no=0)
+        changed = self._row(topic="Changed", rating=4.1, yes=5, no=5)
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        summary, calls, _ = self._run([same, changed], {"Applied Agentic AI": "course-1"}, state=state)
+        self.assertEqual(calls["seen_keys"], {ST.row_key(same), ST.row_key(changed)})   # skipped rows count as seen
+        self.assertEqual(summary["rows_retired"], 0)
 
     def test_a_full_run_ignores_the_fingerprints(self):
         same = self._row(topic="Same", rating=4.9, yes=10, no=0)
@@ -951,6 +961,42 @@ class TestTheRowFingerprint(unittest.TestCase):
         state = ST.load_row_state(cur)
         self.assertIn("row_hash", cur.sql)
         self.assertEqual(state[(dt.date(2026, 8, 24), "T", "", "Live Class")], ("abc", "good", "none", True))
+
+
+class TestRowsTheSheetNoLongerHasAreRetired(unittest.TestCase):
+    class Cur:
+        def __init__(self, rows):
+            self.rows, self.calls = rows, []
+
+        def execute(self, sql, params=None):
+            self.calls.append((sql, params))
+
+        def fetchall(self):
+            return self.rows
+
+    def test_untouched_rows_not_on_the_sheet_are_deleted_and_audited(self):
+        d = dt.date(2026, 8, 24)
+        cur = self.Cur([("id-old", d, "T", "Sam", "Live Class"), ("id-kept", d, "T", "Sam Smith", "Live Class")])
+        n = ST.retire_rows_missing_from_sheet(cur, {(d, "T", "Sam Smith", "Live Class")})
+        self.assertEqual(n, 1)
+        select_sql = cur.calls[0][0]
+        self.assertIn("review_status = 'new'", select_sql)          # touched rows never enter the candidate list
+        self.assertIn("class_id is null", select_sql)
+        delete_sql, params = cur.calls[1]
+        self.assertIn("delete from class_ratings", delete_sql)
+        self.assertEqual(params, (["id-old"],))
+        self.assertIn("stale_rows_removed", cur.calls[2][0])
+
+    def test_nothing_missing_means_no_delete(self):
+        d = dt.date(2026, 8, 24)
+        cur = self.Cur([("id-1", d, "T", "Sam", "Live Class")])
+        self.assertEqual(ST.retire_rows_missing_from_sheet(cur, {(d, "T", "Sam", "Live Class")}), 0)
+        self.assertEqual(len(cur.calls), 1)
+
+    def test_a_blank_instructor_matches_the_key_the_sync_builds(self):
+        d = dt.date(2026, 8, 24)
+        cur = self.Cur([("id-1", d, "T", None, "Live Class")])
+        self.assertEqual(ST.retire_rows_missing_from_sheet(cur, {(d, "T", "", "Live Class")}), 0)
 
 
 class TestGhostSyncRunsAreMarkedFailed(unittest.TestCase):
