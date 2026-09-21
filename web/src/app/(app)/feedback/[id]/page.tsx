@@ -10,6 +10,7 @@ import { Reveal, Stagger, StaggerItem } from "@/components/motion/reveal";
 import { ReviewActions } from "./review-actions";
 import { DeleteAnalysisButton, MarkSentButton, RetryButton } from "./action-buttons";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { hrefIn } from "@/lib/workspace-shared";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -55,7 +56,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
 
   const { data: klass } = await supabase
     .from("classes")
-    .select("*, courses(name), instructors(name), analyses(*), feedback(*)")
+    .select("*, courses(name, slug), instructors(name), analyses(*), feedback(*)")
     .eq("id", id)
     .single();
   if (!klass) notFound();
@@ -96,6 +97,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     (klass.status === "scheduled" && ageMs > 10 * 60 * 1000);
   const canRetry = Boolean(klass.vimeo_link);
   const course = (klass.courses as { name?: string } | null)?.name ?? "—";
+  const courseSlug = (klass.courses as { slug?: string } | null)?.slug ?? null;
   const instructor = (klass.instructors as { name?: string } | null)?.name ?? "—";
   const rating = klass.rating as number | null;
   const reclass = result.reclass;
@@ -109,7 +111,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
-          <Link href="/feedback" aria-label="Back to queue">
+          <Link href={courseSlug ? hrefIn(courseSlug, "/feedback") : "/feedback"} aria-label="Back to this course's analyses">
             <ArrowLeft className="size-4" />
           </Link>
         </Button>

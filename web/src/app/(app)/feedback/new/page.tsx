@@ -17,7 +17,7 @@ export default async function NewAnalysisPage({
   searchParams: Promise<{ prefill?: string }>;
 }) {
   const user = await requireUser();
-  if (user.role === "learner") redirect("/dashboard");
+  if (user.role === "learner") redirect("/");   // the root picks their workspace
 
   const supabase = await createClient();
   const { prefill: prefillId } = await searchParams;
@@ -70,7 +70,7 @@ export default async function NewAnalysisPage({
     <div className="animate-in-up mx-auto max-w-6xl space-y-6">
       <div className="flex items-center gap-3">
         <Button asChild variant="ghost" size="icon">
-          <Link href="/feedback" aria-label="Back to queue">
+          <Link href="/feedback" aria-label="Back to the analyses list">
             <ArrowLeft className="size-4" />
           </Link>
         </Button>

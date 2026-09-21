@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/session";
+import { hrefIn } from "@/lib/workspace-shared";
 
 export type AnalyzeState = { error?: string };
 
@@ -121,7 +122,7 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
       .from("class_ratings")
       .update({ review_status: "analysis_started", class_id: classId, updated_at: new Date().toISOString() })
       .eq("id", classRatingId);
-    revalidatePath("/ratings");
+    revalidatePath("/", "layout");
   }
 
   // Start the analysis in the BACKGROUND — the worker fetches the transcript, digests the
@@ -172,8 +173,16 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     return failStart("worker-start", { reply }, "The analysis service did not take the job. Please try again.");
   }
 
-  revalidatePath("/feedback");
+  revalidatePath("/", "layout");
   redirect(`/feedback/${classId}`); // review page shows "Starting…" then "Analyzing…" and auto-updates when done
+}
+
+/** The analyses list of the class's own course, so an action lands the PM back where they were.
+ *  Falls back to /feedback, which resolves to their usual course. */
+async function feedbackListFor(supabase: Awaited<ReturnType<typeof createClient>>, classId: string): Promise<string> {
+  const { data } = await supabase.from("classes").select("courses(slug)").eq("id", classId).maybeSingle();
+  const slug = (data?.courses as { slug?: string } | null)?.slug;
+  return slug ? hrefIn(slug, "/feedback") : "/feedback";
 }
 
 async function latestFeedbackId(supabase: Awaited<ReturnType<typeof createClient>>, classId: string) {
@@ -225,9 +234,9 @@ export async function approveFeedback(formData: FormData) {
     class_id: classId, actor_id: user.id, action: "approved", detail: { edited: changed },
   });
 
-  revalidatePath("/feedback");
-  revalidatePath(`/feedback/${classId}`);
-  redirect("/feedback");
+  const back = await feedbackListFor(supabase, classId);
+  revalidatePath("/", "layout");
+  redirect(back);
 }
 
 /** PM discards the draft — the class is marked no-action; nothing is sent. */
@@ -243,8 +252,9 @@ export async function discardFeedback(formData: FormData) {
   await supabase.from("classes").update({ status: "discarded" }).eq("id", classId);
   await supabase.from("audit_log").insert({ class_id: classId, actor_id: user.id, action: "discarded" });
 
-  revalidatePath("/feedback");
-  redirect("/feedback");
+  const back = await feedbackListFor(supabase, classId);
+  revalidatePath("/", "layout");
+  redirect(back);
 }
 
 export type ReviseResult = { text?: string; error?: string };
@@ -375,8 +385,7 @@ export async function markAsSent(formData: FormData) {
   if (!fb) throw new Error("No feedback on this class.");
   await supabase.from("feedback").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", fb.id);
   await supabase.from("audit_log").insert({ class_id: classId, actor_id: user.id, action: "sent" });
-  revalidatePath(`/feedback/${classId}`);
-  revalidatePath("/feedback");
+  revalidatePath("/", "layout");
   redirect(`/feedback/${classId}`);
 }
 
@@ -388,6 +397,7 @@ export async function deleteClass(formData: FormData) {
   if (!classId) throw new Error("Missing class.");
   const supabase = await createClient();
 
+  const back = await feedbackListFor(supabase, classId);          // before the row is gone
   const { data: klass } = await supabase.from("classes").select("topic").eq("id", classId).maybeSingle();
   await supabase.from("audit_log").insert({
     actor_id: user.id, action: "deleted",
@@ -396,8 +406,7 @@ export async function deleteClass(formData: FormData) {
   const del = await supabase.from("classes").delete().eq("id", classId);
   if (del.error) throw new Error("Could not delete: " + del.error.message);
 
-  revalidatePath("/feedback");
-  revalidatePath("/dashboard");
-  redirect("/feedback");
+  revalidatePath("/", "layout");
+  redirect(back);
 }
 
