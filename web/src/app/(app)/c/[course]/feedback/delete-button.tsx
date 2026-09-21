@@ -17,10 +17,11 @@ export function DeleteButton({ classId, withLabel = false }: { classId: string; 
         type="submit"
         variant={withLabel ? "outline" : "ghost"}
         size={withLabel ? "sm" : "icon"}
-        title="Delete"
+        title="Delete this analysis"
+        aria-label="Delete this analysis"
         className="text-muted-foreground hover:text-destructive"
       >
-        <Trash2 className="size-4" />
+        <Trash2 className="size-4" aria-hidden />
         {withLabel && "Delete"}
       </Button>
     </form>

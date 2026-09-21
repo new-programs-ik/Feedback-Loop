@@ -133,7 +133,7 @@ export default async function CohortPage({ params, searchParams }: Props) {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Kpi label="Avg score" value={fmtScore(me.avgScore)} sub={refAvg != null ? <Delta value={me.avgScore == null ? null : me.avgScore - refAvg} suffix={refLabel} /> : "no earlier cohort"} />
         <Kpi label="Band mix" value={<BandStripOf counts={me.counts} className="w-full" height="h-2" />} sub={`${me.counts.bad} bad · ${me.counts.average} average`} />
-        <Kpi label="Approval" value={<span className={me.approval != null && me.approval < 80 ? "text-destructive" : ""}>{fmtPct(me.approval)}</span>} sub={me.votes ? `${me.votes} votes` : "no votes"} />
+        <Kpi label="Instructor approval" value={<span className={me.approval != null && me.approval < 80 ? "text-destructive" : ""}>{fmtPct(me.approval)}</span>} sub={me.votes ? `${me.votes} learners answered` : "no approval answers"} />
         <Kpi label="Rated / attended" value={fmtPct(me.reach)} sub="share of the room that rated" />
         <Kpi
           label="Avg attended"

@@ -37,7 +37,7 @@ export function CohortsTab({ course, cohorts, canEdit, error }: { course: Course
 
   return (
     <div className="bg-card shadow-soft overflow-hidden rounded-xl border">
-      {error && <p className="text-muted-foreground border-b px-4 py-2 text-[12px]">Cohort details are partial until migration 0017 ({error}).</p>}
+      {error && <p className="text-muted-foreground border-b px-4 py-2 text-[12px]">Some cohort details are not available yet — ask an admin.</p>}
       {cohorts.length === 0 ? (
         <p className="text-muted-foreground px-4 py-6 text-center text-[13px]">No cohorts parsed for this course yet — they arrive with the sync.</p>
       ) : (

@@ -332,7 +332,7 @@ def reason(inputs: dict, result: dict, cfg: dict) -> str:
     if result["band"] is None:
         if "no_rating" in result["flags"]:
             return "No rating recorded yet."
-        return "Not enough voices yet to judge this class."
+        return "Too few responses yet to judge this class."
     parts = []
     if rating is not None:
         parts.append(f"Rated {rating:.2f}")
@@ -340,8 +340,10 @@ def reason(inputs: dict, result: dict, cfg: dict) -> str:
         pct = yes / (yes + no) * 100
         parts.append(f"{int(yes)} of {int(yes + no)} would have the instructor back ({pct:.0f}%)")
     band = result["band"].capitalize()
-    tail = {"video": "video analysis", "transcript": "transcript analysis", "none": "no analysis", "watch": "watch"}[result["action"]]
-    prov = " (provisional — few votes)" if result["provisional"] else ""
+    # The team's words for each action; the website's lib/sentiment.ts and lib/labels.ts say the same.
+    tail = {"video": "watch the recording", "transcript": "read the transcript", "none": "nothing needed",
+            "watch": "too few responses"}[result["action"]]
+    prov = " (based on very few responses)" if result["provisional"] else ""
     return " · ".join(parts) + f" → {band}{prov} → {tail}."
 
 

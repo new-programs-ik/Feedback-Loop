@@ -11,6 +11,7 @@ import { ReviewActions } from "./review-actions";
 import { DeleteAnalysisButton, MarkSentButton, RetryButton } from "./action-buttons";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { hrefIn } from "@/lib/workspace-shared";
+import { confidenceLabel, findingLabel, reclassLabel, severityLabel } from "@/lib/labels";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -249,9 +250,9 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                     {flags.map((f, i) => (
                       <StaggerItem key={i} className="rounded-lg border p-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{f.flag}</span>
-                          <Badge variant={sevVariant(f.severity)}>{f.severity}</Badge>
-                          <span className="text-muted-foreground text-xs">{f.confidence} confidence</span>
+                          <span className="font-medium">{findingLabel(f.flag)}</span>
+                          <Badge variant={sevVariant(f.severity)}>{severityLabel(f.severity)}</Badge>
+                          <span className="text-muted-foreground text-xs">{confidenceLabel(f.confidence)}</span>
                         </div>
                         {(f.evidence ?? []).map((e, j) => (
                           <p key={j} className="text-muted-foreground mt-1.5 text-sm">
@@ -317,10 +318,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                           className="mt-0.5 shrink-0"
                         >
                           {r.verdict === "drop" ? "removed" : r.verdict === "downgrade"
-                            ? `${r.from_severity} → ${r.to_severity}` : "confirmed"}
+                            ? `${severityLabel(r.from_severity)} → ${severityLabel(r.to_severity)}` : "confirmed"}
                         </Badge>
                         <div>
-                          <span className="font-medium">{r.flag}</span>
+                          <span className="font-medium">{findingLabel(r.flag)}</span>
                           <span className="text-muted-foreground"> — {r.reason}</span>
                         </div>
                       </StaggerItem>
@@ -374,13 +375,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                   <div className="flex items-center gap-2">
                     <Badge
                       variant={reclass.recommended === "yes" ? "destructive" : reclass.recommended === "maybe" ? "warning" : "secondary"}
-                      className="uppercase"
                     >
-                      {reclass.recommended}
+                      {reclassLabel(reclass.recommended)}
                     </Badge>
                     {reclass.deciding_flags && reclass.deciding_flags.length > 0 && (
                       <span className="text-muted-foreground text-xs">
-                        deciding: {reclass.deciding_flags.join(", ")}
+                        decided by: {reclass.deciding_flags.map(findingLabel).join(", ").toLowerCase()}
                       </span>
                     )}
                   </div>

@@ -18,6 +18,7 @@ import { scoreRow, type Priors } from "@/lib/class-score";
 import { ACTION_LABEL, BAND_META, bandOf, flagsToWords, round2, type Band, type ScoringConfig } from "@/lib/sentiment";
 import { hrefIn } from "@/lib/workspace-shared";
 import { cn } from "@/lib/utils";
+import { actionWords, reviewStatusLabel } from "@/lib/labels";
 
 export type ClassDetailData = {
   row: ClassRating;
@@ -85,7 +86,7 @@ export function ClassDetail({
   const pageHref = `${classesHref}/${row.id}`;
   const analysisHref = row.class_id ? `/feedback/${row.class_id}` : null;
   const ruleSentence = scored.band
-    ? `${BAND_META[scored.band].label}${scored.provisional ? " (provisional)" : ""} → ${ACTION_LABEL[scored.action]}${scored.action === "none" ? " unless a PM asks" : ""}.`
+    ? `${BAND_META[scored.band].label}${scored.provisional ? " (based on very few responses)" : ""} → ${ACTION_LABEL[scored.action]}${scored.action === "none" ? " unless a PM asks" : ""}.`
     : `No band — ${ACTION_LABEL[scored.action]}.`;
 
   return (
@@ -108,9 +109,9 @@ export function ClassDetail({
               {[row.course_name ?? row.course_label, row.cohort_text, instructorName(row), pretty(row.class_date), row.session_kind].filter(Boolean).join(" · ")}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className="capitalize">{row.review_status.replace("_", " ")}</Badge>
-              {row.escalated && <Badge variant="destructive">escalated</Badge>}
-              {row.decision_override && <Badge variant="outline">override: {row.decision_override}</Badge>}
+              <Badge variant="outline">{reviewStatusLabel(row.review_status)}</Badge>
+              {row.escalated && <Badge variant="destructive">Escalated</Badge>}
+              {row.decision_override && <Badge variant="outline">PM chose: {actionWords(row.decision_override)}</Badge>}
               {!full && (
                 <Link href={pageHref} className="text-muted-foreground hover:text-foreground ml-auto inline-flex items-center gap-1 text-xs" data-print-hide>
                   Full page <ExternalLink className="size-3" aria-hidden />
@@ -166,7 +167,7 @@ export function ClassDetail({
               <div className="flex items-baseline justify-between text-[13px]">
                 <span className="font-medium">Would have the instructor back</span>
                 <span className="text-muted-foreground" data-numeric>
-                  {votes ? `${row.yes_votes} yes · ${row.no_votes} no · ${Math.round(yesPct ?? 0)}%` : "no vote"}
+                  {votes ? `${row.yes_votes} yes · ${row.no_votes} no · ${Math.round(yesPct ?? 0)}%` : "no approval answers"}
                 </span>
               </div>
               <div className="bg-muted mt-1.5 flex h-2 w-full overflow-hidden rounded-full" aria-hidden>

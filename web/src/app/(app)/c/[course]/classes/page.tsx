@@ -19,6 +19,7 @@ import { requireUser } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { hrefIn, resolveWorkspace } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
+import { reviewStatusLabel } from "@/lib/labels";
 
 export const metadata = { title: "Classes" };
 
@@ -121,7 +122,7 @@ export default async function ClassesPage({
       />
 
       {result.degraded && sp.band && (
-        <p className="text-muted-foreground mb-3 text-xs">The band filter needs the scoring migration — showing every band until it lands.</p>
+        <p className="text-muted-foreground mb-3 text-xs">Band filtering is not set up yet — showing every band.</p>
       )}
 
       {entries.length === 0 ? (
@@ -154,7 +155,7 @@ export default async function ClassesPage({
                 <SortHead href={sortHref("date")} active={sort === "date"} dir={dir}>Date</SortHead>
                 <SortHead href={sortHref("kind")} active={sort === "kind"} dir={dir} className="hidden md:table-cell">Kind</SortHead>
                 <SortHead href={sortHref("rating")} active={sort === "rating"} dir={dir} align="right">Rating</SortHead>
-                <SortHead href={sortHref("vote")} active={sort === "vote"} dir={dir} align="right" className="hidden md:table-cell">Approval</SortHead>
+                <SortHead href={sortHref("vote")} active={sort === "vote"} dir={dir} align="right" className="hidden md:table-cell">Instructor approval</SortHead>
                 <SortHead href={sortHref("reach")} active={sort === "reach"} dir={dir} align="right" className="hidden xl:table-cell">Rated / attended</SortHead>
                 <SortHead href={sortHref("action")} active={sort === "action"} dir={dir}>Action</SortHead>
               </TableRow>
@@ -182,10 +183,10 @@ export default async function ClassesPage({
                     <TableNum className="text-muted-foreground hidden xl:table-cell">{reach != null ? `${row.num_ratings}/${row.attended} · ${reach}%` : "—"}</TableNum>
                     <TableCell className="whitespace-nowrap">
                       <span className={cn(scored.action === "video" && "text-band-bad-text font-medium", scored.action === "transcript" && "text-band-average-text font-medium", scored.action === "none" && "text-muted-foreground")}>
-                        {scored.action === "none" ? "—" : ACTION_LABEL[scored.action].replace(" analysis", "")}
+                        {scored.action === "none" ? "—" : ACTION_LABEL[scored.action]}
                       </span>
                       {row.review_status !== "new" && (
-                        <span className="text-muted-foreground ml-1.5 text-[11px]">· {row.review_status.replace("_", " ")}</span>
+                        <span className="text-muted-foreground ml-1.5 text-[11px]">· {reviewStatusLabel(row.review_status).toLowerCase()}</span>
                       )}
                     </TableCell>
                   </ClickRow>

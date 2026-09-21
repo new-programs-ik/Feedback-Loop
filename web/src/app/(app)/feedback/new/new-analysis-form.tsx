@@ -369,7 +369,7 @@ export function NewAnalysisForm({
             <p className="text-muted-foreground text-xs">
               Class Sentiment Score{scoring.version != null ? `, version ${scoring.version}` : ""}:{" "}
               {BAND_ORDER.map((b) => `${BAND_META[b].label} → ${ACTION_LABEL[scoring.config.actions[b]]}`).join(" · ")} · fewer than{" "}
-              {scoring.config.min_votes.action} votes → {ACTION_LABEL[scoring.config.actions.no_data]} · any escalation → video.
+              {scoring.config.min_votes.action || 6} responses → {ACTION_LABEL[scoring.config.actions.no_data]} · any escalation → watch the recording.
             </p>
           </div>
 
@@ -421,12 +421,12 @@ export function NewAnalysisForm({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label htmlFor="rating" className={label}>Avg rating</label>
+                  <label htmlFor="rating" className={label}>Class rating (of 5)</label>
                   <Input id="rating" name="rating" type="number" step="0.01" min="0" max="5" placeholder="4.2"
                          defaultValue={prefill?.rating} />
                 </div>
                 <div className="space-y-1.5">
-                  <label htmlFor="num_ratings" className={label}># ratings</label>
+                  <label htmlFor="num_ratings" className={label}>Learners who rated</label>
                   <Input id="num_ratings" name="num_ratings" type="number" min="0" placeholder="18"
                          defaultValue={prefill?.numRatings} />
                 </div>

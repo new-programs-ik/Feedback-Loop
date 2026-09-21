@@ -73,7 +73,7 @@ export function ModulesTab({
           </h3>
           <p className="text-muted-foreground text-[11.5px]">As recorded on rated classes in the last 12 months. Map each to a module once — it sticks for every sync.</p>
         </div>
-        {error && <p className="text-muted-foreground border-t px-4 py-2 text-[12px]">Modules are not available yet ({error}) — they arrive with migration 0017.</p>}
+        {error && <p className="text-muted-foreground border-t px-4 py-2 text-[12px]">Modules are not set up yet — ask an admin.</p>}
         {unmapped.length === 0 ? (
           <p className="text-muted-foreground border-t px-4 py-6 text-center text-[13px]">Every class name maps to a module.</p>
         ) : (

@@ -162,7 +162,7 @@ export default async function TeamPage() {
         )}
       </span>
       <span>
-        {pending == null ? "identity review not set up" : `${pending} duplicate ${plural(pending, "name")} waiting`}
+        {pending == null ? "duplicate-name review not set up" : `${pending} duplicate ${plural(pending, "name")} waiting`}
         {pending ? (
           <>
             {" · "}

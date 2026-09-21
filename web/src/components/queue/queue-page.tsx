@@ -62,7 +62,7 @@ const STATUS_OPTIONS = [
 ];
 
 /** One queue for both levels: a course (`courseId`) or the whole team (`null`). Three sections —
- *  Bad → video, Average → transcript, Watch (fewer than 5 voices) — each row with its score, the
+ *  Bad → watch the recording, Average → read the transcript, Watch (too few responses) — each row with its score, the
  *  plain reason under it, and the actions. Rows come from the `queue_rows` RPC when it exists,
  *  else the plain fetch over the period. */
 export async function QueuePage({ courseId, slug, sp }: { courseId: string | null; slug: string; sp: QueueSearchParams }) {
@@ -148,7 +148,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
     <div className="with-filter-bar">
       <PageHeader
         title="Needs analysis"
-        description={`Classes whose Class Sentiment band calls for an analysis — Bad → video, Average → transcript; fewer than ${cfg.min_votes.action || 5} voices → watch.`}
+        description={`Classes whose Class Sentiment band calls for an analysis — Bad → watch the recording, Average → read the transcript; fewer than ${cfg.min_votes.action || 6} responses → too few to judge.`}
         actions={<SyncNowButton />}
       />
 
@@ -164,7 +164,6 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
       <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
         <p data-numeric>
           <span className="font-medium">This queue:</span> <span className="text-muted-foreground">{cost.label}</span>
-          {!viaRpc && <span className="text-muted-foreground/70 text-xs"> · direct fetch</span>}
         </p>
         <p
           className={cn("flex items-center gap-2 text-xs", run?.status === "failed" ? "text-destructive" : "text-muted-foreground")}
@@ -179,7 +178,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
               <>
                 Last synced{" "}
                 {syncedAgo == null ? "…" : syncedAgo < 1 ? "just now" : syncedAgo < 60 ? `${syncedAgo} min ago` : `${Math.round(syncedAgo / 60)}h ago`}
-                {" · "}{run.rows_upserted ?? 0} rows · {run.rows_flagged ?? 0} flagged
+                {" · "}{run.rows_fetched ?? run.rows_upserted ?? 0} classes read · {run.rows_flagged ?? 0} flagged
                 {started > 0 && ` · ${started} in analysis`}
               </>
             )
@@ -253,7 +252,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
                   <span className="font-semibold">Watch</span>
                   <Badge variant="secondary" data-numeric>{watch.length}</Badge>
                   <span className="text-muted-foreground text-xs">
-                    fewer than {cfg.min_votes.action || 5} voices — not worth an analysis yet; escalate if you know something is wrong
+                    fewer than {cfg.min_votes.action || 6} responses — too few to judge yet; escalate if you know something is wrong
                   </span>
                 </summary>
                 <div className="flex items-center justify-end border-t px-4 py-1.5 sm:px-5" data-print-hide>
@@ -266,7 +265,7 @@ export async function QueuePage({ courseId, slug, sp }: { courseId: string | nul
                     row: (
                       <WatchRow id={row.id} focus={row.id === focusId}>
                         <TableCell className="w-24 py-2">
-                          <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" emptyText="too few voices" breakdown={{ rows: scored.rows, version: active.version, reason: scored.reason }} action={scored.action} />
+                          <ScorePill score={scored.score} band={scored.band} provisional={scored.provisional} variant="sm" emptyText="too few responses" breakdown={{ rows: scored.rows, version: active.version, reason: scored.reason }} action={scored.action} />
                         </TableCell>
                         <ClassCell row={row} scored={scored} slug={slug} isTeam={isTeam} />
                       </WatchRow>
@@ -402,7 +401,7 @@ function ClassCell({ row, scored, slug, isTeam }: { row: ClassRating; scored: Sc
         <RawStat rating={row.rating} rated={row.num_ratings} attended={row.attended} />
         <span>
           {scored.reason}
-          {row.escalated && <BandChip band={null} className="ml-1.5 align-middle" />}
+          {row.escalated && <Badge variant="destructive" className="ml-1.5 align-middle">Escalated</Badge>}
         </span>
       </div>
     </TableCell>

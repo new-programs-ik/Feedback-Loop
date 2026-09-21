@@ -157,7 +157,7 @@ export function InstructorPortfolio({
             <Kpi label="Classes" value={t.n} sub={`${own.filter((r) => r.session_kind === "Live Class").length} live · ${own.filter((r) => r.session_kind === "Test Review").length} reviews`} />
             <Kpi label="Avg score" value={<AvgScorePill score={t.avgScore} />} sub={courseAvg != null ? <Delta value={t.avgScore == null ? null : t.avgScore - courseAvg} suffix="vs course avg" /> : null} />
             <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
-            <Kpi label="Approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes > 0 ? `${t.votes} votes · bar 80%` : "no votes"} />
+            <Kpi label="Instructor approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes > 0 ? `${t.votes} learners answered · bar 80%` : "no approval answers"} />
             <Kpi label="Rated / attended" value={fmtPct(t.reach)} sub="share of the room that rated" />
             <Kpi label="vs course" value={<CompareBullet value={t.avgScore} reference={courseAvg} width={110} />} sub={courseAvg != null ? `course avg ${fmtScore(courseAvg)}` : "no course average"} />
           </div>
@@ -204,7 +204,7 @@ export function InstructorPortfolio({
             <ChartCard
               title="Monthly approval"
               subtitle="Share who would have this instructor back, against the 80% bar"
-              table={{ headers: ["Month", "Approval", "Votes", "Classes"], rows: months.map((m) => [m.label, fmtPct(m.approval), m.votes, m.n]) }}
+              table={{ headers: ["Month", "Instructor approval", "Learners answered", "Classes"], rows: months.map((m) => [m.label, fmtPct(m.approval), m.votes, m.n]) }}
             >
               {months.filter((m) => m.approval != null).length >= 2 ? (
                 <LineChart
@@ -218,7 +218,7 @@ export function InstructorPortfolio({
                   height={200}
                 />
               ) : (
-                <Empty className="px-0">Not enough months with a vote yet.</Empty>
+                <Empty className="px-0">Not enough months with approval answers yet.</Empty>
               )}
             </ChartCard>
           </div>
@@ -232,7 +232,7 @@ export function InstructorPortfolio({
             </Section>
           </div>
 
-          <Section title="The four boxes" subtitle={voted ? `${voted} classes with a vote · rating 4.55 line × 80% approval bar` : "No votes recorded"}>
+          <Section title="The four boxes" subtitle={voted ? `${voted} classes with approval answers · the rating line × the 80% approval bar` : "No approval answers recorded"}>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {(Object.keys(QUADRANT_META) as Quadrant[]).map((q) => (
                 <div key={q} className="surface-inset rounded-lg border p-3">

@@ -35,7 +35,7 @@ function bandLabel(band: Band | null, provisional: boolean) {
 
 /** One component draws every score: number + band label, ALWAYS (colour only reinforces), a
  *  4px band bar underneath, tabular digits. Averages are drawn outlined and say "avg", so an
- *  average is never mistaken for a class score. A class with no band shows "— · too few voices",
+ *  average is never mistaken for a class score. A class with no band shows "— · too few responses",
  *  never a fake number. Hover or focus reveals the four inputs and what each earned. */
 export function ScorePill({
   score,
@@ -56,7 +56,7 @@ export function ScorePill({
   /** Shown as a small suffix in the popover ("→ video"). */
   action?: Action | null;
   breakdown?: ScoreBreakdown | null;
-  /** For the empty variant: why there is nothing to show. Default "too few voices". */
+  /** For the empty variant: why there is nothing to show. Default "too few responses". */
   emptyText?: string;
   /** Aggregate variant: what this is an average of ("avg", "course avg"). */
   label?: string;
@@ -130,7 +130,7 @@ export function ScorePill({
             isEmpty ? "text-muted-foreground" : "text-foreground/80",
           )}
         >
-          {isEmpty ? (emptyText ?? (score != null ? "too few voices" : "no score")) : aggregate ? (label ?? "avg") : bandLabel(b, provisional)}
+          {isEmpty ? (emptyText ?? (score != null ? "too few responses" : "no score")) : aggregate ? (label ?? "avg") : bandLabel(b, provisional)}
           {aggregate && b && <span className="text-muted-foreground"> · {BAND_META[b].label}</span>}
         </span>
       </span>

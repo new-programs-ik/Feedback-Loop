@@ -147,11 +147,12 @@ export const BAND_META: Record<
   },
 };
 
+/** What each action asks of a person, in the team's words. Keep in step with lib/labels.ts. */
 export const ACTION_LABEL: Record<Action, string> = {
-  video: "video analysis",
-  transcript: "transcript analysis",
-  none: "no analysis",
-  watch: "watch",
+  video: "watch the recording",
+  transcript: "read the transcript",
+  none: "nothing needed",
+  watch: "too few responses",
 };
 
 export const COMPONENT_LABEL: Record<ComponentKey, string> = {
@@ -473,7 +474,7 @@ export function explainClass(inputs: ScoreInputs, result: ScoreResult, _config: 
   const no = num(inputs.no_votes);
   if (result.band == null) {
     if (result.flags.includes("no_rating")) return "No rating recorded yet.";
-    return "Not enough voices yet to judge this class.";
+    return "Too few responses yet to judge this class.";
   }
   const parts: string[] = [];
   if (rating != null) parts.push(`Rated ${fmt2(rating)}`);
@@ -483,7 +484,7 @@ export function explainClass(inputs: ScoreInputs, result: ScoreResult, _config: 
   }
   const band = capitalize(result.band);
   const tail = ACTION_LABEL[result.action];
-  const prov = result.provisional ? " (provisional — few votes)" : "";
+  const prov = result.provisional ? " (based on very few responses)" : "";
   return parts.join(" · ") + ` → ${band}${prov} → ${tail}.`;
 }
 
@@ -495,29 +496,30 @@ export const FLAG_WORDS: Record<ScoreFlag, string> = {
   thin_low_rating_read: "too few responses to judge, but rated below 4.3, so the transcript is read",
   invalid_num_ratings: "the response count is negative",
   invalid_attended: "the attendance is negative",
-  invalid_yes_votes: "the yes-vote count is negative",
-  invalid_no_votes: "the no-vote count is negative",
+  invalid_yes_votes: "the count of yes answers is negative",
+  invalid_no_votes: "the count of no answers is negative",
   invalid_rating: "the rating is outside 0–5",
   no_rating: "no rating recorded",
   rating_zero: "the rating is 0",
   no_vote: "no approval answer recorded",
-  votes_ne_responses: "votes and responses do not add up",
+  votes_ne_responses: "approval answers and responses do not add up",
   no_responses: "the response count is missing",
   zero_responses: "nobody responded",
   no_attendance: "attendance is missing",
-  reach_clamped: "more raters than attendees (reach capped at 100%)",
-  rating_vote_disagree: "the rating and the vote disagree",
-  guarded: "few votes — blended with the course's typical values",
+  reach_clamped: "more learners rated than attended (capped at 100%)",
+  rating_vote_disagree: "the rating and the instructor approval disagree",
+  guarded: "few responses — blended with the course's typical values",
   no_track: "no track record yet (first classes)",
-  under_rating_line: "under the 4.55 rating line",
-  under_approval_bar: "under the 80% approval bar",
-  thin_no_band: "too few voices for a band",
-  thin_provisional: "too few voices for an analysis — provisional",
+  under_rating_line: "rated below the line the team set",
+  under_approval_bar: "instructor approval below the bar the team set",
+  thin_no_band: "too few responses for a band",
+  thin_provisional: "too few responses to be sure — provisional",
   escalated: "escalated by a PM",
 };
 
+/** Never a raw code on screen: an unknown flag is simply left out of the "why" list. */
 export function flagsToWords(flags: readonly string[]): string[] {
-  return flags.map((f) => FLAG_WORDS[f as ScoreFlag] ?? f.replace(/_/g, " "));
+  return flags.map((f) => FLAG_WORDS[f as ScoreFlag]).filter((w): w is string => Boolean(w));
 }
 
 /** Component rows for the popover / drawer: label, what was measured, and points earned. */

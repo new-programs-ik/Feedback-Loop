@@ -72,7 +72,7 @@ export default async function CourseSettingsPage({
         />
       </div>
       {members.error && tab !== "cohorts" && tab !== "modules" && tab !== "shares" && (
-        <p className="border-warning/40 bg-warning/5 mb-4 rounded-md border px-3 py-2 text-[12.5px]">Membership is not available yet ({members.error}).</p>
+        <p className="border-warning/40 bg-warning/5 mb-4 rounded-md border px-3 py-2 text-[12.5px]">Membership is not set up yet — ask an admin.</p>
       )}
       {tab === "team" && <TeamTab course={course} members={members.rows} cohorts={cohorts.rows} staff={staff} canEdit={canEdit && !members.error} />}
       {tab === "cohorts" && <CohortsTab course={course} cohorts={cohorts.rows} canEdit={canEdit} error={cohorts.error} />}
@@ -80,7 +80,7 @@ export default async function CourseSettingsPage({
       {tab === "notifications" && <NotificationsTab course={course} members={members.rows} canEdit={canEdit && !members.error} selfEmail={user.email} />}
       {tab === "shares" && (
         <>
-          {shares.error && <p className="text-muted-foreground mb-3 text-[12px]">Share links are not available yet ({shares.error}).</p>}
+          {shares.error && <p className="text-muted-foreground mb-3 text-[12px]">Share links are not set up yet — ask an admin.</p>}
           <ShareLinks shares={shares.rows} courseId={course.id} canCreate={isStaff && !shares.error} />
         </>
       )}

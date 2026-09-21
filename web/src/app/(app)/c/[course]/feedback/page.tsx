@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   Table, TableActions, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow,
 } from "@/components/ui/table";
+import { classStatusLabel, reclassLabel } from "@/lib/labels";
 
 export const metadata = { title: "Feedback" };
 
@@ -43,7 +44,7 @@ export default async function FeedbackPage({
 
   let q = supabase
     .from("classes")
-    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), analyses(reclass, tokens_in, tokens_out, cost_usd, video_used:result->video->>video_used)")
+    .select("id, topic, class_date, rating, status, session_type, course_id, created_by, courses(name), analyses(created_at, reclass, tokens_in, tokens_out, cost_usd, video_used:result->video->>video_used)")
     .order("class_date", { ascending: false });
   if (ws.courseId) q = q.eq("course_id", ws.courseId);
   if (sp.month && /^\d{4}-\d{2}$/.test(sp.month)) {
@@ -55,11 +56,17 @@ export default async function FeedbackPage({
   const { data: rows } = await q;
   const classes = (rows ?? []) as Array<Record<string, unknown>>;
 
+  // The analysis a row shows is the latest one: a retried class has more than one, and the
+  // review page shows the last, so the list must too.
+  type AnalysisCell = { created_at?: string; reclass?: string; tokens_in?: number; tokens_out?: number; cost_usd?: number; video_used?: string };
+  const latest = (list: unknown): AnalysisCell | undefined =>
+    [...((list as AnalysisCell[] | null) ?? [])].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
+
   // Totals for whatever is in view (respects the filters).
   let totalTokens = 0;
   let totalCost = 0;
   for (const c of classes) {
-    const a = (c.analyses as Array<{ tokens_in?: number; tokens_out?: number; cost_usd?: number }> | null)?.[0];
+    const a = latest(c.analyses);
     totalTokens += (a?.tokens_in ?? 0) + (a?.tokens_out ?? 0);
     totalCost += Number(a?.cost_usd ?? 0);
   }
@@ -102,7 +109,7 @@ export default async function FeedbackPage({
         {classes.length > 0 && (
           <p className="text-muted-foreground text-[13px]" data-numeric>
             {classes.length} {classes.length === 1 ? "class" : "classes"}
-            {filtered ? " (filtered)" : ""} · {(totalTokens / 1000).toFixed(1)}k tokens ·{" "}
+            {filtered ? " (filtered)" : ""} · AI cost{" "}
             <span className="text-foreground font-semibold">${totalCost.toFixed(2)}</span>
           </p>
         )}
@@ -134,7 +141,7 @@ export default async function FeedbackPage({
                 <TableHead>Type</TableHead>
                 <TableHead className="text-right">Rating</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
-                <TableHead>Re-class</TableHead>
+                <TableHead>Re-teach</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>By</TableHead>
                 <TableHead><span className="sr-only">Actions</span></TableHead>
@@ -142,7 +149,7 @@ export default async function FeedbackPage({
             </TableHeader>
             <TableBody>
               {classes.map((c) => {
-                const a = (c.analyses as Array<{ reclass?: string; cost_usd?: number; video_used?: string }> | null)?.[0];
+                const a = latest(c.analyses);
                 const reclass = a?.reclass;
                 const cost = Number(a?.cost_usd ?? 0);
                 const videoUsed = a?.video_used === "true";
@@ -164,16 +171,16 @@ export default async function FeedbackPage({
                       </span>
                     </TableCell>
                     <TableNum>
-                      <span className={rating != null && rating < 4.55 ? "text-band-bad-text font-semibold" : "font-medium"}>
+                      <span className="font-medium">
                         {rating != null ? Number(rating).toFixed(2) : "—"}
                       </span>
                     </TableNum>
                     <TableNum className="text-muted-foreground">{cost > 0 ? `$${cost.toFixed(2)}` : "—"}</TableNum>
                     <TableCell>
-                      {reclass ? <Badge variant={reclassVariant(reclass)} className="uppercase">{reclass}</Badge>
+                      {reclass ? <Badge variant={reclassVariant(reclass)}>{reclassLabel(reclass)}</Badge>
                                : <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell><Badge variant={statusVariant(status)}>{status.replace("_", " ")}</Badge></TableCell>
+                    <TableCell><Badge variant={statusVariant(status)}>{classStatusLabel(status)}</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-xs">{creatorName.get(String(c.created_by)) ?? "—"}</TableCell>
                     <TableActions>
                       <Button asChild variant="outline" size="sm">

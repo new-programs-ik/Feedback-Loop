@@ -1,5 +1,5 @@
 /** Band presentation for the admin surfaces, on top of the shell's `BAND_META` (lib/sentiment):
- *  adds the grey "too few voices" bucket the preview needs, and the per-analysis costs the study
+ *  adds the grey "too few responses" bucket the preview needs, and the per-analysis costs the study
  *  uses. Pure — safe in server and client code. */
 
 import { BAND_META, type Action, type Band } from "@/lib/sentiment";
@@ -10,7 +10,7 @@ export const BAND_KEYS: readonly BandKey[] = ["excellent", "good", "average", "b
 export function bandMeta(b: BandKey): { label: string; short: string; color: string; soft: string } {
   if (b === "no_data") {
     return {
-      label: "Too few voices",
+      label: "Too few responses",
       short: "—",
       color: "var(--band-none, oklch(0.7 0.01 262))",
       soft: "color-mix(in oklch, var(--band-none, oklch(0.7 0.01 262)) 25%, transparent)",

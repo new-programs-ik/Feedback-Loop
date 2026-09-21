@@ -149,11 +149,11 @@ export default async function ModulePage({ params, searchParams }: Props) {
             />
             <Kpi label="Attended per class" value={t.avgAttended == null ? "—" : Math.round(t.avgAttended)} sub={<Delta value={t.avgAttended == null || course.avgAttended == null ? null : t.avgAttended - course.avgAttended} suffix="vs course" />} />
             <Kpi label="Rated / attended" value={fmtPct(t.reach)} sub={<Delta value={t.reach == null || course.reach == null ? null : t.reach - course.reach} unit=" pts" suffix="of those who attended rated" />} />
-            <Kpi label="Approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes ? `${t.votes} votes` : "no votes"} />
+            <Kpi label="Instructor approval" value={<span className={t.approval != null && t.approval < 80 ? "text-destructive" : ""}>{fmtPct(t.approval)}</span>} sub={t.votes ? `${t.votes} learners answered` : "no approval answers"} />
             <Kpi label="Band mix" value={<BandStripOf counts={t.counts} className="w-full" height="h-2" />} sub={`${t.counts.bad} bad · ${t.counts.average} average`} />
           </div>
 
-          <Section title="By instructor" subtitle="Who should teach this next time? Rating, room and reach for each · lifts = 0.15 above the module's average with two or more classes, struggles = 0.15 under" flush>
+          <Section title="By instructor" subtitle="Who should teach this next time? Rating, room size and rated ÷ attended for each · lifts = 0.15 above the module's average with two or more classes, struggles = 0.15 under" flush>
             <ModuleInstructorTable rows={instructorRows} moduleAvg={fix.avgRating} />
           </Section>
 

@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableNum, TableRow
 import { ScorePill } from "@/components/score/score-pill";
 import { BandMix } from "@/components/admin/scoring/band-mix";
 import { CourseSquare } from "@/components/admin/course-square";
+import { actionWords } from "@/lib/labels";
 
 export const metadata = { title: "Shared report" };
 
@@ -89,8 +90,8 @@ export default async function SharedReportPage({ params }: { params: Promise<{ t
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Tile label="Classes rated" value={String(rows.length)} />
-            <Tile label={hasBands ? "Average sentiment score" : "Average rating"} value={hasBands ? String(Math.round(avgScore ?? 0)) : fmt2(avgRating)} note={hasBands ? `avg rating ${fmt2(avgRating)}` : undefined} />
-            <Tile label="Would have the instructor back" value={approval == null ? "—" : `${Math.round(approval)}%`} note={reach == null ? undefined : `reach ${Math.round(reach)}% of attendees rated`} />
+            <Tile label={hasBands ? "Average Class Sentiment Score" : "Average rating"} value={hasBands ? String(Math.round(avgScore ?? 0)) : fmt2(avgRating)} note={hasBands ? `average rating ${fmt2(avgRating)}` : undefined} />
+            <Tile label="Instructor approval" value={approval == null ? "—" : `${Math.round(approval)}%`} note={reach == null ? undefined : `${Math.round(reach)}% of learners who attended rated`} />
             <Tile label="Analyses this period" value={String(videos + transcripts)} note={`${videos} video · ${transcripts} transcript`} />
           </div>
 
@@ -134,7 +135,7 @@ export default async function SharedReportPage({ params }: { params: Promise<{ t
                   <TableHead>Class</TableHead>
                   <TableHead>Instructor</TableHead>
                   <TableHead>Date</TableHead>
-                  <TableHead>Vote</TableHead>
+                  <TableHead>Instructor approval</TableHead>
                   <TableHead>Outcome</TableHead>
                 </TableRow>
               </TableHeader>
@@ -149,7 +150,7 @@ export default async function SharedReportPage({ params }: { params: Promise<{ t
                     <TableCell>{r.instructor || "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{pretty(r.class_date)}</TableCell>
                     <TableCell data-numeric>{r.yes_votes != null && r.no_votes != null && r.yes_votes + r.no_votes > 0 ? `${r.yes_votes} of ${r.yes_votes + r.no_votes}` : "—"}</TableCell>
-                    <TableCell className="capitalize">{r.action ?? "—"}{r.review_status === "analysis_started" ? " · in analysis" : r.review_status === "dismissed" ? " · dismissed" : ""}</TableCell>
+                    <TableCell>{r.action ? actionWords(r.action) : "—"}{r.review_status === "analysis_started" ? " · analysis started" : r.review_status === "dismissed" ? " · dismissed" : ""}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
