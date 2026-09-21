@@ -55,6 +55,36 @@ def persist_analysis(class_id: str, result: dict, meta: dict, transcript_text: s
         conn.close()
 
 
+def consume_sync_token(token: str) -> bool:
+    """Spend a scheduler token: True once, for a real token under ten minutes old, never again.
+
+    The scheduler (pg_cron, migration 0027) mints a token per run and posts it to the worker in
+    place of the shared key, which it does not hold. Marking it used inside the same statement
+    that checks it means two requests with the same token cannot both win.
+    """
+    if not token or not isinstance(token, str) or len(token) > 128:
+        return False
+    conn = None
+    try:
+        conn = _connect()
+        cur = conn.cursor()
+        cur.execute("update sync_triggers set used_at = now() "
+                    " where token = %s and used_at is null and created_at > now() - interval '10 minutes' "
+                    " returning id", (token,))
+        won = cur.fetchone() is not None
+        conn.commit()
+        return won
+    except Exception:
+        log.exception("could not check a scheduler token; refusing it")
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                log.exception("could not close the connection after checking a scheduler token")
+
+
 def claim_for_analysis(class_id: str) -> bool:
     """Take the class for analysis, or return False because someone else already has it.
 

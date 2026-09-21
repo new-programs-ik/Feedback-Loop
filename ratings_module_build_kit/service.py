@@ -14,6 +14,8 @@ Endpoints:
   POST /transcript       -> {text, video_id, language, chars}   (fetch captions from a Vimeo URL)
   POST /analyze          -> {result, meta, transcript_source}   (needs ANTHROPIC_API_KEY)
   POST /sync-ratings     -> {status: accepted}                   (one ratings sync, in the background)
+  POST /sync-ratings/cron-> {status: accepted}                   (same, started by the database's
+                            schedule with a single-use token instead of the key; see migration 0027)
   While a background job runs the worker pings its own /health (RENDER_EXTERNAL_URL or SELF_URL)
   so a free instance is not spun down mid-analysis.
   POST /sync-learners    -> 501 until a learner-level source exists (learner_source.py)
@@ -440,6 +442,22 @@ def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> di
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
     trigger = str((body or {}).get("trigger") or "manual")
+    import ratings_sync as RSY
+    background.add_task(RSY.run_sync, trigger)
+    return {"status": "accepted", "trigger": trigger}
+
+
+@app.post("/sync-ratings/cron")
+def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) -> dict:
+    """The scheduled sync. The database (pg_cron, migration 0027) mints a single-use token per run
+    and posts it here, because it does not hold the worker's key. A token that is unknown, already
+    used or older than ten minutes is refused; a good one starts exactly what "Sync now" starts."""
+    if not os.environ.get("DATABASE_URL"):
+        raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
+    token = str((body or {}).get("token") or "")
+    if not ST.consume_sync_token(token):
+        raise HTTPException(status_code=401, detail="no fresh scheduler token")
+    trigger = str((body or {}).get("trigger") or "cron")
     import ratings_sync as RSY
     background.add_task(RSY.run_sync, trigger)
     return {"status": "accepted", "trigger": trigger}

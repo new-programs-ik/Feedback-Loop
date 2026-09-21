@@ -321,6 +321,43 @@ class TestOneAnalysisPerClass(unittest.TestCase):
             self.assertEqual(service._sweep_stuck(), 0)
 
 
+class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
+    """The database schedules the sync and cannot hold the worker's key, so it mints a single-use
+    token per run. The endpoint takes that token and nothing else."""
+
+    def test_a_fresh_token_starts_the_sync(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST, "consume_sync_token", return_value=True) as consume, \
+             patch("ratings_sync.run_sync") as run:
+            r = client.post("/sync-ratings/cron", json={"token": "abc123", "trigger": "cron"})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json(), {"status": "accepted", "trigger": "cron"})
+            consume.assert_called_once_with("abc123")
+            run.assert_called_once_with("cron")
+
+    def test_a_used_unknown_or_old_token_is_refused(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST, "consume_sync_token", return_value=False), \
+             patch("ratings_sync.run_sync") as run:
+            r = client.post("/sync-ratings/cron", json={"token": "stale"})
+            self.assertEqual(r.status_code, 401)
+            run.assert_not_called()
+
+    def test_no_token_at_all_is_refused_without_asking_the_database(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST, "_connect", side_effect=AssertionError("must not connect")):
+            r = client.post("/sync-ratings/cron", json={})
+            self.assertEqual(r.status_code, 401)
+
+    def test_the_endpoint_does_not_take_the_worker_key_either(self):
+        # It is not behind require_worker_auth on purpose; the token is the credential.
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST, "consume_sync_token", return_value=False):
+            r = client.post("/sync-ratings/cron", json={"token": "x"},
+                            headers={"Authorization": "Bearer whatever"})
+            self.assertEqual(r.status_code, 401)
+
+
 class TestTheWorkerStaysAwakeWhileItWorks(unittest.TestCase):
     """A hosted instance with no inbound traffic is put to sleep, and a background analysis is ten
     to fifteen minutes of exactly that: the job died silently and the class sat on "analyzing"
