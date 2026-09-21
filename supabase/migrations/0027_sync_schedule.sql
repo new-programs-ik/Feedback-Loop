@@ -1,10 +1,10 @@
--- 0027 - the ratings sync runs on its own: 10:00, 12:00 and 14:00, India time and US Pacific time
+-- 0027 - the ratings sync runs on its own: 10:00, 12:00 and 14:00 India time, every day
 --
--- The sheet is filled in by hand and sometimes late in the day, so three runs a day in each zone
--- (Bishal, 21 Sep 2026). pg_cron only speaks UTC, India is on a half-hour offset and US clocks
--- move twice a year, so the schedule is not six fixed UTC slots: a check runs every hour and
--- half-hour and fires only when the local clock in one of the zones reads a wanted hour. The
--- hours and zones are rows in app_settings, so changing them later is one update.
+-- The sheet is filled in by hand and sometimes late in the day, so three runs a day (Bishal,
+-- 21 Sep 2026; India time only, that is who uses it). pg_cron only speaks UTC and India is on a
+-- half-hour offset, so a check runs at every half-hour and fires only when the Indian clock reads
+-- a wanted hour. The hours and the zone are rows in app_settings, so changing them later is one
+-- update, and a second zone can be added there without touching code.
 --
 -- Each check has a second try five minutes later, because the free worker can take longer to wake
 -- than the caller waits; a second run is skipped while the first is still going, otherwise it is
@@ -42,7 +42,7 @@ comment on table public.app_settings is 'Plain settings read by database functio
 insert into public.app_settings (key, value) values
   ('worker_url',       'https://feedback-loop-50w0.onrender.com'),
   ('sync_local_hours', '10,12,14'),
-  ('sync_timezones',   'Asia/Kolkata,America/Los_Angeles')
+  ('sync_timezones',   'Asia/Kolkata')
 on conflict (key) do nothing;
 
 -- Start one sync now: mint a token, hand it to the worker.
@@ -76,8 +76,8 @@ end;
 $$;
 revoke all on function public.trigger_ratings_sync(text) from public, anon, authenticated;
 
--- Called every hour and half-hour: fire when a configured zone's local clock reads a wanted hour
--- (within the first 15 minutes, so the :05 / :35 retries still count as the same slot).
+-- Called at every half-hour: fire when a configured zone's local clock reads a wanted hour (within
+-- the first 15 minutes, so the :35 retry still counts as the same slot).
 create or replace function public.ratings_sync_if_due(p_label text default 'cron')
 returns text
 language plpgsql
@@ -124,7 +124,5 @@ begin
   end loop;
 end $$;
 
-select cron.schedule('ratings-sync-check-00', '0 * * * *',  $job$ select public.ratings_sync_if_due('cron') $job$);
-select cron.schedule('ratings-sync-check-05', '5 * * * *',  $job$ select public.ratings_sync_if_due('cron-retry') $job$);
 select cron.schedule('ratings-sync-check-30', '30 * * * *', $job$ select public.ratings_sync_if_due('cron') $job$);
 select cron.schedule('ratings-sync-check-35', '35 * * * *', $job$ select public.ratings_sync_if_due('cron-retry') $job$);
