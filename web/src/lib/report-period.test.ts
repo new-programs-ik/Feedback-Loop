@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_CUSTOM_DAYS, reportPeriod } from "./report-period";
+import { MAX_CUSTOM_DAYS, reportPeriod } from "./report-period.ts";
 
 test("a custom window never runs past today or further back than the cap", () => {
   const w = reportPeriod({ period: "custom", from: "1900-01-01", to: "2100-01-01" }, "2026-09-20", "2026-09-21");
