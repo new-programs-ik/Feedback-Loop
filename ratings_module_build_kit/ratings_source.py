@@ -1,8 +1,8 @@
 """ratings_source.py - the swappable "where do ratings come from" seam.
 
-Today the source is the team's Google Sheet; soon it may be Metabase. Everything downstream
-(store, decision rule, notifications, the web UI) consumes only CANONICAL rows, so switching
-source is the RATINGS_SOURCE env var and nothing else.
+The source is the team's Google Sheet. Everything downstream (store, decision rule,
+notifications, the web UI) consumes only CANONICAL rows, so another source only has to produce
+the same rows.
 
 Canonical row (plain dict):
     course_label  str   - from course_rules.course_of (the PM-facing label, aliased to courses.id later)
@@ -43,10 +43,7 @@ class RatingsSource(Protocol):
 def build_source(env: dict | None = None) -> "RatingsSource":
     env = env if env is not None else dict(os.environ)
     kind = (env.get("RATINGS_SOURCE") or "sheet").strip().lower()
-    if kind == "metabase":
-        from metabase_source import MetabaseRatingsSource
-        return MetabaseRatingsSource(env)
-    if kind == "sheet":
-        from sheet_source import SheetRatingsSource
-        return SheetRatingsSource(env)
-    raise ValueError(f"unknown RATINGS_SOURCE {kind!r} (use 'sheet' or 'metabase')")
+    if kind != "sheet":
+        raise ValueError(f"unknown RATINGS_SOURCE {kind!r}: only 'sheet' exists")
+    from sheet_source import SheetRatingsSource
+    return SheetRatingsSource(env)

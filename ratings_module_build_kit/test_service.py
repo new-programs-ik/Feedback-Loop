@@ -67,15 +67,6 @@ class TestService(unittest.TestCase):
         with patch.object(service.RST, "cached_config_version", return_value=None):
             self.assertIsNone(client.get("/health").json()["scoring_config_version"])   # none active / DB down
 
-    def test_sync_learners_is_501_until_a_source_exists(self):
-        with patch.dict(os.environ, {"LEARNER_SOURCE": ""}):
-            r = client.post("/sync-learners", json={})
-        self.assertEqual(r.status_code, 501)
-        self.assertIn("no learner-level data source", r.json()["detail"])
-        with patch.dict(os.environ, {"LEARNER_SOURCE": "csv"}):
-            r = client.post("/sync-learners")
-        self.assertEqual(r.status_code, 501)
-        self.assertIn("names no implementation", r.json()["detail"])
 
     def test_dry_run(self):
         r = client.post("/dry-run", json={"transcript": SRT})

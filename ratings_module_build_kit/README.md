@@ -8,7 +8,7 @@ Two jobs in one Python service:
    Pipeline: `parse → chunk by time → extract findings per window (LLM) → synthesise + verify + write (LLM)`.
    Model is pinned in `Config` (engine.py).
 2. **The ratings sync (Feedback Loop v3)** — pulls every class session from the team's ratings
-   source (Google Sheet today, Metabase later), parses cohorts, resolves instructor names through
+   source (the Google Sheet), parses cohorts, resolves instructor names through
    aliases, and saves each row; the database scores it (the Class Sentiment Score) in the same
    statement and the band decides which classes reach the "Needs analysis" queue. Newly flagged
    classes get a Slack card to the course's people.
@@ -21,14 +21,13 @@ Two jobs in one Python service:
 | `store.py` | Async write-back of an analysis to the `classes` / `analyses` tables |
 | `service.py` | FastAPI HTTP wrapper: `/analyze*`, `/transcript`, `/revise`, `/dry-run`, `/sync-ratings`, `/health` |
 | `ratings_source.py` | The "where do ratings come from" seam (canonical row contract) |
-| `sheet_source.py`, `metabase_source.py`, `metabase.py` | The two sources |
+| `sheet_source.py` | Reads the ratings sheet |
 | `course_rules.py` | Cohort text → course label, session kind, region (mirrors `analysis/ratings_data.py`) |
 | `cohort_parse.py` | Cohort labels → course / region / intake window / ordinal / cohort no. / audience (pure) |
 | `instructor_match.py` | Name normalisation (twin of SQL `normalize_person_name`) + duplicate-name suggestions (pure) |
 | `ratings_store.py` | psycopg2 persistence: cohorts, topics, the scored upsert, notifications, sync-run metrics |
 | `ratings_sync.py` | One sync run start to finish |
 | `notify.py` | Slack cards (plain httpx, no slack-sdk) |
-| `learner_source.py` | The learner-level ingestion contract (a stub until a learner export exists) |
 | `decision.py` | LEGACY rule v1/v2 — kept for one release so the old read-out can sit beside the score |
 | `test_*.py` | Offline tests (no API key, no database, no network) |
 | `.env.example` | All config/secrets — copy to `.env`, never commit |
@@ -66,12 +65,11 @@ uvicorn service:app --port 8000
 | `POST /analyze-async` | same, in the background, written straight to the database |
 | `POST /revise` | rewrite a draft per the PM's instruction |
 | `POST /sync-ratings` | one ratings sync in the background (hourly via pg_cron, or "Sync now") |
-| `POST /sync-learners` | 501 until a learner-level source is configured (`learner_source.py`) |
 
 If `WORKER_API_KEY` is set, every POST needs `Authorization: Bearer <it>`.
 
 ## The ratings sync (what one run does)
-1. Fetch every class row from the source (`RATINGS_SOURCE=sheet|metabase`). On the sheet, columns
+1. Fetch every class row from the source (the sheet). On the sheet, columns
    are read **by header name**; a renamed required column fails the run loudly. When a tab has both
    `Topic` and `Class`, `Class` is the class name (the Agentic tab's `Topic` is the session kind).
 2. Per row: parse the cohort labels (`cohort_parse.py`) → upsert cohorts → resolve the instructor

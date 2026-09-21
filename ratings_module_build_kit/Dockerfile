@@ -17,12 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # All modules the worker imports at runtime. Every local import in service.py (and what those
 # import) must be listed here, or the container crashes on startup with "No module named '<x>'"
 # (store.py = async DB write-back; materials_fetch.py = fetch materials from a link; video.py = the
-# video-frames stage; cohort_parse.py / instructor_match.py / learner_source.py = the v3 sync).
+# video-frames stage; cohort_parse.py / instructor_match.py = the sync).
 # Keep this list and .dockerignore consistent: a module listed here must not be ignored there.
-COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py video.py \
-     course_rules.py decision.py ratings_source.py sheet_source.py metabase.py \
-     metabase_source.py ratings_store.py notify.py ratings_sync.py \
-     cohort_parse.py instructor_match.py learner_source.py ./
+COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py video.py      course_rules.py decision.py ratings_source.py sheet_source.py ratings_store.py notify.py      ratings_sync.py cohort_parse.py instructor_match.py ./
 
 ENV PORT=8000
 EXPOSE 8000

@@ -18,7 +18,6 @@ Endpoints:
                             schedule with a single-use token instead of the key; see migration 0027)
   While a background job runs the worker pings its own /health (RENDER_EXTERNAL_URL or SELF_URL)
   so a free instance is not spun down mid-analysis.
-  POST /sync-learners    -> 501 until a learner-level source exists (learner_source.py)
 
 Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorization: Bearer <it>`.
 """
@@ -258,7 +257,7 @@ def health() -> dict:
         "video_enabled": not os.environ.get("VIDEO_DISABLED"),
         "video_max_frames": VD.VCFG.max_frames,
         "review_enabled": E.CFG.review_enabled,
-        "ratings_source": os.environ.get("RATINGS_SOURCE") or "sheet",
+        "ratings_source": "sheet",
         # v3: the queue decision is the Class Sentiment Score, computed in the database with the
         # active scoring_configs row; this is the version it is scoring with (None = none active
         # or the database could not be asked - cached, never blocks the health check for long).
@@ -435,7 +434,7 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks):
 
 @app.post("/sync-ratings", dependencies=[Depends(require_worker_auth)])
 def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> dict:
-    """Pull the ratings source (sheet/Metabase) into class_ratings and notify handlers.
+    """Pull the ratings sheet into class_ratings and notify handlers.
     Called hourly by pg_cron (via pg_net) and by the web app's "Sync now" button. Runs in the
     background so the caller returns immediately; progress lands in sync_runs, which the web
     reads under RLS. ratings_sync itself guards against concurrent runs."""
@@ -464,21 +463,6 @@ def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) 
     background.add_task(RSY.run_sync, trigger, full=full)
     return {"status": "accepted", "trigger": trigger}
 
-
-@app.post("/sync-learners", dependencies=[Depends(require_worker_auth)])
-def sync_learners(body: Optional[dict] = None) -> dict:
-    """Learner-level ingestion (one row per learner per rated class, see learner_source.py).
-    There is no learner-level data source yet, so this answers 501 with the reason until
-    LEARNER_SOURCE names an implementation - the route exists so the web app and the cron can
-    already be wired to it."""
-    import learner_source as LS
-    try:
-        src = LS.build_learner_source(dict(os.environ))
-    except LS.LearnerSourceNotConfigured as e:
-        raise HTTPException(status_code=501, detail=str(e))
-    raise HTTPException(status_code=501,
-                        detail=f"learner source {getattr(src, 'name', '?')!r} is configured, but learner "
-                               "ingestion ships in v1.1 - nothing was imported")
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

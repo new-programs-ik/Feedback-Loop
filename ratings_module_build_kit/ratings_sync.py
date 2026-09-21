@@ -1,6 +1,6 @@
 """ratings_sync.py - one sync run, start to finish.
 
-fetch (sheet or metabase)
+fetch the sheet
   -> per row: parse cohorts -> upsert cohorts -> resolve the instructor (aliases, exact spelling)
      -> resolve the topic -> upsert the class row (the DATABASE scores it in the same statement)
      -> tally bands
