@@ -115,6 +115,8 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
 
     fetched = upserted = scored = flagged = notified = unchanged = retired = 0
     seen_keys: set = set()
+    seen_labels: set = set()
+    last_beat = time.monotonic()
     unmapped: list[str] = []
     bands: Counter = Counter()
     stats: Counter = Counter()
@@ -164,11 +166,16 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
                 context[instructor_id].append(ref)
 
             seen_keys.add(ST.row_key(row))
+            seen_labels.add(row["course_label"])
+            if time.monotonic() - last_beat > 30:
+                ST.heartbeat_run(run_id)            # a long full pass must not look dead
+                last_beat = time.monotonic()
             # Nothing about this class changed on the sheet: keep its stored verdict in the totals
-            # and move on without touching the database.
+            # and move on without touching the database. An unmapped row is re-written anyway, in
+            # case the alias that maps it to a course has arrived since.
             known = state.get(ST.row_key(row))
-            if known is not None and known[0] == ST.row_fingerprint(row):
-                _, band, action, was_scored = known
+            if known is not None and known[0] == ST.row_fingerprint(row) and (known[4] or course_id is None):
+                _, band, action, was_scored, _ = known
                 unchanged += 1
                 bands[band or "no_band"] += 1
                 if was_scored:
@@ -194,10 +201,16 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
                 flagged += 1
         conn.commit()
 
+        # A back-dated class moves its cohort's first week; every row's week number follows.
+        weeks = ST.recompute_week_numbers(cur)
+        if weeks:
+            log.info("week numbers recomputed on %d row(s)", weeks)
+        conn.commit()
+
         # Rows the sheet no longer has (a corrected spelling makes a new row) go, unless someone
-        # acted on them. Only when the sheet actually answered: an empty fetch must not empty the table.
+        # acted on them. Only inside tabs that answered, and never many at once (see the store).
         if fetched:
-            retired = ST.retire_rows_missing_from_sheet(cur, seen_keys, src.name)
+            retired = ST.retire_rows_missing_from_sheet(cur, seen_keys, src.name, seen_labels)
             if retired:
                 log.warning("removed %d row(s) the sheet no longer has", retired)
             conn.commit()

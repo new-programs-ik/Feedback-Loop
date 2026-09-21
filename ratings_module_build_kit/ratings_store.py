@@ -258,6 +258,7 @@ def upsert_cohorts(cur, parsed, course_id: Optional[str], *, aliases: Optional[d
                 "where course_id = %(course_id)s::uuid and name = %(name)s returning id", params)
             r = cur.fetchone()
             rid, created = (r[0], False) if r else (None, False)
+            cur.execute("release savepoint cohort_upsert")    # a rolled-back savepoint still exists
         rid = str(rid) if rid else None
         if created and stats is not None:
             stats["cohorts_created"] += 1
@@ -358,30 +359,80 @@ def finish_run(cur, run_id: str, *, status: str, rows_fetched: int = 0, rows_ups
          topics_unmapped, duration_ms, rows_unchanged, run_id))
 
 
+def recompute_week_numbers(cur) -> int:
+    """Week numbers count from the cohort's first class. A class added later with an earlier date
+    moves that start, and rows the sync skips would keep a number that is now one too low. One
+    statement per run puts every cohort right."""
+    cur.execute(
+        "with m as (select cohort_id, min(class_date) as first from class_ratings "
+        "            where cohort_id is not null group by cohort_id) "
+        "update class_ratings r set week_no = 1 + (r.class_date - m.first) / 7 from m "
+        " where r.cohort_id = m.cohort_id "
+        "   and r.week_no is distinct from 1 + (r.class_date - m.first) / 7")
+    return cur.rowcount
+
+
+def heartbeat_run(run_id: str) -> None:
+    """Say "still here" from inside a long run. On its own connection, because the run's own
+    transaction is not visible to anyone until it commits. Best-effort."""
+    conn = None
+    try:
+        conn = connect()
+        cur = conn.cursor()
+        cur.execute("update sync_runs set heartbeat_at = now() where id = %s", (run_id,))
+        conn.commit()
+    except Exception:
+        log.warning("heartbeat failed for run %s", run_id, exc_info=True)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def mark_stale_runs(cur, older_than_minutes: int = 10) -> int:
     """A sync lives inside the worker process; a restart or redeploy mid-run leaves its row on
     "running" forever, and the page shows a run that is not there. Mark such rows failed."""
     cur.execute(
         "update sync_runs set status='failed', finished_at=now(), error=%s "
-        " where status='running' and started_at < now() - make_interval(mins => %s) returning id",
+        " where status='running' "
+        "   and coalesce(heartbeat_at, started_at) < now() - make_interval(mins => %s) returning id",
         (f"no result after {older_than_minutes} minutes - the worker was probably restarted mid-sync",
          older_than_minutes))
     return len(cur.fetchall())
 
 
-def retire_rows_missing_from_sheet(cur, seen_keys: set, source: str = "sheet") -> int:
+RETIRE_MAX_SHARE = 0.05     # never remove more than this share of a run's candidates...
+RETIRE_MAX_ABS = 50         # ...nor more than this many rows, in one run
+
+
+def retire_rows_missing_from_sheet(cur, seen_keys: set, source: str = "sheet",
+                                   seen_labels: set | None = None) -> int:
     """Rows this source wrote that the sheet no longer has, and nobody touched, are removed.
 
     A corrected instructor spelling on the sheet makes a new row (the spelling is part of the key)
     and used to leave the old one behind forever: the same class twice, one instructor under two
     names, on every page and in every report (123 such rows by 21 Sep 2026). Rows a person has
     acted on - reviewed, linked to an analysis, overridden, escalated - are never touched.
+
+    Two guards, because a delete is the one step that cannot be undone by the next run: only rows
+    whose course label appeared in this run are candidates (a tab that parsed to nothing must not
+    take its history with it), and a run that would remove more than a small share refuses and
+    logs instead - that is a sheet problem for a person to look at, not a clean-up.
     """
-    cur.execute("select id, class_date, topic, instructor, session_kind from class_ratings "
+    cur.execute("select id, class_date, topic, instructor, session_kind, course_label from class_ratings "
                 " where source = %s and review_status = 'new' and class_id is null "
                 "   and decision_override is null and not coalesce(escalated, false)", (source,))
-    gone = [str(rid) for rid, d, t, i, k in cur.fetchall() if (d, t, i or "", k) not in seen_keys]
+    candidates = cur.fetchall()
+    gone = [str(rid) for rid, d, t, i, k, label in candidates
+            if (seen_labels is None or label in seen_labels) and (d, t, i or "", k) not in seen_keys]
     if not gone:
+        return 0
+    limit = max(RETIRE_MAX_ABS, int(len(candidates) * RETIRE_MAX_SHARE))
+    if len(gone) > limit:
+        log.error("refusing to remove %d rows the sheet no longer has (limit %d this run): "
+                  "check the sheet before anything is deleted", len(gone), limit)
         return 0
     cur.execute("delete from class_ratings where id = any(%s::uuid[])", (gone,))
     cur.execute("insert into audit_log(actor_label, action, detail) values ('worker', 'stale_rows_removed', %s)",
@@ -393,7 +444,7 @@ def running_run_exists(cur, max_age_minutes: int = 10) -> bool:
     """Concurrent-run guard: a 'running' row younger than the cutoff means skip this trigger."""
     cur.execute(
         "select 1 from sync_runs where status='running' "
-        "and started_at > now() - make_interval(mins => %s) limit 1",
+        "and coalesce(heartbeat_at, started_at) > now() - make_interval(mins => %s) limit 1",
         (max_age_minutes,))
     return cur.fetchone() is not None
 
@@ -469,11 +520,12 @@ def row_key(row: dict) -> tuple:
 
 
 def load_row_state(cur) -> dict:
-    """Every stored class -> (fingerprint, band, action, scored?), in one round trip, so the loop
-    can skip unchanged rows and still report whole-sheet totals."""
+    """Every stored class -> (fingerprint, band, action, scored?, course mapped?), in one round
+    trip, so the loop can skip unchanged rows and still report whole-sheet totals. An unmapped row
+    is never skipped: the alias that maps it may have arrived since."""
     cur.execute("select class_date, topic, instructor, session_kind, row_hash, sentiment_band, "
-                "sentiment_action, sentiment_score is not null from class_ratings")
-    return {(d, t, i or "", k): (h, b, a, bool(s)) for d, t, i, k, h, b, a, s in cur.fetchall()}
+                "sentiment_action, sentiment_score is not null, course_id is not null from class_ratings")
+    return {(d, t, i or "", k): (h, b, a, bool(s), bool(m)) for d, t, i, k, h, b, a, s, m in cur.fetchall()}
 
 
 # The nine score inputs go to score_class_rating() inside the statement; the config comes from

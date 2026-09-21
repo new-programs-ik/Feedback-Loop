@@ -224,7 +224,7 @@ class SheetRatingsSource:
 
         out: list[dict] = []
         skipped: dict[str, int] = {"unreadable date": 0, "no rating": 0, "nobody attended": 0,
-                                   "more rated than attended": 0}
+                                   "more rated than attended": 0, "number out of range": 0}
         first_bad_date = None
         for row in values[1:]:
             date = _parse_date(g(row, "Session Date"))
@@ -248,6 +248,12 @@ class SheetRatingsSource:
             if responses is not None and responses > attended:
                 skipped["more rated than attended"] += 1
                 continue                                    # data-entry error (seen in the wild)
+            if not (0 <= rating <= 5) or attended > 100_000 or (responses or 0) > 100_000 \
+                    or (yes or 0) > 100_000 or (no or 0) > 100_000 or (yes or 0) < 0 or (no or 0) < 0:
+                # The table holds a rating as numeric(3,2) and counts as integers; one impossible
+                # cell used to abort the whole run and roll back every other row.
+                skipped["number out of range"] += 1
+                continue
             cohort = str(g(row, "Cohorts") or "").strip()
             type_ = str(g(row, "Type") or "").strip()
             out.append({

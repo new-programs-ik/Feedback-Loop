@@ -119,6 +119,15 @@ class TestSheetSource(unittest.TestCase):
         src = make_source(sheet_payload([hdr, row()]))
         self.assertEqual(src.fetch_rows()[0]["topic"], "MCP Deep Dive")
 
+    def test_impossible_numbers_are_skipped_not_fatal(self):
+        src = SS.SheetRatingsSource({"RATINGS_SHEET_ID": "x"}, token_provider=lambda env: "t")
+        values = [["Session Date", "Type", "Cohorts", "Topic", "Instructor", "Overall Average", "Responses", "# Students Attended"],
+                  ["2026-08-24", "Live Class", "Cohort 1", "T", "Sam", "45", "3", "10"],          # rating 45
+                  ["2026-08-24", "Live Class", "Cohort 1", "U", "Sam", "4.5", "3", "10"]]
+        rows = src._parse_tab("tab", values)
+        self.assertEqual([r["topic"] for r in rows], ["U"])
+        self.assertEqual(src.last_skipped["number out of range"], 1)
+
     def test_data_hygiene(self):
         rows = [
             HEADER,
@@ -215,8 +224,9 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_st.row_fingerprint = ST.row_fingerprint     # the real ones: the skip test relies on them
         fake_st.row_key = ST.row_key
         fake_st.load_row_state.return_value = state or {}
-        fake_st.retire_rows_missing_from_sheet.side_effect = lambda cur, keys, source="sheet": (
-            calls.__setitem__("seen_keys", set(keys)) or 0)
+        fake_st.retire_rows_missing_from_sheet.side_effect = lambda cur, keys, source="sheet", labels=None: (
+            calls.__setitem__("seen_keys", set(keys)) or calls.__setitem__("seen_labels", set(labels or ())) or 0)
+        fake_st.recompute_week_numbers.return_value = 0
 
         def upsert_cohorts(cur, parsed, course_id, **kw):
             calls["cohorts"].append([p.raw_label for p in parsed])
@@ -265,8 +275,8 @@ class TestSyncOrchestration(unittest.TestCase):
         # totals so the run summary is still about the whole sheet.
         same = self._row(topic="Same", rating=4.9, yes=10, no=0)
         changed = self._row(topic="Changed", rating=4.1, yes=5, no=5)
-        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True),
-                 ST.row_key(changed): ("an-old-fingerprint", "good", "none", True)}
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True, True),
+                 ST.row_key(changed): ("an-old-fingerprint", "good", "none", True, True)}
         summary, calls, _ = self._run([same, changed], {"Applied Agentic AI": "course-1"}, state=state)
         self.assertEqual([t for t, *_ in calls["upserts"]], ["Changed"])
         self.assertEqual(summary["rows_upserted"], 1)
@@ -276,24 +286,33 @@ class TestSyncOrchestration(unittest.TestCase):
         self.assertEqual(summary["rows_scored"], 2)
         self.assertEqual(calls["finish"]["rows_unchanged"], 1)
 
+    def test_an_unmapped_row_is_rewritten_even_when_the_sheet_did_not_change(self):
+        # The alias that maps its label to a course may have arrived since the last run.
+        same = self._row(topic="Same", rating=4.9, yes=10, no=0)
+        state = {ST.row_key(same): (ST.row_fingerprint(same), None, "watch", False, False)}   # stored without a course
+        summary, calls, _ = self._run([same], {"Applied Agentic AI": "course-1"}, state=state)
+        self.assertEqual([t for t, *_ in calls["upserts"]], ["Same"])
+        self.assertEqual(summary["rows_unchanged"], 0)
+
     def test_every_sheet_row_is_reported_as_seen_so_the_rest_can_be_retired(self):
         same = self._row(topic="Same", rating=4.9, yes=10, no=0)
         changed = self._row(topic="Changed", rating=4.1, yes=5, no=5)
-        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True, True)}
         summary, calls, _ = self._run([same, changed], {"Applied Agentic AI": "course-1"}, state=state)
         self.assertEqual(calls["seen_keys"], {ST.row_key(same), ST.row_key(changed)})   # skipped rows count as seen
+        self.assertEqual(calls["seen_labels"], {"Applied Agentic AI"})
         self.assertEqual(summary["rows_retired"], 0)
 
     def test_a_full_run_ignores_the_fingerprints(self):
         same = self._row(topic="Same", rating=4.9, yes=10, no=0)
-        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True, True)}
         summary, calls, _ = self._run([same], {"Applied Agentic AI": "course-1"}, state=state, full=True)
         self.assertEqual([t for t, *_ in calls["upserts"]], ["Same"])
         self.assertEqual(summary["rows_unchanged"], 0)
 
     def test_the_env_switch_also_forces_a_full_run(self):
         same = self._row(topic="Same", rating=4.9, yes=10, no=0)
-        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True, True)}
         summary, calls, _ = self._run([same], {"Applied Agentic AI": "course-1"}, state=state,
                                       env={"RATINGS_SYNC_FULL": "1"})
         self.assertEqual(len(calls["upserts"]), 1)
@@ -678,8 +697,10 @@ class TestCohortUpsert(unittest.TestCase):
         cur = Clashing([("coh-old",)])
         ids = ST.upsert_cohorts(cur, self._parsed(), "course-1", courses=self.COURSES)
         self.assertEqual(ids, ["coh-old"])
-        self.assertIn("rollback to savepoint cohort_upsert", [c[0] for c in cur.calls])
-        self.assertTrue(cur.sql().startswith("update cohorts set cohort_key"))
+        sqls = [c[0] for c in cur.calls]
+        self.assertIn("rollback to savepoint cohort_upsert", sqls)
+        self.assertTrue(any(q.startswith("update cohorts set cohort_key") for q in sqls))
+        self.assertEqual(sqls[-1], "release savepoint cohort_upsert")   # released on this path too
 
 
 class TestInstructorResolver(unittest.TestCase):
@@ -956,11 +977,11 @@ class TestTheRowFingerprint(unittest.TestCase):
                 self.sql = sql
 
             def fetchall(self):
-                return [(dt.date(2026, 8, 24), "T", None, "Live Class", "abc", "good", "none", 90.0)]
+                return [(dt.date(2026, 8, 24), "T", None, "Live Class", "abc", "good", "none", 90.0, True)]
         cur = Cur()
         state = ST.load_row_state(cur)
         self.assertIn("row_hash", cur.sql)
-        self.assertEqual(state[(dt.date(2026, 8, 24), "T", "", "Live Class")], ("abc", "good", "none", True))
+        self.assertEqual(state[(dt.date(2026, 8, 24), "T", "", "Live Class")], ("abc", "good", "none", True, True))
 
 
 class TestRowsTheSheetNoLongerHasAreRetired(unittest.TestCase):
@@ -976,7 +997,7 @@ class TestRowsTheSheetNoLongerHasAreRetired(unittest.TestCase):
 
     def test_untouched_rows_not_on_the_sheet_are_deleted_and_audited(self):
         d = dt.date(2026, 8, 24)
-        cur = self.Cur([("id-old", d, "T", "Sam", "Live Class"), ("id-kept", d, "T", "Sam Smith", "Live Class")])
+        cur = self.Cur([("id-old", d, "T", "Sam", "Live Class", "Agentic"), ("id-kept", d, "T", "Sam Smith", "Live Class", "Agentic")])
         n = ST.retire_rows_missing_from_sheet(cur, {(d, "T", "Sam Smith", "Live Class")})
         self.assertEqual(n, 1)
         select_sql = cur.calls[0][0]
@@ -989,14 +1010,42 @@ class TestRowsTheSheetNoLongerHasAreRetired(unittest.TestCase):
 
     def test_nothing_missing_means_no_delete(self):
         d = dt.date(2026, 8, 24)
-        cur = self.Cur([("id-1", d, "T", "Sam", "Live Class")])
+        cur = self.Cur([("id-1", d, "T", "Sam", "Live Class", "Agentic")])
         self.assertEqual(ST.retire_rows_missing_from_sheet(cur, {(d, "T", "Sam", "Live Class")}), 0)
         self.assertEqual(len(cur.calls), 1)
 
     def test_a_blank_instructor_matches_the_key_the_sync_builds(self):
         d = dt.date(2026, 8, 24)
-        cur = self.Cur([("id-1", d, "T", None, "Live Class")])
+        cur = self.Cur([("id-1", d, "T", None, "Live Class", "Agentic")])
         self.assertEqual(ST.retire_rows_missing_from_sheet(cur, {(d, "T", "", "Live Class")}), 0)
+
+    def test_a_tab_that_returned_nothing_keeps_its_history(self):
+        # The MLSU tab parsed to zero rows (a reformatted date column); the Agentic tab was fine.
+        d = dt.date(2026, 8, 24)
+        cur = self.Cur([("mlsu-1", d, "T", "Sam", "Live Class", "ML SwitchUp"),
+                        ("ag-old", d, "U", "Pat", "Live Class", "Agentic")])
+        n = ST.retire_rows_missing_from_sheet(cur, {(d, "U", "Pat Lee", "Live Class")}, seen_labels={"Agentic"})
+        self.assertEqual(n, 1)
+        self.assertEqual(cur.calls[1][1], (["ag-old"],))            # only the Agentic row went
+
+    def test_a_run_that_would_remove_many_rows_refuses(self):
+        d = dt.date(2026, 8, 24)
+        rows = [(f"id-{i}", d, f"T{i}", "Sam", "Live Class", "Agentic") for i in range(100)]
+        cur = self.Cur(rows)
+        with mock.patch.object(ST, "RETIRE_MAX_ABS", 5):
+            self.assertEqual(ST.retire_rows_missing_from_sheet(cur, set(), seen_labels={"Agentic"}), 0)
+        self.assertEqual(len(cur.calls), 1)                          # no delete was issued
+
+    def test_week_numbers_are_recomputed_in_one_statement(self):
+        class Cur:
+            rowcount = 3
+
+            def execute(self, sql, params=None):
+                self.sql = sql
+        cur = Cur()
+        self.assertEqual(ST.recompute_week_numbers(cur), 3)
+        self.assertIn("min(class_date)", cur.sql)
+        self.assertIn("is distinct from", cur.sql)
 
 
 class TestGhostSyncRunsAreMarkedFailed(unittest.TestCase):
@@ -1014,6 +1063,7 @@ class TestGhostSyncRunsAreMarkedFailed(unittest.TestCase):
         self.assertEqual(ST.mark_stale_runs(cur, older_than_minutes=10), 1)
         sql, params = cur.calls[0]
         self.assertIn("status='running'", sql)
+        self.assertIn("heartbeat_at", sql)                         # a run that still beats is not stale
         self.assertIn("restarted mid-sync", params[0])
         self.assertEqual(params[1], 10)
 
