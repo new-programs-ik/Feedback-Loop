@@ -24,15 +24,23 @@ _version_patch = patch.object(service.RST, "cached_config_version", return_value
 # machine with no key configured would. The lock has its own tests below.
 _auth_patch = patch.object(service, "ALLOW_NO_AUTH", True)
 
+# The claim asks the database, and the suite has none: a failed claim is now a 503 (the worker no
+# longer guesses "yes" on a database error), so the endpoint tests take the claim as granted.
+# TestOneAnalysisPerClass overrides this per test.
+_claim_patch = patch.object(service.ST, "claim_for_analysis", return_value=True)
+REAL_CLAIM = service.ST.claim_for_analysis          # captured before the patch starts, for the test of the claim itself
+
 
 def setUpModule():
     _version_patch.start()
     _auth_patch.start()
+    _claim_patch.start()
 
 
 def tearDownModule():
     _version_patch.stop()
     _auth_patch.stop()
+    _claim_patch.stop()
 
 
 SRT = "1\n00:00:01,000 --> 00:00:03,000\nHello everyone.\n"
@@ -320,17 +328,18 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
              patch.object(service.ST, "consume_sync_token", return_value=True) as consume, \
              patch("ratings_sync.run_sync") as run:
-            r = client.post("/sync-ratings/cron", json={"token": "abc123", "trigger": "cron"})
+            token = "ab" * 32                                   # the shape the scheduler mints
+            r = client.post("/sync-ratings/cron", json={"token": token, "trigger": "cron"})
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.json(), {"status": "accepted", "trigger": "cron"})
-            consume.assert_called_once_with("abc123")
+            consume.assert_called_once_with(token)
             run.assert_called_once_with("cron", full=False)
 
     def test_a_used_unknown_or_old_token_is_refused(self):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
              patch.object(service.ST, "consume_sync_token", return_value=False), \
              patch("ratings_sync.run_sync") as run:
-            r = client.post("/sync-ratings/cron", json={"token": "stale"})
+            r = client.post("/sync-ratings/cron", json={"token": "cd" * 32})
             self.assertEqual(r.status_code, 401)
             run.assert_not_called()
 
@@ -347,6 +356,67 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
             r = client.post("/sync-ratings/cron", json={"token": "x"},
                             headers={"Authorization": "Bearer whatever"})
             self.assertEqual(r.status_code, 401)
+
+
+class TestRequestsThatUsedToBreakTheWorker(unittest.TestCase):
+    def test_a_non_ascii_key_is_a_401_not_a_500(self):
+        # The HTTP client will not even send non-ASCII header bytes, so the check is called directly:
+        # compare_digest on str raised TypeError for such input, which surfaced as a 500.
+        from fastapi import HTTPException
+        with patch.object(service, "WORKER_API_KEY", "the-real-key"), patch.object(service, "ALLOW_NO_AUTH", False):
+            with self.assertRaises(HTTPException) as ctx:
+                service.require_worker_auth("Bearer clé-ünïcode")
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_an_oversized_body_is_refused_before_it_is_read(self):
+        r = client.post("/dry-run", json={"transcript": SRT},
+                        headers={"Content-Length": str(service.MAX_BODY_BYTES + 1)})
+        self.assertEqual(r.status_code, 413)
+
+    def test_a_database_that_cannot_be_asked_is_a_503_not_a_paid_run(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}),              patch.object(service.ST, "claim_for_analysis", side_effect=service.ST.StoreUnavailable("down")),              patch.object(service, "_run_analysis_job") as job, patch.object(service, "_sweep_stuck", return_value=0):
+            r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+        self.assertEqual(r.status_code, 503)
+        job.assert_not_called()
+
+    def test_the_claim_only_takes_scheduled_or_failed_classes(self):
+        seen = {}
+
+        class Cur:
+            def execute(self, sql, params=None):
+                seen["sql"], seen["params"] = sql, params
+
+            def fetchone(self):
+                return ("id",)
+
+        class Conn:
+            def cursor(self):
+                return Cur()
+
+            def commit(self):
+                pass
+
+            def close(self):
+                pass
+
+        with patch.object(service.ST, "_connect", return_value=Conn()):
+            self.assertTrue(REAL_CLAIM("c1"))
+        self.assertIn("status = any(", seen["sql"])
+        self.assertEqual(seen["params"], ("c1", ["scheduled", "failed"]))
+
+    def test_a_malformed_scheduler_token_never_reaches_the_database(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}),              patch.object(service.ST, "consume_sync_token", side_effect=AssertionError("must not be asked")):
+            for bad in ("abc", "x" * 64, "AB" * 32, ""):
+                r = client.post("/sync-ratings/cron", json={"token": bad})
+                self.assertEqual(r.status_code, 401, bad)
+
+    def test_token_guesses_are_throttled(self):
+        service._CRON_ATTEMPTS.clear()
+        for i in range(service.CRON_ATTEMPTS_PER_MINUTE):
+            self.assertTrue(service._cron_attempts_allowed(now=1000.0 + i))
+        self.assertFalse(service._cron_attempts_allowed(now=1000.0 + service.CRON_ATTEMPTS_PER_MINUTE))
+        self.assertTrue(service._cron_attempts_allowed(now=1000.0 + 61.0 + service.CRON_ATTEMPTS_PER_MINUTE))
+        service._CRON_ATTEMPTS.clear()
 
 
 class TestTheWorkerStaysAwakeWhileItWorks(unittest.TestCase):

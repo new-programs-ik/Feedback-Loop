@@ -18,3 +18,5 @@ requests>=2.31,<3.0         # google-auth refreshes that token through its "requ
                             # sync died with "The requests library is not installed" (14 + 16 Sep 2026).
                             # The tests never reach it (the token provider is faked), so only a real
                             # sync catches it.
+reportlab>=4.2,<5.0         # the monthly / yearly PDF reports (reports.py)
+matplotlib>=3.9,<4.0        # the charts in those reports (Agg backend, no display)

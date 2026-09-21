@@ -30,6 +30,37 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(MF.classify("https://materials.myteam.vercel.app/decks/trees.pdf")[0], "generic")
 
 
+class TestTheWorkerOnlyFetchesPublicAddresses(unittest.TestCase):
+    def test_private_and_odd_hosts_are_refused(self):
+        for bad in ("http://localhost/x", "http://127.0.0.1/x", "http://10.1.2.3/x", "http://192.168.0.5/x",
+                    "http://169.254.169.254/latest", "http://172.16.0.1/x", "ftp://files.example.com/x",
+                    "file:///etc/passwd", "http://box.internal/x", "not a url"):
+            with self.assertRaises(MF.MaterialsFetchError, msg=bad):
+                MF.assert_public_url(bad)
+
+    def test_public_https_is_fine(self):
+        MF.assert_public_url("https://docs.google.com/document/d/abc/edit")
+        MF.assert_public_url("https://materials.myteam.vercel.app/decks/trees.pdf")
+
+    def test_a_download_stops_at_the_cap_instead_of_reading_it_all(self):
+        import httpx
+        served = {"n": 0}
+
+        def handler(request):
+            def body():
+                for _ in range(100):
+                    served["n"] += 1
+                    yield b"x" * 1024
+            return httpx.Response(200, headers={"content-type": "application/pdf"}, content=body())
+
+        RealClient = httpx.Client                        # captured before the patch, or the fake calls itself
+        with patch.object(MF.httpx, "Client", lambda **kw: RealClient(transport=httpx.MockTransport(handler), **kw)):
+            with self.assertRaises(MF.MaterialsFetchError) as ctx:
+                MF._get("https://files.example.com/big.pdf", max_bytes=4 * 1024)
+        self.assertIn("too large", str(ctx.exception))
+        self.assertLess(served["n"], 100)                     # it stopped reading
+
+
 class TestHelpers(unittest.TestCase):
     def test_split_links(self):
         txt = "https://a.com/x.pdf  https://b.com/y\nhttps://c.com/z, not-a-link"

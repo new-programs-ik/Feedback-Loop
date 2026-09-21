@@ -62,6 +62,21 @@ class TestProgressiveSource(unittest.TestCase):
         self.assertIsNone(make_client(handler).get_progressive_source("https://vimeo.com/9"))
 
 
+class TestErrorsNeverCarrySignedLinks(unittest.TestCase):
+    def test_query_strings_are_stripped_from_error_text(self):
+        self.assertEqual(V._safe_url("https://captions.cloud.vimeo.com/c/1.vtt?expires=1&sig=SECRET"),
+                         "https://captions.cloud.vimeo.com/c/1.vtt")
+        self.assertEqual(V._safe_text(RuntimeError("GET https://x/y?sig=SECRET failed")), "GET https://x/y")
+
+    def test_a_failed_texttracks_call_reports_the_status_only(self):
+        import httpx
+        client = V.VimeoClient(V.VimeoConfig(access_token="t", max_retries=1),
+                               transport=httpx.MockTransport(lambda r: httpx.Response(418, text="body with secrets")))
+        with self.assertRaises(V.VimeoError) as ctx:
+            client.list_text_tracks("123")
+        self.assertNotIn("secrets", str(ctx.exception))
+
+
 class TestParse(unittest.TestCase):
     def test_forms(self):
         cases = {

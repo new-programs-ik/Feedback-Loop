@@ -85,25 +85,36 @@ def consume_sync_token(token: str) -> bool:
                 log.exception("could not close the connection after checking a scheduler token")
 
 
-def claim_for_analysis(class_id: str) -> bool:
-    """Take the class for analysis, or return False because someone else already has it.
+class StoreUnavailable(RuntimeError):
+    """The database could not be asked. The caller must not guess."""
 
-    There was no lock at all: the Retry button appears while a job may still be running, and each
-    click started another full analysis. Both paid, both wrote a row, and the review page picked
-    one run's findings and the other run's draft with nothing joining them.
+
+CLAIMABLE = ("scheduled", "failed")
+
+
+def claim_for_analysis(class_id: str) -> bool:
+    """Take the class for analysis, or return False because it is not ours to take.
+
+    There was no lock at all: the Retry button appears while a job may still be running, and
+    each click started another full analysis. Both paid, both wrote a row, and the review page
+    picked one run's findings and the other run's draft with nothing joining them.
+
+    Only a class the website has just scheduled (or one that failed) can be claimed: re-running a
+    finished class would add a second draft under an approved note. A database error used to
+    count as a successful claim - the worker then paid for an analysis it could not save.
     """
     conn = None
     try:
         conn = _connect()
         cur = conn.cursor()
         cur.execute("update classes set status='analyzing', updated_at=now() "
-                    " where id=%s and status is distinct from 'analyzing' returning id", (class_id,))
+                    " where id=%s and status = any(%s) returning id", (class_id, list(CLAIMABLE)))
         won = cur.fetchone() is not None
         conn.commit()
         return won
-    except Exception:
+    except Exception as e:
         log.exception("could not claim class %s for analysis", class_id)
-        return True          # never block the work over a bookkeeping failure
+        raise StoreUnavailable(str(e)[:200]) from e
     finally:
         if conn is not None:
             try:

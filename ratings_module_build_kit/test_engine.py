@@ -105,6 +105,23 @@ class TestChunking(unittest.TestCase):
         self.assertEqual(E.chunk_by_time([]), [])
 
 
+class TestBadTimestampsCannotHangTheWorker(unittest.TestCase):
+    """One cue stamped days into the future used to make chunk_by_time step through millions of
+    empty windows while the class sat on "analyzing"."""
+
+    def test_a_far_future_cue_is_dropped_and_the_rest_chunk_normally(self):
+        cues = [E.Cue(i, i * 60, i * 60 + 1, f"line {i}") for i in range(60)]
+        cues.append(E.Cue(999, 999_999 * 3600, 999_999 * 3600 + 1, "stray"))
+        chunks = E.chunk_by_time(cues, window_min=30, overlap_min=2)
+        self.assertLessEqual(len(chunks), 3)
+        self.assertNotIn("stray", [c.text for w in chunks for c in w])
+
+    def test_a_class_within_twelve_hours_keeps_every_cue(self):
+        cues = [E.Cue(i, i * 600, i * 600 + 1, f"line {i}") for i in range(30)]   # 5 hours
+        chunks = E.chunk_by_time(cues, window_min=30, overlap_min=2)
+        self.assertEqual({c.text for w in chunks for c in w}, {c.text for c in cues})
+
+
 class TestFindingsValidation(unittest.TestCase):
     def _finding(self, **over):
         f = {"flag": "pace", "observation": "rushed the end", "severity": "moderate",

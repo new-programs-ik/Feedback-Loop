@@ -36,6 +36,16 @@ _URL_RE = re.compile(
 )
 
 
+def _safe_url(url: str) -> str:
+    """A URL without its query string: caption links are pre-signed, and the signature must not
+    end up in an error message that reaches the audit log or the browser."""
+    return str(url).split("?", 1)[0]
+
+
+def _safe_text(e) -> str:
+    return _safe_url(str(e)) if "?" in str(e) else str(e)
+
+
 class VimeoError(RuntimeError):
     """Any failure talking to Vimeo."""
 
@@ -123,13 +133,13 @@ class VimeoClient:
                 logger.warning("vimeo %s network error (try %d/%d): %s", url, attempt, self.cfg.max_retries, e)
             else:
                 if r.status_code in RETRY_STATUS:
-                    last = VimeoError(f"{method} {url} → {r.status_code}")
+                    last = VimeoError(f"{method} {_safe_url(url)} → {r.status_code}")
                     logger.warning("vimeo %s → %d (try %d/%d)", url, r.status_code, attempt, self.cfg.max_retries)
                 else:
                     return r
             if attempt < self.cfg.max_retries:
                 time.sleep(min(2 ** attempt, 8))
-        raise VimeoError(f"{method} {url} failed after {self.cfg.max_retries} tries: {last}")
+        raise VimeoError(f"{method} {_safe_url(url)} failed after {self.cfg.max_retries} tries: {_safe_text(last)}")
 
     def list_text_tracks(self, video_id: str) -> list[dict]:
         r = self._request("GET", f"{API_BASE}/videos/{video_id}/texttracks")
@@ -141,7 +151,7 @@ class VimeoClient:
         if r.status_code == 404:
             raise VimeoError(f"Vimeo video {video_id} not found (check the link).")
         if not r.is_success:
-            raise VimeoError(f"texttracks for {video_id} → {r.status_code}: {r.text[:200]}")
+            raise VimeoError(f"texttracks for {video_id} → {r.status_code}")
         data = r.json()
         return data.get("data", []) if isinstance(data, dict) else (data or [])
 

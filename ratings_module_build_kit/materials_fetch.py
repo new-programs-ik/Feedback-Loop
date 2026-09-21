@@ -24,6 +24,8 @@ import re
 from urllib.parse import urlparse, parse_qs, unquote
 
 import httpx
+import re
+from urllib.parse import urlparse
 
 log = logging.getLogger("materials_fetch")
 
@@ -96,16 +98,46 @@ def _sniff_ext(data: bytes) -> str:
     return ".txt"
 
 
-def _get(url: str, headers: dict | None = None) -> httpx.Response:
+_PRIVATE_HOST = re.compile(r"^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)")
+
+
+def assert_public_url(url: str) -> None:
+    """Refuse anything the worker should not fetch on a caller's behalf: non-http(s) schemes,
+    bare IPs, loopback and private ranges. The worker sits on a network the caller does not."""
+    try:
+        u = urlparse(url)
+    except Exception:
+        raise MaterialsFetchError("the link is not a valid URL")
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("http", "https") or not host or ("." not in host and host != "localhost"):
+        raise MaterialsFetchError("the link must be an http(s) address")
+    if (_PRIVATE_HOST.match(host) or re.fullmatch(r"[\d.]+", host) or host in ("::1",)
+            or host.endswith(".local") or host.endswith(".internal")):
+        raise MaterialsFetchError("the link points at a private address")
+
+
+def _get(url: str, headers: dict | None = None, max_bytes: int | None = None) -> httpx.Response:
+    """GET with retries. The body is streamed and cut off at `max_bytes`: a link to a 2 GB
+    recording used to be downloaded whole before the size cap was checked."""
+    assert_public_url(url)
     last: Exception | None = None
+    cap = max_bytes or MAX_BYTES
     for attempt in range(3):
         try:
             with httpx.Client(follow_redirects=True, timeout=TIMEOUT_S) as c:
-                resp = c.get(url, headers=headers or {})
-            if resp.status_code in (429, 500, 502, 503, 504):
-                last = MaterialsFetchError(f"{resp.status_code} from source")
-                continue
-            return resp
+                with c.stream("GET", url, headers=headers or {}) as r:
+                    if r.status_code in (429, 500, 502, 503, 504):
+                        last = MaterialsFetchError(f"{r.status_code} from source")
+                        continue
+                    buf = bytearray()
+                    for chunk in r.iter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > cap:
+                            raise MaterialsFetchError(f"file is too large (> {cap // (1024 * 1024)} MB cap)")
+                    return httpx.Response(status_code=r.status_code, headers=r.headers, content=bytes(buf),
+                                          request=r.request)
+        except MaterialsFetchError:
+            raise
         except httpx.HTTPError as e:
             last = e
     raise MaterialsFetchError(f"could not reach the materials link ({last})")

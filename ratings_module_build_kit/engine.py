@@ -65,6 +65,7 @@ class Config:
 CFG = Config()
 
 CLASS_TYPES = {"live_class", "ars"}   # ars = Assignment Review Session
+MAX_CLASS_SECONDS = 12 * 3600          # cues beyond this from the first are bad timestamps
 
 FLAGS_LIVE = {"pace", "clarity", "structure", "examples", "correctness", "logistics", "coverage",
               "coding_time", "agenda_balance", "concept_left", "doubt_handling", "engagement",
@@ -281,7 +282,16 @@ def chunk_by_time(cues: list[Cue], window_min: int = CFG.window_min, overlap_min
     # cue as the bounds then threw most of the class away without a word, so sort and take the real
     # bounds. Every cue must land in exactly one window.
     cues = sorted(cues, key=lambda c: (c.start, c.idx))
-    first, last = cues[0].start, cues[-1].start
+    first = cues[0].start
+    # One stray timestamp far in the future (a caption tool writing "999999:00:00") used to make
+    # this loop step through millions of empty windows while the class sat on "analyzing". A live
+    # class is hours, not days: anything past twelve hours from the first cue is a bad stamp.
+    horizon = first + MAX_CLASS_SECONDS
+    stray = [c for c in cues if c.start > horizon]
+    if stray:
+        log.warning("%d cue(s) stamped more than 12h after the first were dropped as bad timestamps", len(stray))
+        cues = [c for c in cues if c.start <= horizon]
+    last = cues[-1].start
     chunks: list[list[Cue]] = []
     start = first
     while start <= last:
@@ -1568,7 +1578,17 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
     # Pass 0 — read the whole conversation first, so every later segment is judged in full context
     # (who speaks, the real flow, and which doubts get resolved). This is the anti-"text-segmentation" step.
     log.info("mapping the whole conversation (%d cues) before judging any segment", len(cues))
-    convo_map = map_conversation(client, cues, ctx, usage)
+    map_error = ""
+    try:
+        convo_map = map_conversation(client, cues, ctx, usage)
+    except Exception as e:  # noqa: BLE001
+        # A single failed call here used to throw away everything already paid for (the materials
+        # agent) and fail the class. Without the map each segment is judged on its own, which is
+        # worse but honest, and the reader is told.
+        map_error = f"{type(e).__name__}: {e}"[:200]
+        log.exception("the whole-session map could not be produced; judging segments without it")
+        convo_map = ("(not available for this run: judge each segment on its own evidence, and do not "
+                     "assume anything is resolved elsewhere)")
     ctx = ctx + ("\n\nWHOLE-SESSION MAP (read this FIRST — it tells you who speaks, the real flow, and what "
                  "gets resolved later; do not flag anything resolved elsewhere):\n" + convo_map)
     has_video = bool(visual_track and visual_track.strip())
@@ -1589,6 +1609,11 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                                    "error": f"{type(e).__name__}: {e}"[:200]})
             log.exception("window %d of %d could not be extracted; continuing without it",
                           i, len(chunks))
+    if chunks and len(windows_failed) == len(chunks):
+        # Every window failed: there is nothing to synthesise, and a confident "nothing serious
+        # found" note built on no evidence is worse than a failure the PM can retry.
+        raise RuntimeError(f"none of the {len(chunks)} transcript windows could be analysed "
+                           f"(first error: {windows_failed[0]['error']})")
     log.info("synthesise %d raw findings", len(findings))
     result = synthesise(client, findings, ctx, usage, class_type, has_video)
 
@@ -1632,10 +1657,6 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                 log.exception("skeptic review failed; continuing without verification")
                 review_error = str(e)[:200]
                 review_records = []
-        before = (result.get("reclass") or {}).get("recommended")
-        result = gate_reclass(result, class_type)
-        reclass_softened = bool(before == "yes"
-                                and (result.get("reclass") or {}).get("recommended") == "maybe")
         changed = [r for r in review_records if r["verdict"] in ("drop", "downgrade")]
         if changed:
             log.info("reconciling prose after %d verification change(s)", len(changed))
@@ -1646,6 +1667,11 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
                 # fails, the note still argues for findings the verifier threw out - so the draft
                 # must be marked, not shipped as if it were reconciled.
                 prose_stale = True
+    # The re-teach gate is code, not part of the optional self-check: with the self-check switched
+    # off, a model-emitted "yes" resting on one low-confidence finding used to reach the PM ungated.
+    before = (result.get("reclass") or {}).get("recommended")
+    result = gate_reclass(result, class_type)
+    reclass_softened = bool(before == "yes" and (result.get("reclass") or {}).get("recommended") == "maybe")
     result = attach_evidence(result)     # the count of what survived is the code's, not the model's
     result["review"] = review_records
     # Everything a reader needs to judge how much this analysis was actually checked. This lived
@@ -1660,6 +1686,7 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         "prose_reconciled": not prose_stale,
         "windows_lost": len(windows_failed),
         "replies_cut_off": usage.truncated,
+        "session_map_error": map_error or None,
     }
 
     dropped = sum(1 for r in review_records if r["verdict"] == "drop")

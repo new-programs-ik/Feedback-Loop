@@ -227,7 +227,7 @@ def extract_frame(url: str, t: float, cfg: VideoConfig = VCFG) -> bytes:
     args = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
     if urlparse(url).scheme in ("http", "https"):
         args += ["-reconnect", "1", "-reconnect_streamed", "1"]
-    args += ["-ss", f"{t:.1f}", "-i", url, "-frames:v", "1",
+    args += ["-ss", f"{t:.1f}", "-protocol_whitelist", "file,http,https,tcp,tls,crypto", "-i", url, "-frames:v", "1",
              "-vf", f"scale={cfg.scale_width}:-2", "-q:v", str(cfg.jpeg_q),
              "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]
     return _run_ffmpeg(args, cfg.per_frame_timeout_s)

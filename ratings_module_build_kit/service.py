@@ -24,17 +24,20 @@ Optional shared secret: if WORKER_API_KEY is set, callers must send `Authorizati
 from __future__ import annotations
 
 import base64
+import collections
 import io
 import json as _json
 import logging
 import hmac
 import os
+import re
 import threading
+import time
 from typing import Literal, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 import config
 
@@ -50,7 +53,20 @@ import vimeo as V  # noqa: E402
 log = logging.getLogger("service")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+MAX_BODY_BYTES = 40 * 1024 * 1024        # the largest honest request is a transcript + a few decks
+
+
 app = FastAPI(title="Ratings Analysis Worker", version="2.0")
+
+
+@app.middleware("http")
+async def _refuse_oversized_bodies(request: Request, call_next):
+    """A 400 MB body used to be parsed whole into a 512 MB instance, taking any running analysis
+    down with it. Refuse by the declared length before reading anything."""
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+        return JSONResponse(status_code=413, content={"detail": f"request body over {MAX_BODY_BYTES // (1024 * 1024)} MB"})
+    return await call_next(request)
 
 WORKER_API_KEY = os.environ.get("WORKER_API_KEY") or None
 
@@ -75,7 +91,9 @@ def require_worker_auth(authorization: Optional[str] = Header(default=None)) -> 
             status_code=503,
             detail="worker is not configured: set WORKER_API_KEY (or WORKER_ALLOW_NO_AUTH=1 for "
                    "a local, unreachable machine)")
-    if not authorization or not hmac.compare_digest(authorization, f"Bearer {WORKER_API_KEY}"):
+    # Bytes, not str: compare_digest raises on non-ASCII text, which turned a bad header into a 500.
+    if not authorization or not hmac.compare_digest(authorization.encode("utf-8", "replace"),
+                                                    f"Bearer {WORKER_API_KEY}".encode("utf-8")):
         raise HTTPException(status_code=401, detail="invalid worker credentials")
 
 
@@ -84,8 +102,13 @@ class MaterialFile(BaseModel):
     b64: str                                     # base64-encoded file bytes
 
 
+# A class transcript is a few hundred KB; 25 MB is far beyond any real one and well inside memory.
+MAX_TRANSCRIPT_CHARS = 25_000_000
+MAX_MATERIAL_FILES = 20
+
+
 class AnalyzeRequest(BaseModel):
-    transcript: Optional[str] = None
+    transcript: Optional[str] = Field(default=None, max_length=MAX_TRANSCRIPT_CHARS)
     vimeo_url: Optional[str] = None
     course: str = "(unspecified)"
     cohort: str = "(unspecified)"
@@ -96,7 +119,7 @@ class AnalyzeRequest(BaseModel):
     agenda: str = "(not provided)"
     class_type: Literal["live_class", "ars"] = "live_class"
     materials_text: str = ""                     # pasted class-materials text (optional)
-    materials_files: list[MaterialFile] = []     # one or more uploaded files (slides/notebook/doc)
+    materials_files: list[MaterialFile] = Field(default_factory=list, max_length=MAX_MATERIAL_FILES)
     materials_url: str = ""                       # link(s) to fetch instead of uploading (Drive/Docs/web-manager)
     video_url: Optional[str] = None               # direct video link (mp4/Drive) for the frames stage
     analyze_video: bool = False                   # opt-in: sample + analyse recording frames too
@@ -426,7 +449,11 @@ def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks):
     # One analysis per class at a time. The UI offers Retry while a job may still be running, and
     # each press used to start another full analysis: both were paid for, both wrote a row, and the
     # review page could then show one run's findings above the other run's draft.
-    if not ST.claim_for_analysis(req.class_id):
+    try:
+        won = ST.claim_for_analysis(req.class_id)
+    except ST.StoreUnavailable:
+        raise HTTPException(status_code=503, detail="the database could not be reached; try again in a moment")
+    if not won:
         return JSONResponse(status_code=409, content={"status": "already running", "class_id": req.class_id})
     background.add_task(_run_analysis_job, req)
     return {"status": "accepted", "class_id": req.class_id}
@@ -447,6 +474,23 @@ def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> di
     return {"status": "accepted", "trigger": trigger, "full": full}
 
 
+_TOKEN_SHAPE = re.compile(r"^[0-9a-f]{64}$")
+_CRON_ATTEMPTS: collections.deque = collections.deque()
+CRON_ATTEMPTS_PER_MINUTE = 30
+
+
+def _cron_attempts_allowed(now: Optional[float] = None) -> bool:
+    """At most CRON_ATTEMPTS_PER_MINUTE token checks a minute, process-wide. The schedule needs
+    six a day; anything more is someone guessing."""
+    now = time.monotonic() if now is None else now
+    while _CRON_ATTEMPTS and now - _CRON_ATTEMPTS[0] > 60:
+        _CRON_ATTEMPTS.popleft()
+    if len(_CRON_ATTEMPTS) >= CRON_ATTEMPTS_PER_MINUTE:
+        return False
+    _CRON_ATTEMPTS.append(now)
+    return True
+
+
 @app.post("/sync-ratings/cron")
 def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) -> dict:
     """The scheduled sync. The database (pg_cron, migration 0027) mints a single-use token per run
@@ -455,6 +499,10 @@ def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) 
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
     token = str((body or {}).get("token") or "")
+    # The token is 64 hex characters (migration 0027). Anything else is refused before the
+    # database is asked, and guesses are throttled: each check used to open a connection.
+    if not _TOKEN_SHAPE.match(token) or not _cron_attempts_allowed():
+        raise HTTPException(status_code=401, detail="no fresh scheduler token")
     if not ST.consume_sync_token(token):
         raise HTTPException(status_code=401, detail="no fresh scheduler token")
     trigger = str((body or {}).get("trigger") or "cron")
