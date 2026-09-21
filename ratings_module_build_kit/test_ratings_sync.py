@@ -874,6 +874,37 @@ class TestSlackPayload(unittest.TestCase):
 
 
 
+class TestStuckClassesAreReleased(unittest.TestCase):
+    """A class can be stuck two ways: its job died inside the worker (analyzing, no result), or the
+    website scheduled it and the worker never took it. Both are released for retry."""
+
+    class Cur:
+        def __init__(self, rows):
+            self.rows, self.calls = rows, []
+
+        def execute(self, sql, params=None):
+            self.calls.append((sql, params))
+
+        def fetchall(self):
+            return self.rows
+
+    def test_a_dead_job_and_a_never_started_one_are_both_released(self):
+        cur = self.Cur([("c1", "analyzing"), ("c2", "scheduled")])
+        self.assertEqual(ST.reset_stuck_analyses(cur, older_than_minutes=90, scheduled_minutes=15), 2)
+        sql, params = cur.calls[0]
+        self.assertIn("status='analyzing'", sql)
+        self.assertIn("status='scheduled'", sql)
+        self.assertEqual(params, (90, 15))
+        messages = [json.loads(p[1])["message"] for _, p in cur.calls[1:]]
+        self.assertIn("restarted mid-analysis", messages[0])
+        self.assertIn("never picked up within 15 minutes", messages[1])
+
+    def test_nothing_stuck_means_nothing_written(self):
+        cur = self.Cur([])
+        self.assertEqual(ST.reset_stuck_analyses(cur), 0)
+        self.assertEqual(len(cur.calls), 1)
+
+
 class TestTheSheetsDatesAreUnderstood(unittest.TestCase):
     """The live sheet writes "January 2, 2026". The reader understood only "Jan 2, 2026", so every
     month failed except May - the one month whose abbreviation is its full name - and 87% of the

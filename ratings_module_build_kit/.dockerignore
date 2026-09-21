@@ -7,3 +7,5 @@ outputs/
 test_*.py
 sample_transcript.vtt
 README.md
+*-sa.json
+google-sa*.json

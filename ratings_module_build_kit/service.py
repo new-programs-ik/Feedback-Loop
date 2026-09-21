@@ -32,6 +32,7 @@ import threading
 from typing import Literal, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, model_validator
 
 import config
@@ -385,17 +386,47 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
         ST.mark_failed(req.class_id, str(e))
 
 
+def _sweep_stuck() -> int:
+    """Release classes whose job died or was never picked up, so a retry can claim them.
+
+    The sweep used to run only at the start of a sync, and the sync was broken for a fortnight, so
+    nothing ever released them. Best-effort: a failure here is logged and never blocks a job.
+    """
+    try:
+        conn = ST._connect()
+        try:
+            cur = conn.cursor()
+            released = RST.reset_stuck_analyses(cur)
+            conn.commit()
+            if released:
+                log.warning("released %d class(es) stuck mid-analysis or never started", released)
+            return released
+        finally:
+            conn.close()
+    except Exception:
+        log.warning("could not sweep stuck analyses; continuing", exc_info=True)
+        return 0
+
+
 @app.post("/analyze-async", dependencies=[Depends(require_worker_auth)])
-def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks) -> dict:
+def analyze_async(req: AnalyzeAsyncRequest, background: BackgroundTasks):
     """Start the analysis in the background and return immediately (so the web request never times
-    out). The worker writes the result straight to the DB when done; the UI polls for it."""
+    out). The worker writes the result straight to the DB when done; the UI polls for it.
+
+    The website marks the class `scheduled` and then calls this; taking the job moves it to
+    `analyzing`. A class already in `analyzing` belongs to a running job and is refused with 409.
+    This used to answer 200 for a refusal, the website took 200 as success, and - because the
+    website itself had just written `analyzing` - every single request was refused. No analysis
+    completed for two weeks and every review page spun forever.
+    """
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured for async persistence")
+    _sweep_stuck()
     # One analysis per class at a time. The UI offers Retry while a job may still be running, and
     # each press used to start another full analysis: both were paid for, both wrote a row, and the
     # review page could then show one run's findings above the other run's draft.
     if not ST.claim_for_analysis(req.class_id):
-        return {"status": "already running", "class_id": req.class_id}
+        return JSONResponse(status_code=409, content={"status": "already running", "class_id": req.class_id})
     background.add_task(_run_analysis_job, req)
     return {"status": "accepted", "class_id": req.class_id}
 

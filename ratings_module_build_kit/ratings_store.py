@@ -613,26 +613,35 @@ def record_notification(cur, class_rating_id: str, *, channel: str = "slack",
     return cur.fetchone() is not None
 
 
-def reset_stuck_analyses(cur, older_than_minutes: int = 90) -> int:
-    """Classes whose analysis started and never finished, released so a PM can retry them.
+def reset_stuck_analyses(cur, older_than_minutes: int = 90, scheduled_minutes: int = 15) -> int:
+    """Classes whose analysis never finished, or never started, released so a PM can retry them.
 
-    A background job lives inside the worker process. If that process is restarted, redeployed or
-    killed for memory, no exception is ever raised, so nothing marks the class failed - it simply
-    sits on "analyzing" forever and the Retry button is the only way out. Nothing swept them.
+    Two ways a class gets stuck. A job lives inside the worker process: if that process is
+    restarted, redeployed or killed for memory, no exception is raised and the class sits on
+    "analyzing" forever. And the website marks a class "scheduled" before asking the worker; if the
+    worker was unreachable or refused, nobody moves it on. Both are swept here - at the start of
+    every sync and before every new job - so Retry always has something it can claim.
     """
     cur.execute(
-        "update classes set status='failed', updated_at=now() "
-        " where status='analyzing' and updated_at < now() - make_interval(mins => %s) "
-        "returning id", (older_than_minutes,))
+        "with old as ("
+        "  select id, status from classes"
+        "  where (status='analyzing' and updated_at < now() - make_interval(mins => %s))"
+        "     or (status='scheduled' and updated_at < now() - make_interval(mins => %s)))"
+        " update classes c set status='failed', updated_at=now() from old"
+        " where c.id = old.id returning c.id, old.status",
+        (older_than_minutes, scheduled_minutes))
     stuck = cur.fetchall()
-    for (class_id,) in stuck:
+    for class_id, was in stuck:
+        if was == "scheduled":
+            message = (f"the analysis was never picked up within {scheduled_minutes} minutes - the "
+                       "worker was unreachable or refused it; released for retry")
+        else:
+            message = (f"no result after {older_than_minutes} minutes - the worker was probably "
+                       "restarted mid-analysis; released for retry")
         cur.execute(
             "insert into audit_log(class_id, actor_label, action, detail) "
             "values (%s,'worker','error',%s)",
-            (class_id, json.dumps({"where": "analyze",
-                                   "message": f"no result after {older_than_minutes} minutes - the "
-                                              "worker was probably restarted mid-analysis; "
-                                              "released for retry"})))
+            (class_id, json.dumps({"where": "analyze", "message": message})))
     return len(stuck)
 
 

@@ -294,18 +294,31 @@ class TestOneAnalysisPerClass(unittest.TestCase):
     """The Retry button appears while a job may still be running. Each press used to start another
     full analysis: both paid for, both saved, and the review page could mix the two."""
 
-    def test_a_second_request_while_one_is_running_is_refused(self):
-        with patch.object(service.ST, "claim_for_analysis", return_value=False) as claim,              patch.object(service, "_run_analysis_job") as job:
+    def test_a_second_request_while_one_is_running_is_refused_with_409(self):
+        # A refusal used to be a 200. The website took 200 as success and sent the PM to a page
+        # that spun forever. A refusal is an error to the caller, so it is a 409.
+        with patch.object(service.ST, "claim_for_analysis", return_value=False) as claim,              patch.object(service, "_run_analysis_job") as job,              patch.object(service, "_sweep_stuck", return_value=0):
             r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
-            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.status_code, 409)
             self.assertEqual(r.json()["status"], "already running")
             claim.assert_called_once_with("c1")
             job.assert_not_called()
 
     def test_the_first_request_is_accepted(self):
-        with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"):
+        with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"),              patch.object(service, "_sweep_stuck", return_value=0):
             r = client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            self.assertEqual(r.status_code, 200)
             self.assertEqual(r.json()["status"], "accepted")
+
+    def test_stuck_classes_are_released_before_a_job_is_claimed(self):
+        # The sweep used to live only in the sync, which was broken for a fortnight.
+        with patch.object(service.ST, "claim_for_analysis", return_value=True),              patch.object(service, "_run_analysis_job"),              patch.object(service, "_sweep_stuck", return_value=0) as sweep:
+            client.post("/analyze-async", json={"class_id": "c1", "transcript": SRT})
+            sweep.assert_called_once()
+
+    def test_a_sweep_that_cannot_reach_the_database_never_blocks_a_job(self):
+        with patch.object(service.ST, "_connect", side_effect=RuntimeError("no database")):
+            self.assertEqual(service._sweep_stuck(), 0)
 
 
 class TestTheWorkerStaysAwakeWhileItWorks(unittest.TestCase):

@@ -93,13 +93,15 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
       null;
   }
 
-  // Create the class row (status: analyzing).
+  // Create the class row as `scheduled`. The worker moves it to `analyzing` when it takes the
+  // job. Creating it as `analyzing` tripped the worker's own one-job-per-class lock, so every
+  // request was refused and every review page spun forever (8-21 Sep 2026).
   const ins = await supabase
     .from("classes")
     .insert({
       course_id, instructor_id, topic, class_date, session_type: class_type,
       rating, num_ratings, vimeo_link: vimeo_url || null, agenda: agenda || null,
-      status: "analyzing", created_by: user.id,
+      status: "scheduled", created_by: user.id,
     })
     .select("id")
     .single();
@@ -155,14 +157,23 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     return failStart("worker-start", { message: "unreachable" },
       "Could not reach the analysis service — try again in a moment (it may be waking up).");
   }
+  if (res.status === 409) {
+    // The worker already holds a job for this class. Leave the row alone; the page keeps polling.
+    return { error: "An analysis is already running for this class — give it a few minutes." };
+  }
   if (!res.ok) {
     const detail = await res.text();
     return failStart("worker-start", { status: res.status, detail: detail.slice(0, 300) },
       `Could not start the analysis (${res.status}). Please try again.`);
   }
+  // A 200 is not enough: only an explicit "accepted" means a job is running.
+  const reply = (await res.json().catch(() => null)) as { status?: string } | null;
+  if (reply?.status !== "accepted") {
+    return failStart("worker-start", { reply }, "The analysis service did not take the job. Please try again.");
+  }
 
   revalidatePath("/feedback");
-  redirect(`/feedback/${classId}`); // review page shows "Analyzing…" and auto-updates when done
+  redirect(`/feedback/${classId}`); // review page shows "Starting…" then "Analyzing…" and auto-updates when done
 }
 
 async function latestFeedbackId(supabase: Awaited<ReturnType<typeof createClient>>, classId: string) {
@@ -312,7 +323,8 @@ export async function retryAnalysis(formData: FormData) {
     .single();
   if (!klass?.vimeo_link) throw new Error("This class has no Vimeo link stored — delete it and create a new analysis.");
 
-  await supabase.from("classes").update({ status: "analyzing", updated_at: new Date().toISOString() }).eq("id", classId);
+  // `scheduled`, not `analyzing`: the worker's lock refuses a class already in `analyzing`.
+  await supabase.from("classes").update({ status: "scheduled", updated_at: new Date().toISOString() }).eq("id", classId);
   await supabase.from("audit_log").insert({ class_id: classId, actor_id: user.id, action: "retried" });
 
   const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
@@ -332,12 +344,20 @@ export async function retryAnalysis(formData: FormData) {
         class_type: klass.session_type === "ars" ? "ars" : "live_class",
       }),
     });
-    if (!res.ok) throw new Error(String(res.status));
-  } catch {
+    if (res.status === 409) {
+      // A job is already running for this class; leave it to finish.
+    } else if (!res.ok) {
+      throw new Error(`worker rejected the retry (${res.status})`);
+    } else {
+      const reply = (await res.json().catch(() => null)) as { status?: string } | null;
+      if (reply?.status !== "accepted") throw new Error("worker did not take the retry");
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "worker unreachable";
     await supabase.from("classes").update({ status: "failed" }).eq("id", classId);
     await supabase.from("audit_log").insert({
       class_id: classId, actor_id: user.id, action: "error",
-      detail: { where: "retry", message: "worker unreachable or rejected the retry" },
+      detail: { where: "retry", message: /fetch|network|ECONN/i.test(message) ? "worker unreachable" : message },
     });
   }
   revalidatePath(`/feedback/${classId}`);

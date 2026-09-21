@@ -70,8 +70,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const analyses = (klass.analyses ?? []) as Array<Record<string, unknown>>;
   const analysis = analyses[analyses.length - 1];
 
+  // `scheduled` = asked the worker, waiting for it to take the job; `analyzing` = the job is running.
+  const inProgress = klass.status === "analyzing" || klass.status === "scheduled";
   let failReason = "";
-  if (!analysis && klass.status !== "analyzing") {
+  if (!analysis && !inProgress) {
     const { data: err } = await supabase
       .from("audit_log").select("detail").eq("class_id", id).eq("action", "error")
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -88,9 +90,10 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   const fbStatus = String(feedback?.status ?? "draft");
   const done = fbStatus === "approved" || fbStatus === "sent";
   const wasSent = fbStatus === "sent";
+  const ageMs = nowMs - new Date(String(klass.updated_at ?? klass.created_at)).getTime();
   const stuck =
-    klass.status === "analyzing" &&
-    nowMs - new Date(String(klass.updated_at ?? klass.created_at)).getTime() > 30 * 60 * 1000;
+    (klass.status === "analyzing" && ageMs > 30 * 60 * 1000) ||
+    (klass.status === "scheduled" && ageMs > 10 * 60 * 1000);
   const canRetry = Boolean(klass.vimeo_link);
   const course = (klass.courses as { name?: string } | null)?.name ?? "—";
   const instructor = (klass.instructors as { name?: string } | null)?.name ?? "—";
@@ -184,15 +187,21 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       </div>
 
       {!analysis ? (
-        klass.status === "analyzing" ? (
+        inProgress ? (
           <Card className="shadow-soft">
             <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
               <Loader2 className="text-muted-foreground size-7 animate-spin" />
-              <div className="font-medium">{stuck ? "This analysis looks stuck" : "Analyzing…"}</div>
+              <div className="font-medium">
+                {stuck ? "This analysis looks stuck" : klass.status === "scheduled" ? "Starting…" : "Analyzing…"}
+              </div>
               <p className="text-muted-foreground max-w-md text-sm">
-                {stuck
-                  ? "It has been running for over 30 minutes — the background worker probably restarted mid-job. Retry to run it again (materials and video are not stored, so a retry is transcript-only)."
-                  : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
+                {stuck && klass.status === "scheduled"
+                  ? "The analysis service never picked this up — it was asked over 10 minutes ago. Retry to ask again."
+                  : stuck
+                    ? "It has been running for over 30 minutes — the background worker probably restarted mid-job. Retry to run it again (materials and video are not stored, so a retry is transcript-only)."
+                    : klass.status === "scheduled"
+                      ? "Waiting for the analysis service to take the job. This usually takes a few seconds; up to a minute if the service was asleep."
+                      : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
               </p>
               {stuck && canRetry && <RetryButton classId={String(klass.id)} />}
               <AutoRefresh />

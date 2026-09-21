@@ -18,7 +18,7 @@ export const metadata = { title: "Feedback" };
 function statusVariant(s: string): "default" | "secondary" | "success" | "warning" | "outline" | "destructive" {
   return s === "approved" || s === "sent" ? "success"
     : s === "draft_ready" ? "warning"
-    : s === "analyzing" ? "secondary"
+    : s === "analyzing" || s === "scheduled" ? "secondary"
     : s === "failed" ? "destructive"
     : "outline";
 }
