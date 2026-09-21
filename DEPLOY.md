@@ -25,7 +25,7 @@ that uses it is deployed, so the order is always: migration, then code.
 
 - The Google service-account key file is at `ratings_module_build_kit/google-sa.json` and the
   ratings sheet is shared with that account as **Viewer**.
-- Tests are green: worker `pytest -q` (404), web `npm test` (144) and `npx tsc --noEmit` and
+- Tests are green: worker `pytest -q` (407), web `npm test` (144) and `npx tsc --noEmit` and
   `npx next build`, and `supabase/test_scoring_sql.py` against the database (120 fixture cases).
 - Take a backup:
   ```bash
@@ -224,11 +224,57 @@ container works the same way. Environment variables are in step 4 above.
 
 - `ANALYSIS_WORKER_URL` on the web app points at the worker; `UI_URL` on the worker points back at
   the site.
-- The **same** `WORKER_API_KEY` sits on the web app, on the worker and in Vault, so only the web app
-  and the timer can call the worker, and only the worker can purge the site's caches.
+- The **same** `WORKER_API_KEY` sits on the web app and on the worker, so only the web app can ask
+  the worker for an analysis or a sync, and only the worker can purge the site's caches. The
+  schedule does not hold the key: each scheduled run mints a single-use token in the database and
+  the worker spends it.
 - Sign-in is Google, restricted to `@interviewkickstart.com`; access is enforced by row-level
   security in Postgres. Ratings tables are readable by staff (admin / pm) only since 0021.
 - Rotate anything that was shared in chat during development (Supabase keys, the Claude key, the
   database password), and treat `DATABASE_URL` like a password.
 - Optional: enable the Supabase **Custom Access Token** hook so the role rides in the sign-in
   token (see `supabase/README.md`).
+
+---
+
+## 6. Backups
+
+The Supabase free tier keeps no backups of its own, and the website, the worker and local
+development all write to the one production database. Two copies exist:
+
+**Every night (automatic).** The GitHub Actions job in `.github/workflows/nightly-backup.yml`
+runs at 02:00 India time and keeps a full dump of the `public` and `kb` schemas for 14 days,
+under the repository's **Actions › Nightly database backup › (the run) › Artifacts**. It needs,
+once:
+
+1. The repository set to **private** (Settings › General › Danger Zone › Change visibility).
+   Artifacts can be downloaded by anyone who can read the repository, so the job refuses to run
+   while it is public. Vercel and Render keep deploying from a private repository.
+2. One secret, `SUPABASE_DB_URL` (Settings › Secrets and variables › Actions › New repository
+   secret): the **Session pooler** string from Supabase › **Connect** (port 5432, not the
+   transaction pooler on 6543), with the database password filled in.
+
+Then press **Run workflow** once to see a green run. A failed run e-mails the repository's
+owners; the message says what is missing.
+
+**Before any change to data (by hand).** From the repository root:
+
+```bash
+./ratings_module_build_kit/.venv/Scripts/python analysis/db_backup.py
+```
+
+One JSON-lines file per table plus a manifest, under `_archive/backups/<UTC timestamp>/`
+(gitignored). Put rows back table by table, as section 2 says.
+
+**Restoring the nightly dump** needs the Postgres 17 client tools on your computer (Windows:
+`winget install PostgreSQL.PostgreSQL.17`; the tools land in `C:\Program Files\PostgreSQL\17\bin`).
+Download the artifact, unzip it, then, with the same connection string as the secret:
+
+```bash
+pg_restore --clean --if-exists --no-owner --no-privileges -d "<SUPABASE_DB_URL>" feedback-loop-YYYY-MM-DD.dump
+```
+
+`--clean` drops and recreates every object in the dump before loading it, so this is the
+**whole database back to that night**: everything written since is lost. For one table, add
+`--table=<name>` (and `--data-only` to keep today's schema); for a single row, the JSON-lines
+copy and a hand-written `insert` are the safer tool.

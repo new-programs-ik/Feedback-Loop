@@ -831,6 +831,44 @@ class TestNotificationRouting(unittest.TestCase):
         self.assertEqual(out[0]["recipients"][0]["email"], "b@ik.com")
 
 
+class TestNotificationClaim(unittest.TestCase):
+    """A card is claimed before it is sent and answered after, so a worker that dies mid-send
+    leaves a claim (blocking for a while, then counted as failed), never a second card."""
+
+    def test_the_claim_is_written_as_sending_and_wins_only_once(self):
+        cur = ScriptedCursor([("n-1",)])
+        self.assertTrue(ST.record_notification(cur, "cr-1", recipient="b@ik.com"))
+        sql, params = cur.calls[0]
+        self.assertIn("insert into rating_notifications", sql)
+        self.assertEqual(params[3], "sending")
+        self.assertIn("rating_notifications.status = 'failed'", sql)
+        self.assertIn("rating_notifications.status = 'sending'", sql)
+        self.assertIn("make_interval(mins => %s)", sql)
+        self.assertEqual(params[-1], ST.STALE_CLAIM_MINUTES)
+        # the second caller's insert conflicts with a live claim -> nothing returned -> lost
+        cur2 = ScriptedCursor([])
+        self.assertFalse(ST.record_notification(cur2, "cr-1", recipient="p@ik.com"))
+
+    def test_the_answer_turns_the_claim_into_sent_or_failed(self):
+        cur = ScriptedCursor([])
+        ST.finish_notification(cur, "cr-1", ok=True, slack_ts="171.1")
+        sql, params = cur.calls[0]
+        self.assertIn("update rating_notifications set status=%s", sql)
+        self.assertEqual(params[0], "sent")
+        self.assertEqual(params[1], "171.1")
+        ST.finish_notification(cur, "cr-1", ok=False, error="x" * 900)
+        _, params = cur.calls[1]
+        self.assertEqual(params[0], "failed")
+        self.assertEqual(len(params[2]), 400)
+
+    def test_a_stale_claim_no_longer_hides_the_class(self):
+        cur = ScriptedCursor([[]])
+        cur.description = []
+        ST.rows_needing_notification(cur, max_age_days=10, limit=25)
+        sql, _ = cur.calls[0]
+        self.assertIn("n.status = 'sending' and n.sent_at < now() - interval '15 minutes'", sql)
+
+
 class TestFinishRun(unittest.TestCase):
     def test_writes_the_v3_metrics(self):
         cur = ScriptedCursor([])

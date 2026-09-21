@@ -679,6 +679,9 @@ def rows_needing_notification(cur, max_age_days: Optional[int] = None,
         left join rating_notifications n
                on n.class_rating_id = cr.id and n.channel = 'slack'
               and n.status is distinct from 'failed'
+              -- A claim ('sending') that never turned into 'sent' or 'failed' is a run that died
+              -- between the claim and the answer; after a while it counts as failed.
+              and not (n.status = 'sending' and n.sent_at < now() - interval '15 minutes')
         where cr.decision in ('video','transcript')
           and cr.review_status = 'new'
           -- A row that says the send FAILED is not a record that the class was handled; it is a
@@ -710,24 +713,43 @@ def rows_needing_notification(cur, max_age_days: Optional[int] = None,
     return out
 
 
-def record_notification(cur, class_rating_id: str, *, channel: str = "slack",
-                        recipient: str = "", status: str = "sent",
-                        slack_ts: str = "", error: str = "") -> bool:
-    """The dedupe gate: only the caller whose INSERT wins may actually send/mark. Returns won.
+STALE_CLAIM_MINUTES = 15
 
-    A row left over from a FAILED send is claimed rather than blocking: the class still needs
-    telling somebody, and the previous attempt is what proves it.
+
+def record_notification(cur, class_rating_id: str, *, channel: str = "slack",
+                        recipient: str = "", status: str = "sending",
+                        slack_ts: str = "", error: str = "") -> bool:
+    """The dedupe gate: only the caller whose INSERT wins may actually send. Returns won.
+
+    The row is written as a claim ('sending') and the caller commits it BEFORE talking to Slack,
+    then records the answer with `finish_notification`. Ordered that way, a worker that dies
+    mid-send leaves a claim, not a second card: the claim blocks the next run for a while and
+    then counts as failed, so the class is still told about, once.
+
+    A row left over from a FAILED send, or a claim older than STALE_CLAIM_MINUTES, is claimed
+    rather than blocking: the class still needs telling somebody.
     """
     cur.execute(
-        "insert into rating_notifications(class_rating_id, channel, recipient, status, slack_ts, error) "
-        "values (%s,%s,%s,%s,nullif(%s,''),nullif(%s,'')) "
+        "insert into rating_notifications(class_rating_id, channel, recipient, status, slack_ts, error, sent_at) "
+        "values (%s,%s,%s,%s,nullif(%s,''),nullif(%s,''),now()) "
         "on conflict (class_rating_id, channel) do update "
         "   set status = excluded.status, recipient = excluded.recipient, "
-        "       slack_ts = excluded.slack_ts, error = excluded.error "
+        "       slack_ts = excluded.slack_ts, error = excluded.error, sent_at = now() "
         " where rating_notifications.status = 'failed' "
+        "    or (rating_notifications.status = 'sending' "
+        "        and rating_notifications.sent_at < now() - make_interval(mins => %s)) "
         "returning id",
-        (class_rating_id, channel, recipient, status, slack_ts, error))
+        (class_rating_id, channel, recipient, status, slack_ts, error, STALE_CLAIM_MINUTES))
     return cur.fetchone() is not None
+
+
+def finish_notification(cur, class_rating_id: str, *, ok: bool, slack_ts: str = "",
+                        error: str = "", channel: str = "slack") -> None:
+    """Turn the claim into the answer: 'sent' with Slack's message id, or 'failed' with the reason."""
+    cur.execute(
+        "update rating_notifications set status=%s, slack_ts=nullif(%s,''), error=nullif(%s,''), sent_at=now() "
+        "where class_rating_id=%s and channel=%s",
+        ("sent" if ok else "failed", slack_ts, (error or "")[:400], class_rating_id, channel))
 
 
 def reset_stuck_analyses(cur, older_than_minutes: int = 90, scheduled_minutes: int = 15) -> int:

@@ -1,0 +1,87 @@
+# A copy of the production database every night, kept for 14 days.
+#
+# Why: the Supabase free tier keeps no backups. Every class score, analysis and feedback note lives
+# in one database that the website, the worker and local development all write to. One wrong
+# statement and it is gone; this is the way back.
+#
+# What it needs, once (Settings › Secrets and variables › Actions › New repository secret):
+#   SUPABASE_DB_URL   the "Session pooler" connection string from Supabase › Connect (port 5432,
+#                     NOT the transaction pooler on 6543), with the database password filled in.
+#
+# The dump is a GitHub Actions artifact. Artifacts can be downloaded by anyone who can read the
+# repository, so this job refuses to run while the repository is public.
+#
+# Restore (see DEPLOY.md › Backups):
+#   pg_restore --clean --if-exists --no-owner --no-privileges -d "$SUPABASE_DB_URL" feedback-loop-YYYY-MM-DD.dump
+
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: "30 20 * * *"   # 02:00 India time (20:30 UTC), after the day's syncs and reviews
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse to run on a public repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          private=$(gh api "repos/${GITHUB_REPOSITORY}" --jq .private)
+          if [ "$private" != "true" ]; then
+            echo "::error::The repository is public. Artifacts on a public repository can be downloaded by anyone, so the backup is not made. Make the repository private (Settings › General › Danger Zone › Change visibility) and run again."
+            exit 1
+          fi
+
+      - name: Check the secret is set
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL is not set. Add it under Settings › Secrets and variables › Actions (the Session pooler string from Supabase › Connect, port 5432)."
+            exit 1
+          fi
+          case "$SUPABASE_DB_URL" in
+            *:6543/*) echo "::error::That is the transaction pooler (port 6543); pg_dump needs the session pooler (port 5432)."; exit 1 ;;
+          esac
+
+      - name: Install the Postgres 17 client
+        # The runner's own client is older than the server; pg_dump must be at least the server's version.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Dump the public and kb schemas
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          day=$(date -u +%Y-%m-%d)
+          echo "DAY=$day" >> "$GITHUB_ENV"
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" \
+            --format=custom --compress=6 --no-owner --no-privileges \
+            --schema=public --schema=kb \
+            --file="feedback-loop-$day.dump"
+          ls -l "feedback-loop-$day.dump"
+          /usr/lib/postgresql/17/bin/pg_restore --list "feedback-loop-$day.dump" | grep -c "TABLE DATA" | xargs -I{} echo "{} tables with data"
+
+      - name: Keep the dump for 14 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: feedback-loop-${{ env.DAY }}
+          path: feedback-loop-${{ env.DAY }}.dump
+          retention-days: 14
+          if-no-files-found: error

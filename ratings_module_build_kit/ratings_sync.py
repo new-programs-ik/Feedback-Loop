@@ -244,17 +244,12 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full
                 recipient = ", ".join(p.get("email") or p.get("name") or "" for p in pending.get("recipients") or [])
                 if not ST.record_notification(cur, pending["id"], recipient=recipient or "channel (no owner)"):
                     continue                        # someone else already sent it
+                conn.commit()                       # the claim survives a crash; the card is never sent twice
                 ok, ts, err = N.post_flag_message(pending, env)
+                ST.finish_notification(cur, pending["id"], ok=ok, slack_ts=ts or "", error=err or "")
                 if ok:
                     ST.mark_notified(cur, pending["id"])
-                    cur.execute(
-                        "update rating_notifications set slack_ts=%s where class_rating_id=%s and channel='slack'",
-                        (ts, pending["id"]))
                     notified += 1
-                else:
-                    cur.execute(
-                        "update rating_notifications set status='failed', error=%s "
-                        "where class_rating_id=%s and channel='slack'", (err[:400], pending["id"]))
                 conn.commit()
 
         duration_ms = int((time.monotonic() - t0) * 1000)

@@ -73,7 +73,7 @@ that guide about what not to touch matter.
 Checks before any push, all of which must be green:
 
 ```
-ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (404 tests)
+ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (407 tests)
 cd web && npx tsc --noEmit && npx next build && npm test             # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py   # the database scorer against the fixtures
 ```
@@ -84,7 +84,8 @@ A push to `main` deploys both: Vercel rebuilds the website and Render rebuilds t
 two minutes each. Database changes are migrations under `supabase/migrations/`, applied with
 `supabase/apply_migrations.py`; they are additive only (nothing is dropped or renamed) because
 local work and production share the database. [DEPLOY.md](DEPLOY.md) has the full procedure,
-the environment variables, and how to roll back.
+the environment variables, how to roll back, and the backups: a nightly copy of the database
+(a GitHub Actions job, kept 14 days) and a one-command copy to take before any change to data.
 
 ## Changing the scoring
 
