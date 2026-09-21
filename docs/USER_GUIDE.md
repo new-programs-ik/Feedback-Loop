@@ -9,7 +9,7 @@ Written for anyone on the team — no technical background needed. Each section 
 |---|---|
 | **The app** | https://feedback-loop-ten.vercel.app |
 | **Illustrated version** | A version of this guide with real screenshots is shared by the New Programs team (ask Bishal Roy). Screenshots stay out of this repo because they show real class and instructor data. |
-| **Questions / ideas** | Message **Bishal Roy** (New Programs) or open an [Issue](../../issues). |
+| **Questions / ideas** | Message **Bishal Roy** (New Programs) or open an [Issue](https://github.com/new-programs-ik/Feedback-Loop/issues). |
 
 ---
 
@@ -26,15 +26,15 @@ Written for anyone on the team — no technical background needed. Each section 
 4. **The score.** Every class has a **Class Sentiment Score** from 0 to 100 and a band:
    **Excellent** (90 and up) · **Good** (75–89) · **Average** (60–74) · **Bad** (under 60).
    The band decides the work: Bad → video analysis, Average → transcript analysis, Good or
-   Excellent → nothing unless you ask, too few votes → watch. Hover any score to see how it was
-   made. A pill that says **avg** and is drawn outlined is an average, not a class. **"— · too few
-   voices"** means the class has not had enough votes for a band.
+   Excellent → nothing unless you ask, too few responses → watch. Hover any score to see how it
+   was made. A pill that says **avg** and is drawn outlined is an average, not a class. **"— · too
+   few responses"** means fewer than 6 learners answered, so no band is shown.
 5. **The filter bar** (period · cohort · live/review · instructor · band) sits on every data page
    and lives in the address bar, so a filtered view is a link you can send.
 6. **Every table sorts.** Click a column heading to sort by it; click again to flip the order. Lists
    that are not tables (the course cards, the queue) have a **Sort by** control instead. Next to
    every score you will also see the raw numbers — the star rating, then *who rated / who came*
-   (for example **4.62 · 12/26**). The rating turns red under the 4.55 line.
+   (for example **4.62 · 12/26**).
 
 ---
 
@@ -53,8 +53,9 @@ Written for anyone on the team — no technical background needed. Each section 
    - **Dismiss** — no analysis needed. The row fades out and never comes back on its own.
    - **Escalate** — something was reported: force a video analysis whatever the numbers say.
    - **Analyze** — go straight to the analysis form, prefilled.
-5. Not seeing today's classes? Click **Sync now** (top right). The sheet is pulled every hour on
-   its own; the small line under the cost tells you when it last ran.
+5. Not seeing today's classes? Click **Sync now** (top right). The sheet is pulled on its own
+   at 10:00, 12:00 and 14:00 India time; the small line under the cost tells you when it last
+   ran. A run takes seconds: only rows the sheet changed are written.
 
 > 💬 **The Slack card.** When a class is flagged, a card appears in the team's Slack channel:
 > *"Sentiment 58 · Bad → video"*, the course and class, the instructor, the rating, the vote, why,
@@ -69,11 +70,12 @@ Written for anyone on the team — no technical background needed. Each section 
 2. Read it top to bottom:
    - The score and band, with a bar showing where it sits in the four zones.
    - **Rule says** — one sentence: the band, the action, and why.
-   - The flags in words — *no vote recorded*, *more raters than attendees*, *the rating and the
-     vote disagree*, *under the 80% approval bar*…
-   - **What the score is made of** — each part (rating, approval, responses, reach, track record
-     when the version uses it), what was measured, and the points it earned out of its weight.
-   - **The room** — the vote (9 of 12 · 75%) and the reach (12 of 30 attended rated).
+   - The flags in words — *no approval answer recorded*, *more learners rated than attended*, *the
+     rating and the instructor approval disagree*, *instructor approval below the bar the team set*…
+   - **What the score is made of** — each part (rating, approval, responses, rated ÷ attended, track
+     record when the version uses it), what was measured, and the points it earned out of its weight.
+   - **The room** — *Would have the instructor back* (9 of 12 · 75%) and *Rated / attended*
+     (12 of 30).
    - The instructor's recent classes and **This module** (the module's average).
    - **Actions** — Analyze · Confirm · Dismiss · Escalate.
    - **History** — the class's score under each scoring version it has been through, and the
@@ -116,14 +118,15 @@ Written for anyone on the team — no technical background needed. Each section 
 ## To see how a course is doing
 
 1. Open the course → **Overview**. The KPI row (classes rated, average score, band mix, approval
-   against the 80% bar, reach, open queue) compares the period with the one before it.
+   against the 80% bar, rated / attended, attended per class, open queue) compares the period with
+   the one before it.
 2. Change the period in the filter bar (7 / 30 / 45 / 90 days, this month, or custom) and narrow
    by cohort, live vs review, instructor or band.
 3. Then read down: **Score by week** (the four band zones shaded), **Band mix by week**, **Worst
    classes** (a row opens the class), **Instructors** (three or more classes; the bullet compares
    with the course average), **Live vs review**, **Module hot-spots**, **Cohorts** side by side,
-   **Reach vs score** ("are low scores just thin turnout?"), and the **Calendar** ("do bad classes
-   cluster on certain days?").
+   **Score against how many learners rated** ("is a low score just a few people rating?"), and the
+   **Calendar** ("do bad classes cluster on certain days?").
 4. For the whole team, open **All courses**: a card per course sorted by the share of Bad classes,
    every course on one axis, the instructors and modules that moved month over month, the course ×
    month matrix, queue capacity, and whether the loop is closing. The housekeeping line at the top
@@ -134,10 +137,9 @@ Written for anyone on the team — no technical background needed. Each section 
 
 1. Course → **Instructors**. The leaderboard ranks instructors with three or more classes (sort by
    best, worst, most classes or recent); those with fewer are listed below it. *All courses →
-   Instructors* is the same across every course (the **3D view** toggle is optional; the table is
-   the product).
+   Instructors* is the same across every course.
 2. Click a name for the **portfolio**: the header (the name, *also recorded as …* for other
-   spellings, classes, average score, band mix, approval, reach, against the course), **Score
+   spellings, classes, average score, band mix, approval, rated / attended, against the course), **Score
    trend** (a marker on each week AI feedback was sent), **Modules** (this instructor against the
    course's module averages — strengths and weaknesses), **Monthly approval** against the 80% bar,
    **The four boxes** (fine on both lines / polite rating / hard class, good teacher / fails both),
@@ -163,11 +165,11 @@ fall in attendance against the module before it (red from −10%).
   first — or all together.
 - Below the map: **Attendance along the course** and **Rating along the course** (one line per
   cohort, the median in bold; switch the axis between module and week), then the cohort table
-  (avg score, avg rating, avg attended, reach, retention — sortable).
+  (avg score, avg rating, avg attended, rated / attended, retention — sortable).
 
 Click a cohort for its own page: avg attended and retention next to the score, **The journey**,
-**Attendance and reach by week**, and every class as a sortable table (week · module · date ·
-kind · instructor · rating · reach · score).
+**How many attended, and how many rated, by week**, and every class as a sortable table (week ·
+module · date · kind · instructor · rating · rated / attended · score).
 
 Course → **Modules** lists every module in curriculum order with the raw numbers, the change in
 attendance and rating against the module before it, **Teaches it best** (the instructor whose
@@ -198,18 +200,11 @@ An instructor's page has the same idea from their side: **Modules this instructo
      To withdraw a link: course → **Settings → Shares** (or Admin › People for every course) →
      revoke.
 
-## To try a different scoring setting (any PM)
+## To suggest a different scoring setting
 
-1. Open **Tools → What-if**. It is the same editor an admin uses, against the active version.
-   Nothing you do here changes the live score.
-2. Change any setting on the left — a weight, the approval bar, the response target, the vote
-   floors, the hard lines, the band edges. The preview on the right re-scores a month of real
-   classes as you type: how many classes change band, how many analyses a week that means and
-   what it costs, how many would be dropped from today's queue, how many would flip on a single
-   vote, and the list of classes that move. Pick another month at the top of the preview.
-3. If you think the team should use it, click **Propose to admin…**, give it a name and a note
-   (what you changed and why). It is saved as a draft that the admin sees under *Versions* on the
-   scoring page.
+Ask an admin: **Admin → Scoring** has the editor with a live preview on real months (how many
+classes change band, how many analyses a week that means, which classes move). A change goes
+live only when an admin activates it, and the previous version stays one click away.
 
 ## To change a scoring setting (admin)
 
@@ -271,9 +266,10 @@ instructor autocomplete.
 
 ## To check the sync, or map a sheet label the app does not know
 
-1. **Admin → Sync** lists the last runs: status, trigger (*cron* = the hourly timer, *manual* =
-   Sync now), how long it took, rows fetched, upserted and scored (with the scoring version), the
-   band counts, cohorts it could not parse, unresolved names, suggestions created, and any error.
+1. **Admin → Sync** lists the last runs: status, trigger (*cron:Asia/Kolkata* = the schedule,
+   *manual* = Sync now), how long it took, rows read, written and unchanged (with the scoring
+   version), the band counts, cohorts it could not parse, unresolved names, suggestions created,
+   any error, and "scheduled runs not picked up" (the worker did not answer a scheduled run).
 2. **Unmapped course labels** are cohort texts the app could not match to a course — their classes
    are missing from course pages until mapped. Pick the course and click **Map**; existing rows
    are moved at once. (The same box appears at the top of *All courses → Queue*.)
@@ -283,21 +279,17 @@ instructor autocomplete.
 
 ## To check that the score can be trusted
 
-**All courses → Insights** is the live study. It recomputes, from the database, the five numbers
-the validation study put in front of leadership — band flips on one vote, "Bad" classes actually
-rated 4.55 or better, low-rated classes shown as Good or Excellent, analyses a week, and whether
-a worse band today means a worse next class — for the manager's original setting and for the
-setting that is live now, side by side with what the study measured. Below it: how many voices a
-band needs before it is firm, the vote against the rating, the trend leadership should watch,
-every course sortable, content vs delivery, and whether the score is fair to live classes,
-reviews, regions and weekdays.
+The scoring page (**Admin → Scoring**) previews any version on real months, and the shared
+fixtures pin the formula in the database, the website and the reference scorer alike. The formula
+study that chose the live settings is in `analysis/formula/` and the manager's reports are in
+`local-reports/` on the project computer.
 
 ## Questions people ask
 
 | Question | Answer |
 |---|---|
-| The score looks harsh — one "no" vote sank a class. | Hover the score: the breakdown shows what each part earned. Whether a single vote can do that is a setting of the active scoring version (Admin › Scoring); try the alternative in **Tools → What-if** and propose it. |
-| A class shows "— · too few voices". | It has fewer votes than the active version needs for a band. It sits in the queue's **Watch** section until more votes arrive. |
+| The score looks harsh — one "no" answer sank a class. | Hover the score: the breakdown shows what each part earned. With fewer than 6 responses the approval answers are not trusted at all: the class shows "too few responses" instead of a band, unless it is rated below 4.3, in which case its transcript is read. |
+| A class shows "— · too few responses". | Fewer than 6 learners answered. It sits in the queue's **Watch** section until more responses arrive; a PM can escalate it if something is known to be wrong. |
 | I dismissed a class by mistake. | In the queue, set the **Status** filter to *Dismissed*, open the row and click **Escalate** — it re-opens as a video analysis. |
 | The instructor's name is spelled two ways. | Admin → Identity; see *To merge two spellings*. Until then both spellings show separately. |
 | A cohort is missing from the Cohorts page. | Its text in the sheet could not be parsed, or the class is unmapped. Admin → Sync shows unparsed cohorts per run; Settings → Cohorts lets you rename. |

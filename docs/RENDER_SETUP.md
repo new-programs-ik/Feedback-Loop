@@ -1,7 +1,7 @@
 # 🚀 Setting up the worker on Render — the complete, click-by-click guide
 
 The **worker** runs on [Render](https://render.com). It does two jobs for the live website: it pulls
-the ratings sheet every hour and scores the classes, and it runs the AI analysis when a PM clicks
+the ratings sheet three times a day and scores the classes, and it runs the AI analysis when a PM clicks
 Analyze. For either to work, the worker needs a few **environment variables** (settings). The most
 important one is **`DATABASE_URL`** — the address and password of the database — because the worker
 saves every synced class and every finished analysis there.
@@ -73,9 +73,9 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
    |---|---|---|
    | `DATABASE_URL` | the line from Step 1 | **Yes — required.** The worker saves synced classes and analysis results here. |
    | `ANTHROPIC_API_KEY` | your Claude key (starts with `sk-ant-`) | **Yes — required.** Runs the AI. |
-   | `WORKER_API_KEY` | a long secret word of your choosing | **Yes.** Only callers that know it can ask the worker to do anything. The same value goes on the website (Vercel) and into the hourly timer (Step 6). |
-   | `RATINGS_SHEET_ID` | the long id in the ratings sheet's URL (`docs.google.com/spreadsheets/d/THIS_PART/edit`) | **Yes, for the hourly sync.** |
-   | `GOOGLE_SA_JSON_FILE` | `/etc/secrets/google-sa.json` | **Yes, for the hourly sync** — together with Step 4. |
+   | `WORKER_API_KEY` | a long secret word of your choosing | **Yes.** Only callers that know it can ask the worker to do anything. The same value goes on the website (Vercel). The scheduled sync does not need it. |
+   | `RATINGS_SHEET_ID` | the long id in the ratings sheet's URL (`docs.google.com/spreadsheets/d/THIS_PART/edit`) | **Yes, for the sync.** |
+   | `GOOGLE_SA_JSON_FILE` | `/etc/secrets/google-sa.json` | **Yes, for the sync** — together with Step 4. |
    | `UI_URL` | `https://feedback-loop-ten.vercel.app` | Yes. The Slack cards link here, and the worker tells the site to refresh after each sync. |
    | `SLACK_BOT_TOKEN` | the Slack bot token (starts with `xoxb-`) | For the Slack cards and the "sync failed" alerts. |
    | `SLACK_PM_CHANNEL_ID` | the channel id (starts with `C`) | Same — the channel the cards go to. |
@@ -83,7 +83,7 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
    | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video frames per class. |
    | `VIDEO_DISABLED` | `1` | Optional kill-switch: video analysis off on this deployment. |
    | `RATINGS_SHEET_TABS` | tab names, comma-separated | Only if the tabs are not `MLSU_Live_Class_Poll,Agentic_AI_Live_Class_Poll`. |
-   | `NOTIFY_MAX_AGE_DAYS` / `NOTIFY_MAX_PER_RUN` | `10` / `25` | Optional guard rails for Slack: only classes this recent are pinged, at most this many per hourly run. `0` for the second one holds every card. |
+   | `NOTIFY_MAX_AGE_DAYS` / `NOTIFY_MAX_PER_RUN` | `10` / `25` | Optional guard rails for Slack: only classes this recent are pinged, at most this many per sync run. `0` for the second one holds every card. |
    | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |
 
    > 🎬 **About video analysis on the free tier:** it works, but the free worker is slow and can spin
@@ -100,7 +100,7 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
 
 ## STEP 4 — Add the Google key as a Secret File
 
-The hourly sync reads the ratings sheet through a "robot" Google account. Its key is a small JSON
+The sync reads the ratings sheet through a "robot" Google account. Its key is a small JSON
 file (created in [GOOGLE_SHEET_SYNC_SETUP.md](GOOGLE_SHEET_SYNC_SETUP.md); on your computer it is
 `ratings_module_build_kit/google-sa.json`). On Render it goes in as a **Secret File**, not a
 variable:
@@ -131,20 +131,23 @@ variable:
 
 ---
 
-## STEP 6 — Switch on the hourly timer (once)
+## STEP 6 — Check the schedule (nothing to switch on)
 
-The database calls the worker every hour (at :00, and again at :05 in case the free worker was
-asleep). It needs to know the worker's address and the secret word. Both are stored in Supabase's
-**Vault**, never in a file:
+The database calls the worker on its own at **10:00, 12:00 and 14:00 India time**, with a retry
+five minutes after each in case the free worker was asleep. No secret is needed: every run mints
+a one-time token and the worker checks it against the database. The schedule is created by the
+migrations (`0027` and `0031`, see [DEPLOY.md](../DEPLOY.md)).
 
-1. Supabase dashboard → the project → **SQL Editor** → **New query**.
-2. Paste, with your own values, and click **Run**:
-   ```sql
-   select vault.create_secret('https://<your-worker>.onrender.com', 'worker_url');
-   select vault.create_secret('<the WORKER_API_KEY from Step 3>', 'worker_api_key');
-   ```
-3. The schedule itself is created by migration `0013_ratings_cron.sql` (see [DEPLOY.md](../DEPLOY.md)).
-   From the next full hour, **Admin › Sync** shows runs with trigger **cron**.
+The only thing to check is that the worker's address is right. In Supabase → **SQL Editor**:
+
+```sql
+select key, value from app_settings;
+```
+
+`worker_url` must be your worker's address (for example `https://feedback-loop-50w0.onrender.com`).
+If it is not, `update app_settings set value = 'https://<your-worker>.onrender.com' where key = 'worker_url';`.
+After the next slot, **Admin › Sync** shows a run with trigger **cron:Asia/Kolkata**; if the
+worker did not answer, the same page counts it under "scheduled runs not picked up".
 
 ---
 
@@ -160,9 +163,9 @@ asleep). It needs to know the worker's address and the secret word. Both are sto
 | Sync failed: **"403 — the sheet is not shared…"** | The sheet is not shared with the robot account | Share it with the account's `client_email` as Viewer ([sheet setup](GOOGLE_SHEET_SYNC_SETUP.md)). |
 | Sync failed: **"missing required column(s) [X]"** | Someone renamed a header in the sheet | Rename it back, or tell the dev team. |
 | Sync failed: **"no active scoring config"** | No scoring version is active | Admin › Scoring → activate one (version 1 is the manager's original). |
-| No runs with trigger **cron** ever appear | The Vault secrets from Step 6 are missing (the database logs "vault secrets … not set — skipping") | Do Step 6. |
+| No runs with trigger **cron:Asia/Kolkata** ever appear | `worker_url` in `app_settings` is wrong, or the worker never answered (Admin › Sync counts these under "scheduled runs not picked up") | Do Step 6; check the worker's logs on Render around 10:00 India time. |
 | Slack cards say **"No owner assigned"** | The course has nobody on it | Admin › People → add the course's people and pick a handler. |
-| First analysis of the day is slow (about a minute extra) | The free worker sleeps when idle and has to wake up | Normal — nothing to fix. The hourly timer fires twice for the same reason. |
+| First analysis of the day is slow (about a minute extra) | The free worker sleeps when idle and has to wake up | Normal — nothing to fix. The scheduled sync retries five minutes later for the same reason. |
 
 ---
 
@@ -173,7 +176,7 @@ asleep). It needs to know the worker's address and the secret word. Both are sto
 - **I changed the database password.** Update `DATABASE_URL` in Render (Step 3) with the new
   password and click **Save Changes** — it redeploys on its own.
 - **Which variables are truly required?** For analyses: `DATABASE_URL` and `ANTHROPIC_API_KEY`. For
-  the hourly sync, also `RATINGS_SHEET_ID` and the Google key (Step 4). Everything else depends on
+  the sync, also `RATINGS_SHEET_ID` and the Google key (Step 4). Everything else depends on
   which features you use.
 - **Where do I see whether the sync is healthy?** Admin › Sync in the app, and `/health` on the
   worker.

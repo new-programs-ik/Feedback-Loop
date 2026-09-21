@@ -13,8 +13,8 @@ touches it.
   functions, **RLS policies**, and seed data.
 - `migrations/0002_auth_hooks.sql` — the JWT role-claim hook + the new-user provisioning trigger.
 - `migrations/0003` … `0014` — feedback-module additions, team access, the ratings ingest
-  (`class_ratings`, `sync_runs`, handlers, notifications), the hourly cron, the approval vote.
-- **Feedback Loop v3 (0015 → 0021, applied in this order; all additive, all idempotent):**
+  (`class_ratings`, `sync_runs`, handlers, notifications), the instructor approval columns.
+- **Feedback Loop v3 (0015 → 0031, applied in this order; all additive, all idempotent):**
   - `0015_scoring_configs.sql` — the Class Sentiment Score in the database: `scoring_configs`
     (versioned, one active), `score_class_rating()`, `course_priors()`, `apply_scoring_config()`
     (activate + re-score every class), `scoring_whatif_summary()` (preview any config),
@@ -30,8 +30,16 @@ touches it.
   - `0019_rollups_queue_sync.sql` — `v_course_month_rollup`, `v_instructor_rollup`,
     `v_cohort_journey`, `v_topic_hotspots`, `queue_rows()`, sync metrics, `report_shares`.
   - `0020_learner_contract.sql` — the empty learner layer (`learners`, `learner_ratings`,
-    `learner_import_runs`); contract in `docs/LEARNER_INGEST_CONTRACT.md`.
+    `learner_import_runs`); empty, kept for a learner export that has not arrived.
   - `0021_tighten_reads.sql` — ratings tables readable by staff (admin / pm) only.
+  - `0022_accept_merges_records.sql` — accepting a duplicate-name suggestion merges the spelling's own record.
+  - `0023_flip_share_definition.sql` — one definition of "flips on one answer" for the scoring page preview.
+  - `0024`, `0025` — the scoring function learns the six-response rules (versions 9 and 10; 10 is live).
+  - `0026_kb_export_views.sql` — the `kb` schema: three read-only views and the `kb_reader` role for other teams.
+  - `0027_sync_schedule.sql`, `0031_sync_checks_on_the_hour.sql` — the scheduled sync: `sync_triggers`, `app_settings`, the trigger functions, the `pg_cron` checks (10:00, 12:00, 14:00 India time).
+  - `0028_sync_fingerprints.sql` — `row_hash` on class rows; the sync skips rows the sheet did not change.
+  - `0029_tighten_access.sql` — share links, members, handlers, scoring versions and audit inserts are staff-only.
+  - `0030_sync_heartbeat.sql` — `heartbeat_at` on sync runs.
 - `fixtures/scoring_cases.json`, `fixtures/scoring_configs.json` — the scoring contract (94 cases,
   six configs) shared by `analysis/sentiment_score.py`, the SQL function and the web mirror.
 - `test_scoring_sql.py` — runs every fixture case through `score_class_rating()`; exits non-zero on

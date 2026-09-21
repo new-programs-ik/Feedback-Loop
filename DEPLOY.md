@@ -7,26 +7,26 @@ steps for the v3 release, and how to roll back.
 |---|---|---|
 | **Database** | Supabase — Postgres, sign-in, row-level security | One Supabase project, **shared by local work and production** |
 | **Website** | Next.js (`web/`) | **Vercel** → https://feedback-loop-ten.vercel.app · auto-deploys on push to `main` |
-| **Worker** | Python FastAPI (`ratings_module_build_kit/`) — the hourly ratings sync **and** the AI analysis engine | **Render**, as a Docker container · auto-deploys on push to `main` |
+| **Worker** | Python FastAPI (`ratings_module_build_kit/`) — the ratings sync (three times a day, India time) **and** the AI analysis engine | **Render**, as a Docker container · auto-deploys on push to `main` |
 
 > 🧑‍💻 **Setting the worker up click by click (non-technical):** [docs/RENDER_SETUP.md](docs/RENDER_SETUP.md).
 > **Connecting the ratings sheet:** [docs/GOOGLE_SHEET_SYNC_SETUP.md](docs/GOOGLE_SHEET_SYNC_SETUP.md).
 
 ---
 
-## 1. The v3 release, in order
+## 1. Releasing a change, in order
 
-**Only on Bishal's word, after his local walkthrough.** One fact shapes everything below: local
-work and production share one database. Migrations 0015–0023 are *additive* (new tables, columns
-and functions; nothing dropped or renamed) and *idempotent* (safe to run twice). Applying them
-changes nothing on the live site until the new code is deployed.
+One fact shapes everything below: local work and production share one database. Every migration
+is *additive* (new tables, columns, functions and policies; nothing dropped or renamed) and
+*idempotent* (safe to run twice). Applying one changes nothing on the live site until the code
+that uses it is deployed, so the order is always: migration, then code.
 
 ### Before you start
 
 - The Google service-account key file is at `ratings_module_build_kit/google-sa.json` and the
   ratings sheet is shared with that account as **Viewer**.
-- Tests are green: worker `python -m unittest` (285), web `npm test` (107), web `npx tsc --noEmit`,
-  and `supabase/test_scoring_sql.py` against the database (94 fixture cases).
+- Tests are green: worker `pytest -q` (404), web `npm test` (144) and `npx tsc --noEmit` and
+  `npx next build`, and `supabase/test_scoring_sql.py` against the database (120 fixture cases).
 - Take a backup:
   ```bash
   ./ratings_module_build_kit/.venv/Scripts/python analysis/db_backup.py
@@ -65,26 +65,37 @@ $P supabase/apply_migrations.py 0023_flip_share_definition.sql
 | `0021_tighten_reads.sql` | Ratings tables readable by staff only. |
 | `0022_accept_merges_records.sql` | Accepting a duplicate-name suggestion merges the spelling's own record when it has one (undoable), instead of leaving an empty identity behind. |
 | `0023_flip_share_definition.sql` | One definition of "flips on one vote" shared with the validation study (share of every class in the window). |
+| `0024_trust_approval_from_min_answers.sql` | The scoring function reads a `thin` block: below a number of approval answers a passing approval does not count (scoring version 9, since replaced). |
+| `0025_too_few_responses_low_rating_read.sql` | `min_votes.low_rating_line`: under the response floor a class rated below the line is still read (scoring version 10, live). |
+| `0026_kb_export_views.sql` | The `kb` schema (three read-only views) and the `kb_reader` role for other teams' knowledge bases. |
+| `0027_sync_schedule.sql`, `0031_sync_checks_on_the_hour.sql` | The scheduled sync: `sync_triggers` (single-use tokens), `app_settings` (worker address, hours, zones), the trigger functions, the `pg_cron` checks. |
+| `0028_sync_fingerprints.sql` | `class_ratings.row_hash` and `sync_runs.rows_unchanged`: the sync skips rows the sheet did not change. |
+| `0029_tighten_access.sql` | Share links, course members and handlers, scoring versions and audit inserts are staff-only. |
+| `0030_sync_heartbeat.sql` | `sync_runs.heartbeat_at`: a long run says it is alive; stale means no heartbeat. |
 
 Migrations 0012–0014 are already applied; re-running them is harmless. Do **not** re-run
 `0000_drop_legacy_m1.sql` on a database with real data (it is the one-time legacy drop) — that is
 why the files are listed by name above rather than run as a batch.
 
-### Step 2 — the two Vault secrets for the hourly timer
+### Step 2 — the schedule (no secrets to paste)
 
-Migration `0013_ratings_cron.sql` schedules two jobs (`ratings-sync-hourly` at :00 and
-`ratings-sync-hourly-retry` at :05) that call the worker's `POST /sync-ratings`. The job reads the
-worker's address and the shared secret from **Supabase Vault**; until both exist it logs
-"vault secrets worker_url/worker_api_key not set — skipping" and does nothing. Create them once,
-by hand, in the Supabase SQL editor (never in a file):
+Migrations `0027` and `0031` create the schedule. `pg_cron` runs a check at :00, :05, :30 and :35
+every hour; the check fires when a configured time zone's local clock reads one of the configured
+hours. Today: **10:00, 12:00 and 14:00 India time**, each with a retry five minutes later for a
+worker that was asleep. Every run mints a single-use token in `sync_triggers` and posts it to the
+worker's `POST /sync-ratings/cron`; the worker spends the token (unused, under ten minutes old)
+before it starts. No key is stored in the database.
 
-```sql
-select vault.create_secret('https://<your-worker>.onrender.com', 'worker_url');
-select vault.create_secret('<the same value as WORKER_API_KEY on Render>', 'worker_api_key');
-```
+Three rows in `app_settings` drive it; change them with an `update`, no migration needed:
 
-If 0013 has not been applied yet, apply it *after* the worker is live:
-`$P supabase/apply_migrations.py 0013_ratings_cron.sql`.
+| Key | Value today | Meaning |
+|---|---|---|
+| `worker_url` | `https://feedback-loop-50w0.onrender.com` | Where the worker lives. Change it if the worker moves. |
+| `sync_local_hours` | `10,12,14` | The local hours to run at. |
+| `sync_timezones` | `Asia/Kolkata` | The zone(s) those hours are read in. Adding a second zone is one edit. |
+
+Admin › Sync shows every run and counts "scheduled runs not picked up" (a token minted that the
+worker never spent), which is the sign the worker was unreachable.
 
 ### Step 3 — the worker's environment on Render
 
@@ -94,10 +105,10 @@ Set these on the worker service (Render → the service → Environment). Never 
 |---|---|---|
 | `ANTHROPIC_API_KEY` | **yes** | Runs the AI analysis. |
 | `DATABASE_URL` | **yes** | The sync writes every class row here; background analyses save their result here. |
-| `WORKER_API_KEY` | **yes** in production | Shared secret. Every POST must carry `Authorization: Bearer <it>`; the same value goes on the web app and into Vault (step 2). |
+| `WORKER_API_KEY` | **yes** in production | Shared secret. Every POST must carry `Authorization: Bearer <it>`; the same value goes on the web app. (The scheduled sync does not use it: it carries a single-use token instead.) |
 | `RATINGS_SHEET_ID` | **yes** for the sync | The long id in the sheet's URL. |
 | `GOOGLE_SA_JSON_FILE` | **yes** for the sync | Path to the service-account key. On Render, upload the key as a **Secret File** named `google-sa.json` and set this to `/etc/secrets/google-sa.json`. (`GOOGLE_SA_JSON` with the key's JSON content is the alternative; the file wins.) |
-| `RATINGS_SOURCE` | optional | `sheet` (default) or `metabase` (later). |
+| `RATINGS_SYNC_FULL` | optional | `1` forces the next sync to rewrite every row instead of only the rows the sheet changed (after a logic change). |
 | `RATINGS_SHEET_TABS` | optional | Default `MLSU_Live_Class_Poll,Agentic_AI_Live_Class_Poll`. |
 | `SLACK_BOT_TOKEN`, `SLACK_PM_CHANNEL_ID` | recommended | The flag cards and the "sync failed" alerts go to this channel. The bot needs `users:read.email` to mention people by their IK email. |
 | `UI_URL` | recommended | The site the cards link to and the sync pings after a green run: `https://feedback-loop-ten.vercel.app`. |
@@ -106,8 +117,7 @@ Set these on the worker service (Render → the service → Environment). Never 
 | `VIDEO_MAX_FRAMES` | optional | Frames sampled per video analysis (default 60; **40** is the safe value on Render's free tier). |
 | `VIDEO_DISABLED` | optional | `1` = kill-switch; analyses run transcript-only. |
 | `GOOGLE_ACCESS_TOKEN` | optional | Only for private Google Drive materials. |
-| `LEARNER_SOURCE` | leave unset | `POST /sync-learners` answers 501 until a learner-level source exists. |
-| `METABASE_*` | later | Only when `RATINGS_SOURCE=metabase`. |
+| `SLACK_LEADERSHIP_CHANNEL_ID`, `REPORTS_DRIVE_FOLDER_ID` | when the reports are scheduled | The monthly and yearly reports (`reports.py`) post to Slack and upload to this Drive folder. Not scheduled yet. |
 
 Render injects `PORT`; the image binds to it. `RENDER_GIT_COMMIT` is also injected and shows up
 as `commit` on `/health`.
@@ -118,7 +128,7 @@ as `commit` on `/health`.
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | The Supabase project URL. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The publishable (anon) key; safe in the browser, protected by row-level security. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only. Used for the few writes that must bypass row-level security (a PM's what-if proposal). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only. Used for the few reads that must bypass row-level security (resolving a share-link token, the scheduler's token table on the Sync page). |
 | `ANALYSIS_WORKER_URL` | The worker's URL. |
 | `WORKER_API_KEY` | The same secret as on the worker. The web app sends it when it asks the worker to analyse or to sync, and requires it on `POST /api/revalidate` (the worker's "fresh data" ping). Without it that endpoint refuses everything. |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | Optional. The contact shown on the error page (defaults to the New Programs address). |
@@ -144,11 +154,13 @@ for both to go green.
 7. From a queue row, **Analyze** → the New analysis form arrives prefilled → run one analysis
    end to end and mark it approved.
 
-### Step 7 — watch the first hourly run
+### Step 7 — watch the first scheduled run
 
-Admin › Sync shows every run: status, trigger (`cron` or `manual`), duration, fetched, upserted,
-scored, the band counts, unparsed cohorts, unresolved names, suggestions. A failed run also posts a
-warning to the Slack channel. Give it a day before calling it done.
+Admin › Sync shows every run: status, trigger (`cron:Asia/Kolkata`, `cron-retry:…` or `manual`),
+duration, rows read, written and unchanged, the band counts, unparsed cohorts, unresolved names,
+suggestions, and "scheduled runs not picked up". A failed run also posts a warning to the Slack
+channel when Slack is configured. The first run after a code change that touches the row
+fingerprint rewrites every row (about eight minutes); every run after that takes seconds.
 
 ---
 
@@ -161,12 +173,14 @@ Three levers, in any combination:
 - **Scoring.** Admin › Scoring → **Roll back to this** on the previously active version (version 1
   is the manager's original). Every class is re-scored in one step; history rows and an audit row
   are written.
-- **The timer.** Pause the hourly sync from the Supabase SQL editor:
+- **The schedule.** Pause the scheduled sync from the Supabase SQL editor:
   ```sql
-  select cron.unschedule('ratings-sync-hourly');
-  select cron.unschedule('ratings-sync-hourly-retry');
+  select cron.unschedule('ratings-sync-check-00');
+  select cron.unschedule('ratings-sync-check-05');
+  select cron.unschedule('ratings-sync-check-30');
+  select cron.unschedule('ratings-sync-check-35');
   ```
-  Re-apply `0013_ratings_cron.sql` to switch it back on.
+  Re-apply `0027_sync_schedule.sql` and `0031_sync_checks_on_the_hour.sql` to switch it back on.
 
 **Restoring rows from a backup** is a manual, table-by-table step on purpose. Each
 `<table>.jsonl` holds one row per line exactly as Postgres returned it (`row_to_json`); put rows

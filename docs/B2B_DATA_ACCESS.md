@@ -147,7 +147,7 @@ In `class_analyses`:
 
 - **Read-only.** Any write is refused by the database, not by convention.
 - **At most 5 open connections and 60 seconds per query.** Pull with one query, not one per row.
-- **Don't poll faster than hourly.** Nothing changes more often than that.
+- **Don't poll more than a few times a day.** Scores change when the sheet is pulled (10:00, 12:00 and 14:00 India time); analyses arrive when a PM approves one.
 - **Not included, by design:** transcripts (confidential, deleted after 20 days anyway), learner-level data, user accounts, Slack settings.
 - **Treat the content as internal.** It names instructors and quotes their classes.
 

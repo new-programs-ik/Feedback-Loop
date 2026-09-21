@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The website
 
-## Getting Started
+Next.js 16 (App Router), React 19, Tailwind 4, TypeScript. Deployed on Vercel from `main`. It
+talks to Supabase directly (sign-in, reads and writes under row-level security) and to the
+worker for two things only: starting an analysis and starting a sync.
 
-First, run the development server:
+## Run it
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+npm install
+npm run dev          # http://localhost:3000, against the production database (see docs/RUN_LOCAL.md)
+npm run build && npm start   # what production runs
+npm test             # node's test runner over src/**/*.test.ts
+npx tsc --noEmit     # the type check the deploy relies on
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Environment: `.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY` (server-only), `ANALYSIS_WORKER_URL`, `WORKER_API_KEY`. The full
+table is in [DEPLOY.md](../DEPLOY.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Where things are
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Path | What |
+|---|---|
+| `src/app/(app)/c/[course]/…` | The course workspace: overview, classes, queue, instructors, cohorts, modules, feedback, reports, settings |
+| `src/app/(app)/team/…` | The same across all courses, for leadership |
+| `src/app/(app)/admin/…` | Scoring versions, instructor identity, people, sync, audit |
+| `src/app/(app)/feedback/…` | The AI analysis: `new` (the form), `[id]` (the review page), `actions.ts` (start, retry, approve, discard, delete) |
+| `src/app/(app)/share/[token]` | The read-only report behind a share link (staff only) |
+| `src/lib/sentiment.ts` | The website's copy of the scoring function, pinned to `supabase/fixtures` by `sentiment.test.ts` |
+| `src/lib/labels.ts` | Every stored code as the words a person sees |
+| `src/lib/analytics.ts`, `src/lib/ratings.ts`, `src/lib/admin.ts` | The reads: summaries, movers, the queue, paging, band counts, admin lists |
+| `src/lib/nav.ts`, `src/lib/workspace*.ts`, `src/lib/session.ts` | Navigation, workspaces (`/c/<slug>` and `/team`), roles (`admin`, `pm`, `learner`) |
+| `src/components/…` | The UI: score pill and drawer, queue rows, charts, filter bar, admin panels |
 
-## Learn More
+## Rules that are not obvious
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next 16: `middleware.ts` is `proxy.ts`; `cookies()`, `headers()` and route `params` are async.
+  See [AGENTS.md](AGENTS.md).
+- Authorisation is enforced by the database's row-level security; the page and action checks
+  are the first line, not the only one. A server action still checks the role before writing.
+- Server actions that finish with `redirect()` throw a `NEXT_REDIRECT` the client must treat as
+  success (`feedback/[id]/action-buttons.tsx` shows the pattern); an action that returns
+  `{ error }` is shown as a toast.
+- Nothing shown to a person is a raw code: add words to `src/lib/labels.ts`.
+- The documentation rule in [CONTRIBUTING.md](../CONTRIBUTING.md) applies to every change here.

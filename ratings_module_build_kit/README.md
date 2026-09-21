@@ -64,7 +64,8 @@ uvicorn service:app --port 8000
 | `POST /analyze` | `{result, meta}` — the full analysis (needs `ANTHROPIC_API_KEY`) |
 | `POST /analyze-async` | same, in the background, written straight to the database |
 | `POST /revise` | rewrite a draft per the PM's instruction |
-| `POST /sync-ratings` | one ratings sync in the background (hourly via pg_cron, or "Sync now") |
+| `POST /sync-ratings` | one ratings sync in the background ("Sync now"; body `{"full": true}` rewrites every row) |
+| `POST /sync-ratings/cron` | the same sync, started by the database's schedule with a single-use token instead of the key |
 
 If `WORKER_API_KEY` is set, every POST needs `Authorization: Bearer <it>`.
 

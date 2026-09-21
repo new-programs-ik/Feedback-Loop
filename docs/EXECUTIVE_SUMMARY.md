@@ -25,7 +25,7 @@ could trust a per-instructor figure.
 
 ## 2. What Feedback Loop does now
 
-1. **Pulls every rated class from the team's ratings sheet, every hour.** The sheet stays the
+1. **Pulls every rated class from the team's ratings sheet, three times a day.** The sheet stays the
    source of truth; the app keeps a scored copy of all of it, not just the classes someone chose
    to look at.
 2. **Scores every class the same way.** The **Class Sentiment Score** is one number from 0 to 100
@@ -33,7 +33,7 @@ could trust a per-instructor figure.
    responded, and how much of the room they represent. Four bands: **Excellent** (90+),
    **Good** (75–89), **Average** (60–74), **Bad** (under 60).
 3. **Lets the band decide the work.** Bad → a video analysis. Average → a transcript analysis.
-   Good or Excellent → none unless a PM asks. Too few votes → watch. The queue is the same for
+   Good or Excellent → none unless a PM asks. Too few responses → watch. The queue is the same for
    every course, and a Slack card tells the course's people why a class was flagged.
 4. **Drafts the feedback with AI**, checks its own findings with a second sceptical pass, and hands
    a PM two things: a short note to send the instructor and a detailed internal version. The PM
@@ -48,15 +48,15 @@ Every scoring setting — the weights, the 80% approval bar, the response target
 the minimum number of votes, how a missing input is treated — is stored in the database as a
 numbered **version**. Six versions are stored today: version 1 is the manager's original method
 (60 / 30 / 6 / 4, pass-or-fail on approval and responses); versions 2–6 are drafts that change one
-idea at a time (a minimum number of votes; approval earned gradually rather than all-or-nothing; a
-guard for classes with only a handful of votes; weights derived from the data; the two agreed lines
-of 4.55 and 80% as hard limits).
+idea at a time (a minimum number of responses; approval earned gradually rather than all-or-nothing;
+a guard for classes with only a handful of responses; weights derived from the data; the two lines
+of 4.55 and 80% as hard limits). Versions 7 to 10 came from the formula test and the two September
+rules; **version 10 is live**.
 
 An admin edits a draft, sees a month of real classes re-scored on the same screen — how many
 change band, how many analyses a week that means and what it costs, how many would be dropped from
 today's queue, how many would flip on a single vote — and activates it with a name and a note.
-Every class is re-scored in one step and the previous version stays one click away. Any PM can try
-the same what-if and propose it.
+Every class is re-scored in one step and the previous version stays one click away.
 
 The validation study (*Sentiment-Score-Validation.pdf* and the two-page *Sentiment-Score-One-Pager.pdf*,
 shared separately because they contain instructor names) replayed eight months of real classes
@@ -98,9 +98,9 @@ one marked **Active** on Admin › Scoring, and the queue names it.
 |---|---|---|
 | Website | Next.js on **Vercel** | Course workspaces, the team level, admin, the review screens |
 | Database | **Supabase** (Postgres, sign-in, row-level security) | Single source of truth; the scoring function; who sees what |
-| Worker | Python (FastAPI) on **Render** | The hourly ratings sync and Slack cards; the AI analysis engine |
+| Worker | Python (FastAPI) on **Render** | The ratings sync (three times a day) and Slack cards; the AI analysis engine |
 | AI model | **Claude Sonnet 5** | The reasoning behind the analysis and the self-check |
-| Data source | The team's **Google Sheet**, read by a view-only service account | Every rated class, every hour |
+| Data source | The team's **Google Sheet**, read by a view-only service account | Every rated class, at 10:00, 12:00 and 14:00 India time |
 
 Covered by **285 worker tests**, **99 web tests**, and the 94-case scoring fixture run against the
 database function.
@@ -126,15 +126,18 @@ free tiers of Vercel, Supabase and Render today.
 
 ## 9. Status and roadmap
 
-**Live today (v3):** the hourly sync; the Class Sentiment Score on every class; the queue by
-band with Slack cards; course workspaces and the team level; instructor identity; cohorts and
-modules; people and ownership with hand-over; the scoring admin with live preview and versions,
-plus the what-if for PMs; reports with print, CSV and share links; the AI feedback engine,
-unchanged; the audit log.
+**Live today:** the sync three times a day, incremental and self-scheduling with no stored
+secret; the Class Sentiment Score on every class, with the 4.3 rating floor and the six-response
+rule (scoring version 10); the queue by band with Slack cards; course workspaces and the team
+level; instructor identity; cohorts and modules; people and ownership with hand-over; the scoring
+admin with live preview and versions; reports with print, CSV and share links; the AI feedback
+engine; the audit log; a read-only export of the analyses for other teams.
 
-**Designed, not built (v1.1):** a weekly Slack digest to every course member; a server-rendered PDF;
-the learner-level pages — the tables and the ingestion contract exist, the export does not yet;
-per-course scoring overrides; a TA-quality view; the bump chart.
+**Built, not yet scheduled:** the monthly and yearly reports for leadership and for the team
+(PDF to Google Drive, link in Slack), waiting on a Drive folder and a Slack bot.
+
+**Planned:** a weekly Slack digest to every course member; per-course scoring overrides; a
+TA-quality view; fetching a class's recording link from Uplevel automatically.
 
 **What the team can decide now:** which scoring version to activate (the study's recommendation),
 who owns which course (People), and the duplicate-name suggestions waiting on Identity.

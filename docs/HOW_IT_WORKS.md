@@ -28,8 +28,8 @@
 
 ## 1. What this is, in one paragraph
 
-Feedback Loop is the New Programs team's website for class quality. Every hour it reads the
-team's ratings sheet, gives each class one score (the **Class Sentiment Score**, 0–100) and a
+Feedback Loop is the New Programs team's website for class quality. Three times a day (10:00,
+12:00 and 14:00 India time) it reads the team's ratings sheet, gives each class one score (the **Class Sentiment Score**, 0–100) and a
 band (**Excellent · Good · Average · Bad**), and puts the classes whose band calls for a closer
 look into a queue: Bad ones for a video analysis, Average ones for a transcript analysis. A PM
 confirms, the AI reads the recording and drafts the instructor feedback, and the PM edits,
@@ -56,9 +56,7 @@ Three problems, really:
 ```mermaid
 flowchart LR
   subgraph SRC["Where data comes from"]
-    GS["Google Sheet (now, hourly)"]
-    MB["Metabase (later, one switch)"]
-    LX["Learner export (later)"]
+    GS["Google Sheet (three times a day)"]
   end
   subgraph WK["The worker (Python, Render)"]
     SY["sync: read sheet → parse cohorts → resolve instructor names → save"]
@@ -90,7 +88,7 @@ flowchart LR
   ADM -- "activate a scoring version → re-score every class in one step" --> CFG
   ADM -- "merge / undo" --> ID
   SY --> NT --> CM
-  CRON["hourly timer (pg_cron, :00 and :05)"] --> SY
+  CRON["schedule (pg_cron: 10:00, 12:00, 14:00 India time, retry 5 min later)"] --> SY
   WS -- "Analyze" --> ENG --> AN
 ```
 
@@ -99,7 +97,7 @@ flowchart LR
 | **The website** | The screens you click: workspaces, the queue, the drawer, admin. It owns every read and write to the database, under row-level security. | Vercel |
 | **Sign-in** | Google, restricted to `@interviewkickstart.com`. Locally, an email + password login also works. | Supabase Auth + Google |
 | **The database** | The filing cabinet with locks. Classes and scores, the scoring versions and *the scoring function itself*, instructors and aliases, cohorts and modules, course members, analyses, the audit log. | Supabase (Postgres) |
-| **The worker** | Two jobs in one small server: the hourly ratings sync (and the "Sync now" button), and the AI analysis engine. | Render (a Docker container) |
+| **The worker** | Two jobs in one small server: the ratings sync (three times a day, and the "Sync now" button), and the AI analysis engine. | Render (a Docker container) |
 | **The ratings sheet** | The team's Google Sheet, read by a view-only "robot" account. Still the source; the app keeps a scored copy. | Google Sheets |
 | **Slack** | Where a flagged class is announced to the course's people, and where a failed sync is reported. | Slack (a bot token) |
 | **Vimeo** | The class recordings and their captions (the transcript). | Vimeo |
@@ -115,7 +113,6 @@ flowchart LR
   TEAM --> TQ["/team/queue (all courses, course chips)"]
   TEAM --> TI["/team/instructors → portfolios across courses"]
   TEAM --> TR["/team/reports"]
-  TEAM --> TS["/team/insights (the live ratings study)"]
   WS --> OV["overview"]
   WS --> CL["classes → class drawer / class page"]
   WS --> QU["queue — Needs analysis"]
@@ -126,7 +123,6 @@ flowchart LR
   WS --> RP["reports → print · CSV · share link"]
   WS --> ST["settings: team · cohorts · modules · notifications · shares"]
   ADM["/admin: scoring · identity · people · sync · audit"]
-  TOOLS["/tools/what-if (any PM)"]
   SHARE["/share/[token] (read-only report)"]
   QU -. Analyze .-> ENG["/feedback/new · /feedback/[id] — the AI engine, unchanged"]
 ```
@@ -138,18 +134,28 @@ then every course, with the team level pinned at the bottom (`⌘1`–`⌘9` jum
 the team). `⌘K` / Ctrl-K opens the command palette: any page, any course, an instructor, *Sync
 now*, the theme.
 
-**Old links keep working.** `/dashboard` and `/course-analytics` → the overview; `/ratings` → the
-queue (with `?focus=` kept, so Slack cards already sent still open the right class);
-`/instructor-analytics` → instructors; `/reports` → reports; `/insights` → `/team/insights`;
-`/feedback` → the course's feedback list; `/courses` → Admin › People; `/instructors` → Admin ›
-Identity; `/admin/users` → People; `/admin/audit-log` → Audit.
+**Old links.** `/feedback` still resolves to the person's course and its analyses list (a
+`?course=` picks the course). The other pre-v3 URLs were retired in September 2026 along with
+the study page, the What-if page and the 3D instructor view.
 
 ## 5. From the sheet to a scored class — the data pipeline
 
-**When.** Every hour: a timer inside the database (`pg_cron`, migration 0013) calls the worker's
-`POST /sync-ratings` at :00, and again at :05 in case the worker was asleep (Render's free tier
-sleeps when idle; a second run is harmless because a sync that finds another one running just
-stops). Any staff member can also press **Sync now** (queue page, Admin › Sync, or `⌘K`).
+**When.** Three times a day, at 10:00, 12:00 and 14:00 India time, with a retry five minutes
+after each in case the worker was asleep (Render's free tier sleeps when idle; a second run is
+harmless because a sync that finds another one running just stops). A timer inside the database
+(`pg_cron`, migrations 0027 and 0031) mints a single-use token and posts it to the worker's
+`POST /sync-ratings/cron`; the worker spends the token before it starts, so no key is stored in
+the database. The hours and the time zone are rows in `app_settings`. Any staff member can also
+press **Sync now** (queue page, Admin › Sync, or `⌘K`).
+
+**How much it does.** Every sheet row gets a fingerprint of its values, stored on the class row.
+A run reads the whole sheet but writes only rows whose fingerprint changed, so an everyday run
+takes seconds (a full rewrite, forced with `RATINGS_SYNC_FULL=1`, takes about eight minutes). A
+row the sheet no longer has, typically because an instructor's spelling was corrected and a new
+row took its place, is removed, unless a person acted on it; never more than a small share in one
+run, and only inside tabs that actually returned rows. Week numbers are recomputed for every cohort
+each run. A running sync reports a heartbeat every half minute; a run without one for ten minutes
+is marked failed so the page never shows a ghost run.
 
 **What is read.** The two default tabs (`MLSU_Live_Class_Poll` and `Agentic_AI_Live_Class_Poll`;
 `RATINGS_SHEET_TABS` changes that), through a service account that can only *view* the one sheet
@@ -188,7 +194,9 @@ harmless; renaming a required one stops the run with the column named.
    per course; a class name the table has never seen becomes a new topic.
 5. **The row is saved and scored in one statement.** The save calls the database's scoring
    function with the active scoring version and the course's typical values, and stores the score,
-   the band, the action (video / transcript / none / watch), whether it is provisional, the flags,
+   the band, the action (stored as video / transcript / none / watch; shown as watch the recording /
+   read the transcript / nothing needed / too few responses), whether it rests on very few
+   responses, the flags,
    the full breakdown and the version that produced it. The queue's `decision` follows the action
    — unless a PM has frozen the row (a manual override, a dismissal, an analysis already started,
    or an escalation, which is always video).
@@ -221,7 +229,7 @@ One number per class, 0 to 100, two decimals, and a band read from it:
 | **Good** | 75 – 89.99 | fine on both lines | nothing, unless a PM asks |
 | **Average** | 60 – 74.99 | one line missed — worth a transcript read | transcript analysis |
 | **Bad** | under 60 | both lines missed, or the score itself is under 60 | video analysis |
-| *(no band)* | — | too few votes to judge | watch |
+| *(no band)* | — | too few responses to judge (fewer than 6) | watch |
 
 Every band → action mapping, every weight and every bar below is a **setting of the active scoring
 version** (section 12). The descriptions here explain the machinery; the exact numbers in force
@@ -265,32 +273,40 @@ you see on the screen is exactly what drives the queue.
 
 ### The safeguards a version can switch on
 
-- **Minimum votes.** Two floors: below the first, no band is shown at all ("— · too few voices");
-  below the second, a band is shown but marked **provisional** and the class goes to *watch*
-  rather than to an analysis.
+- **Minimum responses.** Two floors: below the first, no band is shown at all ("— · too few
+  responses"); below the second, a band is shown but marked *based on very few responses* and the
+  class goes to *watch* rather than to an analysis. **The live version sets both at 6**, because a
+  percentage of three people is not evidence that a class went well or badly.
+- **The low-rating exception.** Even with too few responses, a class rated below the line the team
+  set (**4.3**) is banded Average so its transcript is read: a low rating is worth a look whatever
+  the head-count.
+- **The rating floor.** A class rated below **4.3** can never sit above Average, however good its
+  approval: the VP's rule that a low rating always earns at least a transcript read.
 - **The small-sample guard.** With few votes, the class's rating and approval are blended with the
   course's typical values (weight *k*, typically 5), so three opinions cannot sink a class on their
   own; once a class has ten or more votes its own numbers dominate.
-- **The hard lines.** Under the 4.55 rating line, or under the 80% approval bar (with enough votes
-  to count), the band can never sit above **Average**; missing both makes it **Bad**, whatever the
-  score says. This keeps the two lines the team already agreed.
+- **The hard lines.** Under the version's rating line (4.55 in the original design, 4.3 in the
+  live version), or under the 80% approval bar (with enough responses to count), the band can
+  never sit above **Average**; missing both makes it **Bad**, whatever the score says.
 
 ### The action
 
 The band picks the action from the version's mapping (today: Bad → video, Average → transcript,
 Good and Excellent → none, no band → watch). Two overrides: an **escalated** class is always
-*video*, whatever its numbers; and a **provisional** band goes to *watch*.
+*video*, whatever its numbers; and a band that rests on very few responses goes to *watch*.
 
 ### The flags
 
 Alongside the score the database stores plain flags, shown in words on the class drawer and the
-Slack card: *no vote recorded*, *nobody responded*, *attendance is missing*, *more raters than
-attendees (reach capped at 100%)*, *the rating and the vote disagree*, *few votes — blended with
-the course's typical values*, *no track record yet*, *under the 4.55 rating line*, *under the 80%
-approval bar*, *too few voices for a band*, *too few voices for an analysis — provisional*,
-*escalated by a PM*. Negative or nonsense numbers are rejected: no score, no band, *watch*.
+Slack card: *no approval answer recorded*, *nobody responded*, *attendance is missing*, *more
+learners rated than attended (capped at 100%)*, *the rating and the instructor approval
+disagree*, *few responses — blended with the course's typical values*, *no track record yet*,
+*rated below the line the team set*, *instructor approval below the bar the team set*, *too few
+responses for a band*, *too few responses to judge, but rated below 4.3, so the transcript is
+read*, *escalated by a PM*. Negative or nonsense numbers are rejected: no score, no band, *watch*.
+A flag the website does not know is left out of the list rather than shown as a code.
 
-### The six stored versions
+### The stored versions
 
 | Version | Name (as stored) | What it changes against version 1 |
 |---|---|---|
@@ -300,9 +316,15 @@ approval bar*, *too few voices for a band*, *too few voices for an analysis — 
 | 4 | Graded + small-sample guard | As 3, plus graded responses, the guard (k = 5), a band from 3 votes and an analysis from 5. |
 | 5 | Data-derived weights | The rating knee, graded approval, responses and reach switched off, the track record on; weights 60 / 25 / 15; guard k = 5; 3 / 5 votes. |
 | 6 | Two lines + graded score | As 5, plus the two hard lines (4.55 and 80%). |
+| 7 | Recommended · validated on Jan–Aug 2026 | Version 6 without the small-sample guard, the candidate the study recommended. Retired after the formula test. |
+| 8 | Original + the 4.3 rating floor | The manager's original with one hard line: rated below 4.3 can never sit above Average (Sreejit's rule, September 2026). Retired. |
+| 9 | 4.3 floor + approval counts from 6 answers | As 8; below 6 approval answers a passing approval added no points. Retired the same day: a "no" from 1 of 3 still sent a 4.67 class to video. |
+| **10** | **4.3 floor + too few below 6 responses** | **Live.** As 8, and a class with fewer than 6 responses gets no band and no automatic analysis, unless it is rated below 4.3, in which case its transcript is read. |
 
-All six are seeded by migration 0015 from `supabase/fixtures/scoring_configs.json`. Version 1 is
-made active on first run if nothing else is; the others are drafts. The **validation study**
+Versions 1 to 6 are seeded by migration 0015 from `supabase/fixtures/scoring_configs.json`; 7 to
+10 were created on the scoring page. **Version 10 is active.** The formula test that settled the
+choice ran twelve real classes through the candidates with the verdicts written down before the
+results existed; Karthika's original weights won, and the two September rules were added on top. The **validation study**
 (`analysis/sentiment_run_all.py` → `Sentiment-Score-Validation.pdf` and the two-page
 `Sentiment-Score-One-Pager.pdf`, shared separately because they carry instructor names) replays
 eight months of real classes through all six and recommends which to activate. Whatever the team
@@ -314,7 +336,7 @@ One component draws every score: **number + band label, always** — colour only
 band bar sits underneath. Hover or focus shows the breakdown: each part, what was measured, the
 points earned out of the weight, the version, and what the rule says. Averages (a course, an
 instructor, a cohort, a module) are drawn **outlined and say "avg"**, so an average is never
-mistaken for a class score. A class with no band shows **"— · too few voices"**, never a fake
+mistaken for a class score. A class with no band shows **"— · too few responses"**, never a fake
 number. The same score appears in the classes table, the drawer, the queue, the portfolios, the
 reports, the CSV export and the Slack card.
 
@@ -357,8 +379,8 @@ per course), in three sections:
 
 - **Bad → video**
 - **Average → transcript**
-- **Watch** — classes with fewer votes than the version's analysis floor (no band, or a
-  provisional one).
+- **Watch** — classes with fewer responses than the version's analysis floor (no band, or one
+  that rests on very few responses).
 
 Under every row, the reason in plain words — *"Rated 4.31 · 7 of 16 would have the instructor back
 (44%) → Bad → video analysis."* — and the flags. At the top, **the week's cost**:
@@ -389,7 +411,7 @@ bar), reach, the open queue — each against the previous period of the same len
 week* (with the four band zones shaded), *Band mix by week*, *Worst classes* (a row opens the
 class), *Instructors* (three or more classes, with a bullet against the course average), *Live vs
 review* ("is it the class or the review?"), *Module hot-spots*, *Cohorts* as small multiples,
-*Reach vs score* ("are low scores just thin turnout?"), and a *Calendar* of the average score per
+*Score against how many learners rated* ("is a low score just a few people rating?"), and a *Calendar* of the average score per
 day ("do bad classes cluster on certain days?").
 
 **Classes.** Every class in the period, scored, 50 to a page, sortable, with a compact-density
@@ -464,15 +486,9 @@ share of Bad classes; *Every course, one axis* (small multiples against all cour
 — flagged → confirmed → analysed → approved → sent over the last 30 days, with days per step.
 
 `/team/queue` is the same queue across every course with a chip per course. `/team/instructors`
-is the directory across courses (with the 3D galaxy as an optional *3D view* behind a toggle, off
-by default — the table is the product). `/team/reports` is the report across courses.
-`/team/insights` is the live study: the five numbers the validation put in front of leadership
-(band flips on one vote, Bad classes rated 4.55+, low classes shown Good/Excellent, analyses a
-week, next-class risk by band) recomputed from the database for the manager's original setting
-and the live setting, beside what the offline study measured; then how many voices make a band
-firm, the vote against the rating, the trend leadership should watch (rating, share under 4.55,
-class size by month), every course sortable, content vs delivery, fairness slices (live vs review,
-region, weekday), and where this goes.
+is the directory across courses. `/team/reports` is the report across courses. (The live study
+page, the 3D instructor view and the What-if page were removed in September 2026: research
+views nobody used day to day.)
 
 ## 10. People and ownership — and the Slack cards
 
@@ -542,7 +558,8 @@ database) or **retired**. Every stored class score carries the version that prod
 **Admin › Scoring** is one screen in two halves. On the left: what to start from (the active
 version, any stored version, or the two presets — the manager's original and *Two lines + graded
 score*), the draft's name, key and note, and every setting: the rating scale, the approval mode
-and bar, the response target, reach, the track record, the weights, the guard, the vote floors,
+and bar, the response target, rated ÷ attended, the track record, the weights, the guard, the
+response floors,
 the hard lines, the band edges, what a missing input does, and the band → action mapping. On the
 right: **the live preview** over a chosen month or range of real classes — the band mix before
 and after, *Classes that change band*, *Analyses per week* (video and transcript, and the cost per
@@ -560,10 +577,6 @@ history rows written, an audit row recorded (`scoring_published` or `scoring_rol
 every page refreshed. The queue's `decision` follows the new action on every row a PM has not
 frozen.
 
-**Tools › What-if** is the same editor and preview for any PM. Nothing there changes the live
-score; **Propose to admin…** saves the settings as a draft with the PM's name and note, and the
-admin sees it under Versions.
-
 ## 13. Reports and sharing
 
 Per course (`/c/<course>/reports`) and across the team (`/team/reports`): **Weekly**, **Monthly**
@@ -579,8 +592,9 @@ Three ways out:
 - **Print / Save PDF** — the browser's print, with A4 page breaks between sections and the chrome
   hidden. (A server-rendered PDF is planned; today the PDF comes from your browser.)
 - **CSV** — every scored class in the period: date, course, cohort, kind, class, instructor (and
-  the spelling as recorded), rating, rated, attended, reach, the votes, approval, score, band,
-  action, provisional, which version scored it, the review status, and the reason.
+  the spelling as recorded), rating, rated, attended, rated ÷ attended (`reach_pct`), the yes and
+  no answers, approval, score, band, action, whether it rests on very few responses
+  (`provisional`), which version scored it, the review status, and the reason.
 - **Share** — a read-only link (`/share/<token>`): an unguessable token, an expiry (30 days by
   default, up to a year), revocable by its creator or an admin from the course's Shares tab or
   Admin › People. The page behind it shows the headline tiles, the band mix, live vs review, the
@@ -656,10 +670,11 @@ silence to a false criticism, and anchors every point to a verbatim quote and a 
 | Every rated class from the sheet (course, cohort text, class name, instructor, date, kind, rating, responses, attended, the vote) | ✅ Yes | A scored copy of the sheet, in the locked database. |
 | The score, band, action, flags, breakdown, version — and the history of changes | ✅ Yes | So before and after can be compared, and a rollback is honest. |
 | Instructors, aliases, suggestions, merges; cohorts; modules; course members (IK email, Slack user id) | ✅ Yes | The identity and ownership layers. |
-| The analysis result, the feedback drafts and your edits | ✅ Yes | The point of the tool. |
+| The analysis result, the feedback drafts and your edits | ✅ Yes, **kept for at least two years** | The point of the tool. Nothing deletes them; the instructor pages read all of it. |
 | The transcript | ⏳ Yes, then **auto-deleted after 20 days** | A scheduled job wipes old transcripts. |
 | **Uploaded materials and video frames** | ❌ **Never** | Read once in memory for that analysis, then discarded. |
-| Share links | ✅ The token, the period, the expiry, who made it | Revocable; the page still needs an IK sign-in. |
+| Share links | ✅ The token, the period, the expiry, who made it | Revocable; the page needs a staff sign-in. |
+| The `kb` export views | ✅ Read-only views of the analyses and scores | For other teams' knowledge bases, through a role that can read nothing else ([B2B_DATA_ACCESS.md](B2B_DATA_ACCESS.md)). |
 | Every meaningful action (activations, merges, hand-overs, confirmations, dismissals, share links…) | ✅ The audit log | Admin › Audit, filterable by action. |
 | Anything on GitHub | ❌ No confidential data | The code and these docs only. The workbook, the study PDFs and Word documents, key files and `.env` files are gitignored. |
 
@@ -667,7 +682,7 @@ silence to a false criticism, and anchors every point to a verbatim quote and a 
 
 | Role | Can |
 |---|---|
-| **Staff — PM** (any IK sign-in) | Read every course; the queue's actions; run, review and approve analyses; the what-if simulator and *Propose to admin*; create and revoke their own share links; map an unmapped sheet label; press Sync now. |
+| **Staff — PM** (any IK sign-in) | Read every course; the queue's actions; run, review and approve analyses; create and revoke their own share links; map an unmapped sheet label; press Sync now. |
 | **Course owner** (a membership role) | Everything a PM can, plus edit that course's settings: team, handler, hand-over, cohorts, modules, notifications. |
 | **Admin** | Everything, plus Scoring (publish, roll back), Identity (accept, merge, undo), People (the matrix, course identity, all share links), Sync, Audit. |
 | **Learner** | Reserved for the future; sees nothing of the ratings. |
@@ -680,8 +695,8 @@ migration 0021 the ratings tables are readable by staff only.
 the week's total before anyone starts. The website, the database and the worker run on the free
 tiers of Vercel, Supabase and Render today; the sheet is read through a free service account.
 
-**Outside services.** Vercel (the website) · Supabase (Postgres, sign-in, the hourly timer via
-`pg_cron` and `pg_net`, the Vault for the timer's two secrets) · Render (the worker) · Google
+**Outside services.** Vercel (the website) · Supabase (Postgres, sign-in, the schedule via
+`pg_cron` and `pg_net` with single-use tokens, no stored secret) · Render (the worker) · Google
 (sign-in restricted to IK; the Sheets API through a view-only service account) · Slack (a bot
 token, one channel) · Vimeo (recordings and captions) · Anthropic (Claude) · GitHub (the code).
 
@@ -689,38 +704,41 @@ token, one channel) · Vimeo (recordings and captions) · Anthropic (Claude) · 
 
 Designed in the v3 plan and left for the next release. None of these exist in the app today:
 
+- **The two automatic reports.** A leadership report (all courses) and a team report (one
+  chapter per course) are built (`ratings_module_build_kit/reports.py`) and run from the command
+  line; scheduling them monthly and yearly to Google Drive and Slack waits on a Drive folder and
+  a Slack bot.
 - **The weekly Slack digest** to every course member (the routing table is in place).
-- **A server-rendered PDF** for the reports (today: the browser's print).
-- **The learner-level pages** — the learner × week heatmap, the at-risk list, the rater-bias and
-  "who says no" panels. The tables (`learners`, `learner_ratings`, `learner_import_runs`) exist,
-  empty, and the ingestion contract is written ([LEARNER_INGEST_CONTRACT.md](LEARNER_INGEST_CONTRACT.md));
-  the worker's `POST /sync-learners` answers "not configured" until a learner-level export exists.
 - **Per-course scoring overrides** (one version applies to every course).
 - **A TA-quality view** from the sheet's TA tab.
 - **The bump chart** (rank by month).
-- **Metabase as the ratings source** — the switch (`RATINGS_SOURCE=metabase`) and the seam exist;
-  the sheet is the source today.
 - Validating the manager's other two sheet models (Instructor Insight risk labels, Topic Fit)
   with the same yardsticks as the score.
 
 ## 17. Glossary
 
-- **Class Sentiment Score** — the 0–100 number every class gets, from the rating, the approval
-  vote, the responses, the reach and (in some versions) the instructor's track record.
+- **Class Sentiment Score** — the 0–100 number every class gets, from the rating, the instructor
+  approval, the responses, rated ÷ attended and (in some versions) the instructor's track record.
 - **Band** — Excellent (90+), Good (75–89), Average (60–74), Bad (under 60), read from the
-  rounded score. **No band** = too few votes.
-- **Action** — what the band calls for: video analysis, transcript analysis, none, or watch.
-- **Provisional** — a band shown from fewer votes than an analysis needs; the class is watched.
-- **Approval vote** — the learners' Yes / No to "would you want this instructor to take the class
-  again?"; the bar is 80%.
-- **Reach** — the share of attendees who rated (responses ÷ attended).
+  rounded score. **No band** = too few responses.
+- **Action** — what the band calls for: watch the recording, read the transcript, nothing needed,
+  or too few responses (watch).
+- **Too few responses** — fewer than 6 learners answered; no band is shown and nothing is analysed
+  automatically, unless the class is rated below 4.3.
+- **Based on very few responses** — a band shown from fewer responses than an analysis needs; the
+  class is watched.
+- **Instructor approval** — the learners' Yes / No to "would you want this instructor to take the
+  class again?"; the bar is 80%.
+- **Rated ÷ attended** — the share of learners who attended that also rated (responses ÷ attended).
 - **Responses** — how many learners rated; the target in the original method is 10.
 - **Track record** — the instructor's average rating over earlier classes (three or more).
-- **Small-sample guard** — blending a class with few votes toward the course's typical values so a
-  handful of opinions cannot decide a band on their own.
-- **Hard lines** — under 4.55 or under 80% caps the band at Average; both → Bad.
+- **Small-sample guard** — blending a class with few responses toward the course's typical values
+  so a handful of opinions cannot decide a band on their own (off in the live version).
+- **Hard lines** — under the rating line (4.3 live) or under 80% approval caps the band at Average;
+  both → Bad.
 - **Scoring version** — one stored set of every scoring setting; draft, active or retired.
-- **Queue** — the *Needs analysis* page: Bad → video, Average → transcript, Watch.
+- **Queue** — the *Needs analysis* page: Bad → watch the recording, Average → read the transcript,
+  Watch → too few responses.
 - **Escalate** — a PM forcing the video verdict.
 - **Handler** — the one person per course a flagged class is addressed to first.
 - **Owner · PM · Viewer** — the three membership roles on a course.

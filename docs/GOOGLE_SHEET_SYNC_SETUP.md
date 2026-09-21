@@ -88,4 +88,5 @@ never a penalty in the score (see `docs/HOW_IT_WORKS.md`, the Class Sentiment Sc
 
 The same two settings go into Render: the JSON as a **Secret File** at
 `/etc/secrets/google-sa.json` (and `GOOGLE_SA_JSON_FILE=/etc/secrets/google-sa.json`), plus
-`RATINGS_SHEET_ID`. The hourly schedule is switched on with migration `0013_ratings_cron.sql`.
+`RATINGS_SHEET_ID`. The schedule (10:00, 12:00 and 14:00 India time) is created by migrations
+`0027_sync_schedule.sql` and `0031_sync_checks_on_the_hour.sql` and needs no secret.
