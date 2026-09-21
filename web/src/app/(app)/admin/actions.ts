@@ -138,7 +138,6 @@ export async function createScoringDraft(input: {
   const row = data as { id: string; version: number };
   await auditLog(supabase, user, "scoring_draft_created", { config_id: row.id, version: row.version, from: input.fromConfigId ?? input.preset ?? "active" });
   revalidatePath("/admin/scoring");
-  revalidatePath("/tools/what-if");
   return done(row);
 }
 
@@ -167,7 +166,6 @@ export async function saveScoringDraft(input: {
   if (!count) return fail("Only drafts can be edited — start a new draft from this version instead.");
   await auditLog(supabase, user, "scoring_draft_saved", { config_id: input.id, name });
   revalidatePath("/admin/scoring");
-  revalidatePath("/tools/what-if");
   return done(null);
 }
 
@@ -220,7 +218,6 @@ export async function deleteScoringDraft(input: { id: string }): Promise<ActionR
   if (!count) return fail("Only drafts can be deleted.");
   await auditLog(supabase, user, "scoring_draft_deleted", { config_id: input.id });
   revalidatePath("/admin/scoring");
-  revalidatePath("/tools/what-if");
   return done(null);
 }
 

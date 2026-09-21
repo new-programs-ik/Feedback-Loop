@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { RefreshCw } from "lucide-react";
 import { LoginForm } from "./login-form";
-import { LoginHero } from "@/components/three/login-hero";
 
 function BrandMark({ className = "" }: { className?: string }) {
   return (
@@ -25,14 +24,12 @@ export default function LoginPage() {
         aria-label="Feedback Loop"
         className="bg-background relative h-64 overflow-hidden sm:h-80 lg:h-auto lg:min-h-screen lg:border-r"
       >
-        {/* the gradient backdrop — also the whole hero when WebGL is unavailable */}
+        {/* the gradient backdrop */}
         <div aria-hidden className="bg-mesh absolute inset-0" />
         <div
           aria-hidden
           className="absolute inset-0 bg-[radial-gradient(60%_55%_at_50%_48%,color-mix(in_oklch,var(--primary)_13%,transparent),transparent_72%)]"
         />
-        <LoginHero />
-
         <BrandMark className="absolute top-6 left-6 lg:top-10 lg:left-10" />
 
         {/* the three-beat pitch */}

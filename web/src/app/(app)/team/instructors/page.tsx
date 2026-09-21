@@ -3,7 +3,6 @@ import { hrefIn, listCourses } from "@/lib/workspace";
 import { PageHeader } from "@/components/page-header";
 import { ScopeBar } from "@/components/analytics/scope-bar";
 import { Leaderboard } from "@/components/analytics/leaderboard";
-import { GalaxyToggle } from "@/components/analytics/galaxy-toggle";
 import { Section } from "@/components/analytics/ui";
 import { applyScope, byInstructor, fetchScored, one, prettyDate, previousWindow, readScope, scopeQuery, scoreSummary, type SearchParams } from "@/lib/analytics";
 
@@ -28,10 +27,6 @@ export default async function TeamInstructorsPage({ searchParams }: { searchPara
   const base = "/team/instructors";
   const q = scopeQuery(scope, "90d", { course: courseId });
   const hrefFor = (key: string) => `${base}/${encodeURIComponent(key)}${q}`;
-  const galaxy = items
-    .filter((i) => i.n >= 3)
-    .map((i) => ({ name: i.name, n: i.n, avgRating: i.avgRating, approval: i.approval, avgParticipation: i.reach, bad: i.counts.bad, href: hrefFor(i.key) }));
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -45,7 +40,6 @@ export default async function TeamInstructorsPage({ searchParams }: { searchPara
         courseId={courseId}
         show={{ cohort: false, kind: true, band: true, instructor: false }}
       />
-      {galaxy.length > 0 && <GalaxyToggle points={galaxy} query={q.replace(/^\?/, "")} />}
       <Section
         title="Directory"
         subtitle="Instructors with at least 3 classes · courses they taught · Δ against the previous equal period · bullet vs the team average · click a heading to sort"

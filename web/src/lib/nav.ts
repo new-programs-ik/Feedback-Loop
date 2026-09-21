@@ -1,5 +1,5 @@
 import {
-  BookOpen, FlaskConical, GraduationCap, LayoutDashboard, Lightbulb, ListChecks, MessageSquareText,
+  BookOpen, GraduationCap, LayoutDashboard, ListChecks, MessageSquareText,
   RefreshCw, Rows3, ScrollText, Settings, SlidersHorizontal, Table2, UserCog, Users, FileText, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "./session";
@@ -40,7 +40,6 @@ export const TEAM_NAV: NavItem[] = [
   { key: "queue", label: "Queue", path: "/queue", icon: ListChecks, roles: STAFF },
   { key: "instructors", label: "Instructors", path: "/instructors", icon: GraduationCap, roles: STAFF },
   { key: "reports", label: "Reports", path: "/reports", icon: FileText, roles: STAFF },
-  { key: "insights", label: "Insights", path: "/insights", icon: Lightbulb, roles: STAFF },
 ];
 
 export const ADMIN_NAV: NavItem[] = [
@@ -49,10 +48,6 @@ export const ADMIN_NAV: NavItem[] = [
   { key: "people", label: "People", path: "/admin/people", icon: Users, roles: ["admin"] },
   { key: "sync", label: "Sync", path: "/admin/sync", icon: RefreshCw, roles: ["admin"] },
   { key: "audit", label: "Audit", path: "/admin/audit", icon: ScrollText, roles: ["admin"] },
-];
-
-export const TOOLS_NAV: NavItem[] = [
-  { key: "what-if", label: "What-if", path: "/tools/what-if", icon: FlaskConical, roles: EVERYONE },
 ];
 
 /** The URL of a nav item inside a workspace (absolute items pass through). */
@@ -68,7 +63,6 @@ export function navForRole(role: Role, slug: string | null | undefined): NavSect
     items.filter((i) => i.roles.includes(role)).map((i) => ({ ...i, href: hrefFor(i, slug) }));
   const sections: NavSection[] = [
     { title: null, items: resolve(isTeam ? TEAM_NAV : WORKSPACE_NAV) },
-    { title: "Tools", items: resolve(TOOLS_NAV) },
     { title: "Admin", items: resolve(ADMIN_NAV) },
   ];
   return sections.filter((s) => s.items.length > 0);
@@ -97,10 +91,6 @@ export const GLOBAL_LABELS: Record<string, string> = {
   people: "People",
   sync: "Sync",
   audit: "Audit",
-  users: "Users & Roles",
-  "audit-log": "Audit Log",
-  tools: "Tools",
-  "what-if": "What-if",
   share: "Shared report",
   classes: "Classes",
   queue: "Queue",
@@ -109,7 +99,6 @@ export const GLOBAL_LABELS: Record<string, string> = {
   cohorts: "Cohorts",
   modules: "Modules",
   reports: "Reports",
-  insights: "Insights",
   settings: "Settings",
   team: "All courses",
 };
