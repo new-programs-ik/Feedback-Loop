@@ -67,14 +67,29 @@ def ping_revalidate(env: dict, run_id: str, summary: dict | None = None,
         return False
 
 
-def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> dict:
-    """Returns a summary dict (also written to sync_runs). Raises only if the DB is unreachable."""
+def run_sync(trigger: str = "manual", env: dict | None = None, source=None, full: bool = False) -> dict:
+    """Returns a summary dict (also written to sync_runs). Raises only if the DB is unreachable.
+
+    Rows whose sheet values have not changed since the last run are skipped (see
+    ST.row_fingerprint); `full=True` or RATINGS_SYNC_FULL=1 pushes every row through anyway.
+    """
     env = env if env is not None else dict(os.environ)
     t0 = time.monotonic()
+    full = full or (env.get("RATINGS_SYNC_FULL") or "").strip().lower() in ("1", "true", "yes")
 
     conn = ST.connect()
     conn.autocommit = False
     cur = conn.cursor()
+
+    # A run that died with the worker (restart, redeploy) would otherwise show as running forever.
+    try:
+        stale = ST.mark_stale_runs(cur)
+        if stale:
+            log.warning("marked %d earlier sync run(s) as failed: the worker died mid-run", stale)
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        log.exception("could not mark stale sync runs; continuing")
 
     if ST.running_run_exists(cur):
         conn.commit()
@@ -98,7 +113,7 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
     run_id = ST.start_run(cur, src_name, trigger)
     conn.commit()                                   # make the guard row visible immediately
 
-    fetched = upserted = scored = flagged = notified = 0
+    fetched = upserted = scored = flagged = notified = unchanged = 0
     unmapped: list[str] = []
     bands: Counter = Counter()
     stats: Counter = Counter()
@@ -123,6 +138,8 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
         aliases = ST.load_aliases(cur)
         courses = ST.load_courses(cur)
         resolver = ST.load_instructor_resolver(cur)
+        # What is already stored, keyed like the upsert, so unchanged rows cost nothing.
+        state = {} if full else ST.load_row_state(cur)
         cohort_cache: dict = {}
         topic_cache: dict = {}
         context: dict = defaultdict(list)           # name / instructor id -> classes (for suggestions)
@@ -137,13 +154,30 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
                                              region=row.get("region"))
             for seg in report.unparsed:
                 unparsed[seg] += 1
-            cohort_ids = [c for c in ST.upsert_cohorts(cur, report.cohorts, course_id, aliases=aliases,
-                                                       courses=courses, cache=cohort_cache,
-                                                       stats=stats, source=src.name) if c]
-
             instructor_id, canonical = resolver(row["instructor"])
             if row["instructor"] and instructor_id is None:
                 unresolved[row["instructor"]] += 1
+            ref = IM.ClassRef(course_id, row["class_date"], row["topic"], row["session_kind"])
+            context[IM.normalize(row["instructor"])].append(ref)
+            if instructor_id:
+                context[instructor_id].append(ref)
+
+            # Nothing about this class changed on the sheet: keep its stored verdict in the totals
+            # and move on without touching the database.
+            known = state.get(ST.row_key(row))
+            if known is not None and known[0] == ST.row_fingerprint(row):
+                _, band, action, was_scored = known
+                unchanged += 1
+                bands[band or "no_band"] += 1
+                if was_scored:
+                    scored += 1
+                if action in ("video", "transcript"):
+                    flagged += 1
+                continue
+
+            cohort_ids = [c for c in ST.upsert_cohorts(cur, report.cohorts, course_id, aliases=aliases,
+                                                       courses=courses, cache=cohort_cache,
+                                                       stats=stats, source=src.name) if c]
             topic_id = ST.resolve_topic(cur, course_id, row["topic"], cache=topic_cache,
                                         unmapped=topics_unmapped)
 
@@ -156,11 +190,6 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
             bands[res.band or "no_band"] += 1
             if res.decision in ("video", "transcript"):
                 flagged += 1
-
-            ref = IM.ClassRef(course_id, row["class_date"], row["topic"], row["session_kind"])
-            context[IM.normalize(row["instructor"])].append(ref)
-            if instructor_id:
-                context[instructor_id].append(ref)
         conn.commit()
 
         # Duplicate-name suggestions for the spellings nobody resolved (a human accepts them).
@@ -206,18 +235,21 @@ def run_sync(trigger: str = "manual", env: dict | None = None, source=None) -> d
                 conn.commit()
 
         duration_ms = int((time.monotonic() - t0) * 1000)
+        log.info("sync: %d rows from the sheet, %d written, %d unchanged, %.1fs",
+                 fetched, upserted, unchanged, duration_ms / 1000)
         ST.finish_run(cur, run_id, status="ok", rows_fetched=fetched, rows_upserted=upserted,
                       rows_flagged=flagged, notifications_sent=notified, unmapped_labels=unmapped,
                       rows_scored=scored, scoring_config_version=config_version,
                       band_counts=dict(bands), cohorts_created=stats["cohorts_created"],
                       cohorts_unparsed=sum(unparsed.values()), instructors_unresolved=len(unresolved),
                       suggestions_created=suggestions_created, topics_unmapped=len(topics_unmapped),
-                      duration_ms=duration_ms)
+                      duration_ms=duration_ms, rows_unchanged=unchanged)
         conn.commit()
         ST.remember_config_version(config_version)
 
         summary = {
             "status": "ok", "run_id": run_id, "rows_fetched": fetched, "rows_upserted": upserted,
+            "rows_unchanged": unchanged,
             "rows_scored": scored, "rows_flagged": flagged, "notifications_sent": notified,
             "unmapped_labels": sorted(set(unmapped)), "scoring_config_version": config_version,
             "band_counts": dict(bands), "cohorts_created": stats["cohorts_created"],

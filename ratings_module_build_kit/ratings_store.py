@@ -19,6 +19,7 @@ survivor). Everything looser is a suggestion (instructor_match_suggestions) a hu
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -339,14 +340,14 @@ def finish_run(cur, run_id: str, *, status: str, rows_fetched: int = 0, rows_ups
                band_counts: Optional[dict] = None, cohorts_created: Optional[int] = None,
                cohorts_unparsed: Optional[int] = None, instructors_unresolved: Optional[int] = None,
                suggestions_created: Optional[int] = None, topics_unmapped: Optional[int] = None,
-               duration_ms: Optional[int] = None) -> None:
+               duration_ms: Optional[int] = None, rows_unchanged: Optional[int] = None) -> None:
     cur.execute(
         """
         update sync_runs set status=%s, rows_fetched=%s, rows_upserted=%s, rows_flagged=%s,
           notifications_sent=%s, unmapped_labels=%s, error=nullif(%s,''), finished_at=now(),
           rows_scored=%s, scoring_config_version=%s, band_counts=%s::jsonb, cohorts_created=%s,
           cohorts_unparsed=%s, instructors_unresolved=%s, suggestions_created=%s, topics_unmapped=%s,
-          duration_ms=%s
+          duration_ms=%s, rows_unchanged=%s
         where id=%s
         """,
         (status, rows_fetched, rows_upserted, rows_flagged, notifications_sent,
@@ -354,7 +355,18 @@ def finish_run(cur, run_id: str, *, status: str, rows_fetched: int = 0, rows_ups
          rows_scored, scoring_config_version,
          json.dumps(band_counts) if band_counts is not None else None,
          cohorts_created, cohorts_unparsed, instructors_unresolved, suggestions_created,
-         topics_unmapped, duration_ms, run_id))
+         topics_unmapped, duration_ms, rows_unchanged, run_id))
+
+
+def mark_stale_runs(cur, older_than_minutes: int = 10) -> int:
+    """A sync lives inside the worker process; a restart or redeploy mid-run leaves its row on
+    "running" forever, and the page shows a run that is not there. Mark such rows failed."""
+    cur.execute(
+        "update sync_runs set status='failed', finished_at=now(), error=%s "
+        " where status='running' and started_at < now() - make_interval(mins => %s) returning id",
+        (f"no result after {older_than_minutes} minutes - the worker was probably restarted mid-sync",
+         older_than_minutes))
+    return len(cur.fetchall())
 
 
 def running_run_exists(cur, max_age_minutes: int = 10) -> bool:
@@ -413,6 +425,37 @@ def prior_state(cur, row: dict, instructor_id: Optional[str] = None,
     return bool(escalated), track
 
 
+# ---- what the sheet says about a row, as one short string -------------------------------------
+FINGERPRINT_VERSION = "fp1"      # bump to push every row through the next sync (logic changes)
+FINGERPRINT_FIELDS = ("course_label", "cohort_text", "topic", "instructor", "class_date",
+                      "session_kind", "rating", "num_ratings", "attended", "yes_votes", "no_votes",
+                      "region")
+
+
+def row_fingerprint(row: dict) -> str:
+    """Same sheet values -> same fingerprint. Stored on the class row; a match means the sync has
+    nothing to do for that class. Fields the app writes (review status, escalation, overrides) are
+    deliberately not in it: they do not come from the sheet."""
+    parts = [FINGERPRINT_VERSION]
+    for key in FINGERPRINT_FIELDS:
+        v = row.get(key)
+        parts.append("" if v is None else str(v))
+    return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
+def row_key(row: dict) -> tuple:
+    """The upsert's conflict target, so a sheet row finds its stored class."""
+    return (row["class_date"], row["topic"], row.get("instructor") or "", row["session_kind"])
+
+
+def load_row_state(cur) -> dict:
+    """Every stored class -> (fingerprint, band, action, scored?), in one round trip, so the loop
+    can skip unchanged rows and still report whole-sheet totals."""
+    cur.execute("select class_date, topic, instructor, session_kind, row_hash, sentiment_band, "
+                "sentiment_action, sentiment_score is not null from class_ratings")
+    return {(d, t, i or "", k): (h, b, a, bool(s)) for d, t, i, k, h, b, a, s in cur.fetchall()}
+
+
 # The nine score inputs go to score_class_rating() inside the statement; the config comes from
 # active_scoring_config(), the priors from course_priors(). Nothing is inserted when no config is
 # active (the CTE is empty) - upsert_rating turns that into a loud error.
@@ -433,7 +476,7 @@ insert into class_ratings
    yes_votes, no_votes, approval_pct, track_avg, health_score, health_band, flag_reasons,
    cohort_id, cohort_ids, topic_id, week_no,
    sentiment_score, sentiment_band, sentiment_action, sentiment_provisional, sentiment_flags,
-   score_config_id, score_components, scored_at, decision_v2, decision)
+   score_config_id, score_components, scored_at, decision_v2, decision, row_hash)
 select %(source)s, %(course_label)s, %(course_id)s::uuid, %(cohort_text)s, %(topic)s, %(instructor)s,
        %(instructor_id)s::uuid, %(instructor_canonical)s, %(class_date)s::date, %(session_kind)s,
        %(rating)s, %(num_ratings)s, %(attended)s, %(pct)s,
@@ -448,7 +491,8 @@ select %(source)s, %(course_label)s, %(course_id)s::uuid, %(cohort_text)s, %(top
        end,
        s.score, s.band, s.action, s.provisional, s.flags, s.config_id, s.components, now(),
        %(decision_v2)s::rating_decision,
-       (case when %(escalated)s::boolean then 'video' else coalesce(s.action, 'watch') end)::rating_decision
+       (case when %(escalated)s::boolean then 'video' else coalesce(s.action, 'watch') end)::rating_decision,
+       %(row_hash)s
 from s
 on conflict (class_date, topic, instructor, session_kind) do update set
   source               = excluded.source,
@@ -489,6 +533,7 @@ on conflict (class_date, topic, instructor, session_kind) do update set
     when class_ratings.escalated then 'video'::rating_decision
     else excluded.decision
   end,
+  row_hash = excluded.row_hash,
   synced_at = now(), updated_at = now()
 returning id, decision, review_status, sentiment_score, sentiment_band, sentiment_action,
           sentiment_provisional, sentiment_flags
@@ -516,7 +561,7 @@ def upsert_rating(cur, row: dict, course_id: Optional[str], instructor_id: Optio
         "health_score": legacy.health_score, "health_band": legacy.health_band,
         "flag_reasons": list(legacy.flag_reasons), "decision_v2": legacy.decision,
         "cohort_id": cohort_ids[0] if cohort_ids else None, "cohort_ids": cohort_ids,
-        "topic_id": topic_id,
+        "topic_id": topic_id, "row_hash": row_fingerprint(row),
     })
     r = cur.fetchone()
     if r is None:

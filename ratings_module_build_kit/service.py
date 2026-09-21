@@ -442,9 +442,10 @@ def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> di
     if not os.environ.get("DATABASE_URL"):
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
     trigger = str((body or {}).get("trigger") or "manual")
+    full = bool((body or {}).get("full"))            # every row, not only the changed ones
     import ratings_sync as RSY
-    background.add_task(RSY.run_sync, trigger)
-    return {"status": "accepted", "trigger": trigger}
+    background.add_task(RSY.run_sync, trigger, full=full)
+    return {"status": "accepted", "trigger": trigger, "full": full}
 
 
 @app.post("/sync-ratings/cron")
@@ -458,8 +459,9 @@ def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) 
     if not ST.consume_sync_token(token):
         raise HTTPException(status_code=401, detail="no fresh scheduler token")
     trigger = str((body or {}).get("trigger") or "cron")
+    full = bool((body or {}).get("full"))
     import ratings_sync as RSY
-    background.add_task(RSY.run_sync, trigger)
+    background.add_task(RSY.run_sync, trigger, full=full)
     return {"status": "accepted", "trigger": trigger}
 
 

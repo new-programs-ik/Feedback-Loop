@@ -194,7 +194,7 @@ class TestSyncOrchestration(unittest.TestCase):
             return self.rows
 
     def _run(self, rows, aliases, pending=None, record_returns=True, known=None, config=None,
-             env=None):
+             env=None, state=None, full=False):
         import ratings_sync as RSY
         calls = {"upserts": [], "rows": [], "cohorts": [], "suggestions": [], "finish": None,
                  "cached_members": [], "cached_handlers": []}
@@ -212,6 +212,9 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_st.load_instructor_resolver.return_value = FakeResolver(
             known if known is not None else {"Jane Doe": ("inst-1", "Jane Doe")})
         fake_st.UpsertResult = ST.UpsertResult
+        fake_st.row_fingerprint = ST.row_fingerprint     # the real ones: the skip test relies on them
+        fake_st.row_key = ST.row_key
+        fake_st.load_row_state.return_value = state or {}
 
         def upsert_cohorts(cur, parsed, course_id, **kw):
             calls["cohorts"].append([p.raw_label for p in parsed])
@@ -250,8 +253,40 @@ class TestSyncOrchestration(unittest.TestCase):
         fake_notify.post_flag_message.return_value = (True, "111.222", "")
 
         with mock.patch.object(RSY, "ST", fake_st), mock.patch.object(RSY, "N", fake_notify):
-            summary = RSY.run_sync("manual", env=env if env is not None else {}, source=self.FakeSource(rows))
+            summary = RSY.run_sync("manual", env=env if env is not None else {}, source=self.FakeSource(rows),
+                                   full=full)
         return summary, calls, fake_notify
+
+    def test_rows_the_sheet_did_not_change_are_skipped_but_still_counted(self):
+        # Two round trips per row, 2,833 rows, US to Singapore: nine minutes. A row whose sheet
+        # values match its stored fingerprint is not touched, yet its stored verdict stays in the
+        # totals so the run summary is still about the whole sheet.
+        same = self._row(topic="Same", rating=4.9, yes=10, no=0)
+        changed = self._row(topic="Changed", rating=4.1, yes=5, no=5)
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True),
+                 ST.row_key(changed): ("an-old-fingerprint", "good", "none", True)}
+        summary, calls, _ = self._run([same, changed], {"Applied Agentic AI": "course-1"}, state=state)
+        self.assertEqual([t for t, *_ in calls["upserts"]], ["Changed"])
+        self.assertEqual(summary["rows_upserted"], 1)
+        self.assertEqual(summary["rows_unchanged"], 1)
+        self.assertEqual(summary["rows_fetched"], 2)
+        self.assertEqual(summary["band_counts"].get("excellent"), 1)
+        self.assertEqual(summary["rows_scored"], 2)
+        self.assertEqual(calls["finish"]["rows_unchanged"], 1)
+
+    def test_a_full_run_ignores_the_fingerprints(self):
+        same = self._row(topic="Same", rating=4.9, yes=10, no=0)
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        summary, calls, _ = self._run([same], {"Applied Agentic AI": "course-1"}, state=state, full=True)
+        self.assertEqual([t for t, *_ in calls["upserts"]], ["Same"])
+        self.assertEqual(summary["rows_unchanged"], 0)
+
+    def test_the_env_switch_also_forces_a_full_run(self):
+        same = self._row(topic="Same", rating=4.9, yes=10, no=0)
+        state = {ST.row_key(same): (ST.row_fingerprint(same), "excellent", "none", True)}
+        summary, calls, _ = self._run([same], {"Applied Agentic AI": "course-1"}, state=state,
+                                      env={"RATINGS_SYNC_FULL": "1"})
+        self.assertEqual(len(calls["upserts"]), 1)
 
     def _row(self, topic="T1", rating=4.2, resp=10, att=20, label="Applied Agentic AI",
              yes=None, no=None, instructor="Jane Doe", date=dt.date(2026, 8, 24),
@@ -872,6 +907,69 @@ class TestSlackPayload(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(err)
 
+
+
+class TestTheRowFingerprint(unittest.TestCase):
+    """Same sheet values, same fingerprint; any sheet value changes it; app-side fields do not."""
+
+    def _row(self, **over):
+        base = {"course_label": "Applied Agentic AI", "cohort_text": "Cohort 2", "topic": "T",
+                "instructor": "Jane", "class_date": dt.date(2026, 8, 24), "session_kind": "Live Class",
+                "rating": 4.5, "num_ratings": 10, "attended": 20, "yes_votes": 8, "no_votes": 2,
+                "region": "US"}
+        base.update(over)
+        return base
+
+    def test_stable_for_the_same_values(self):
+        self.assertEqual(ST.row_fingerprint(self._row()), ST.row_fingerprint(self._row()))
+        self.assertEqual(len(ST.row_fingerprint(self._row())), 40)
+
+    def test_any_sheet_value_changes_it(self):
+        base = ST.row_fingerprint(self._row())
+        for key, val in (("rating", 4.6), ("num_ratings", 11), ("yes_votes", 7), ("attended", 21),
+                         ("cohort_text", "Cohort 3"), ("instructor", "Jane D"), ("region", "India")):
+            self.assertNotEqual(base, ST.row_fingerprint(self._row(**{key: val})), key)
+
+    def test_missing_and_blank_are_the_same_and_app_fields_do_not_count(self):
+        self.assertEqual(ST.row_fingerprint(self._row(yes_votes=None, no_votes=None)),
+                         ST.row_fingerprint({**self._row(), "yes_votes": None, "no_votes": None,
+                                             "review_status": "dismissed", "escalated": True}))
+
+    def test_the_version_salt_forces_every_row_through_after_a_logic_change(self):
+        before = ST.row_fingerprint(self._row())
+        with mock.patch.object(ST, "FINGERPRINT_VERSION", "fp2"):
+            self.assertNotEqual(before, ST.row_fingerprint(self._row()))
+
+    def test_load_row_state_keys_like_the_upsert(self):
+        class Cur:
+            def execute(self, sql, params=None):
+                self.sql = sql
+
+            def fetchall(self):
+                return [(dt.date(2026, 8, 24), "T", None, "Live Class", "abc", "good", "none", 90.0)]
+        cur = Cur()
+        state = ST.load_row_state(cur)
+        self.assertIn("row_hash", cur.sql)
+        self.assertEqual(state[(dt.date(2026, 8, 24), "T", "", "Live Class")], ("abc", "good", "none", True))
+
+
+class TestGhostSyncRunsAreMarkedFailed(unittest.TestCase):
+    def test_old_running_rows_are_failed_with_the_reason(self):
+        class Cur:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql, params=None):
+                self.calls.append((sql, params))
+
+            def fetchall(self):
+                return [("run-1",)]
+        cur = Cur()
+        self.assertEqual(ST.mark_stale_runs(cur, older_than_minutes=10), 1)
+        sql, params = cur.calls[0]
+        self.assertIn("status='running'", sql)
+        self.assertIn("restarted mid-sync", params[0])
+        self.assertEqual(params[1], 10)
 
 
 class TestStuckClassesAreReleased(unittest.TestCase):

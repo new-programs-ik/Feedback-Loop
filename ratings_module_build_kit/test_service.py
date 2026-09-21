@@ -333,7 +333,7 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
             self.assertEqual(r.status_code, 200)
             self.assertEqual(r.json(), {"status": "accepted", "trigger": "cron"})
             consume.assert_called_once_with("abc123")
-            run.assert_called_once_with("cron")
+            run.assert_called_once_with("cron", full=False)
 
     def test_a_used_unknown_or_old_token_is_refused(self):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
