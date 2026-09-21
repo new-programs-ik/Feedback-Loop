@@ -62,7 +62,9 @@ begin
     return;
   end if;
   delete from public.sync_triggers where created_at < now() - interval '1 day';
-  v_token := encode(gen_random_bytes(24), 'hex');
+  -- Two v4 uuids = 64 hex characters of randomness, from the core, so no dependency on which
+  -- schema pgcrypto sits in (on Supabase it is `extensions`, outside this function's search path).
+  v_token := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   insert into public.sync_triggers (token, trigger) values (v_token, p_trigger);
   perform net.http_post(
     url := rtrim(v_url, '/') || '/sync-ratings/cron',
