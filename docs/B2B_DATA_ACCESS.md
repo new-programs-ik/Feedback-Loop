@@ -1,90 +1,162 @@
-# Reading Feedback Loop's class analyses from Supabase
+# Getting Feedback Loop's class analyses into your knowledge base
 
-For: engineers on the B2B team who want the B2C class analyses in their own knowledge base.
+For: engineers on the B2B team.
 
-Feedback Loop keeps one Postgres database on Supabase. You get a **read-only** view of it: a schema
-called `kb` with three views, and a database user that can read those views and nothing else.
-Nothing you do through this user can change data, and it cannot see transcripts, learner records
-or anything under authentication.
+Feedback Loop is the New Programs team's system that scores every live class from the ratings
+sheet and, for the weak ones, writes an AI analysis of the recording. You are getting **read-only
+access** to the results, straight from the database, so you can pull them into your own knowledge
+base whenever you like.
 
-## What you can read
+You do **not** need a Supabase account, an API key, or any access to the Feedback Loop website.
+You need two things, both from Bishal Roy (New Programs): this document, and one password.
 
-| View | One row per | What it holds |
+---
+
+## 1. What you are getting
+
+A database login called `kb_reader` that can read three tables (technically "views") and nothing
+else. It cannot change anything, and it cannot see class transcripts, learner records, user
+accounts or settings.
+
+| Table | One row per | What it holds |
 |---|---|---|
-| `kb.class_analyses` | AI analysis of a class | the class (course, cohort, instructor, topic, date, type, rating), when it was analysed, the overall verdict, the findings as JSON (`flags`), the summary for the instructor, the feedback note the PM approved or is drafting (`feedback_text`, `feedback_status`), the re-teach recommendation (`reclass`, `reclass_reason`), whether the recording was sampled (`video_used`) |
-| `kb.class_scores` | rated class from the ratings sheet | course, cohort, topic, instructor, date, session kind, rating, responses, attended, yes/no votes, approval %, the Class Sentiment Score and band, the action the band asks for, review status, the scoring version used |
-| `kb.scoring_versions` | scoring formula version | name, status (`active` is the one in use), the full configuration as JSON, notes |
+| `class_analyses` | AI analysis of a class | which class (course, cohort, instructor, topic, date, type, rating), the overall verdict, every finding with its timestamp and quote, the summary written for the instructor, the feedback note the PM approved, and whether the class should be re-taught |
+| `class_scores` | rated class on the ratings sheet | course, cohort, topic, instructor, date, session type, rating, how many rated, how many attended, yes/no votes, the score out of 100, the band, and what the band asks for |
+| `scoring_versions` | version of the scoring formula | its name, whether it is the one in use, and its settings |
 
-How to read a band and an action in `kb.class_scores`:
+Today that is about **3,100 scored classes** and a smaller number of AI analyses (one is written
+only when a PM runs it). The scores refresh from the sheet three times a day (10:00, 12:00 and
+14:00 India time).
 
-- `sentiment_band`: `excellent`, `good`, `average`, `bad`, or `NULL` = too few responses to judge (fewer than 6).
-- `sentiment_action`: `video` (someone watches the recording), `transcript` (someone reads the transcript), `none` (nothing needed), `watch` (too few responses; kept an eye on).
-- `sentiment_flags`: short codes explaining the band, for example `under_rating_line` (rated below 4.3) or `thin_low_rating_read`.
+---
 
-In `kb.class_analyses`, `flags` is a JSON array of findings; each has `flag` (the parameter, e.g. `pace`, `correctness`), `severity` (`minor`/`moderate`/`major`), `confidence`, and `evidence` (timestamps and quotes from the transcript). `reclass` is `yes`/`no`/`maybe`: whether the class should be taught again.
+## 2. Step by step
 
-## Connecting
+### Step 1. Get the password
 
-Ask Bishal for the password. It is never sent over chat or email in the clear.
+Ask Bishal for the `kb_reader` password. He will give it to you in person or through a password
+manager, never over chat or email. Keep it out of code and out of git: put it in an environment
+variable (the examples below call it `FEEDBACK_LOOP_DSN`).
+
+### Step 2. Note the connection details
 
 | Setting | Value |
 |---|---|
 | Host | `aws-1-ap-southeast-1.pooler.supabase.com` |
 | Port | `5432` |
 | Database | `postgres` |
-| User | `kb_reader.hedtphkfatmpqhuyndwk` |
+| Username | `kb_reader.hedtphkfatmpqhuyndwk` |
+| Password | from Bishal |
 | SSL | required |
 
-As one connection string:
+All of that as one connection string (replace `PASSWORD`):
 
 ```
-postgresql://kb_reader.hedtphkfatmpqhuyndwk:<password>@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
+postgresql://kb_reader.hedtphkfatmpqhuyndwk:PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
 ```
 
-The user's default schema is `kb`, so `select * from class_scores` works without a prefix.
+The username really does contain a dot and that code after it; that is how this host routes
+connections. Use it exactly.
 
-## Pulling the data
+### Step 3. Check that it works
 
-Python, with `psycopg2` and `pandas`:
+Any Postgres tool will do. Three options, pick one:
+
+**Option A, a desktop tool** (DBeaver, TablePlus, pgAdmin): create a new PostgreSQL connection,
+fill in the five values from Step 2, tick "use SSL", connect. You should see a schema called `kb`
+with the three tables. Open `class_scores` and rows should appear.
+
+**Option B, the `psql` command line:**
+
+```
+psql "postgresql://kb_reader.hedtphkfatmpqhuyndwk:PASSWORD@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require" -c "select count(*) from class_scores"
+```
+
+You should get a number in the thousands.
+
+**Option C, Python:**
+
+```python
+import os, psycopg2
+conn = psycopg2.connect(os.environ["FEEDBACK_LOOP_DSN"])
+cur = conn.cursor()
+cur.execute("select count(*) from class_scores")
+print(cur.fetchone())   # (3099,) or similar
+conn.close()
+```
+
+If you get "password authentication failed", the password is wrong or was never set; ask Bishal.
+If you get "too many connections", you have more than 5 open at once; close some.
+
+### Step 4. Pull everything once
 
 ```python
 import os
 import pandas as pd
 import psycopg2
 
-conn = psycopg2.connect(os.environ["FEEDBACK_LOOP_DSN"])   # the connection string above
-analyses = pd.read_sql("select * from kb.class_analyses order by analysed_at", conn)
-scores   = pd.read_sql("select * from kb.class_scores   order by class_date",  conn)
+conn = psycopg2.connect(os.environ["FEEDBACK_LOOP_DSN"])
+analyses = pd.read_sql("select * from class_analyses order by analysed_at", conn)
+scores   = pd.read_sql("select * from class_scores   order by class_date",  conn)
+versions = pd.read_sql("select * from scoring_versions order by version",   conn)
 conn.close()
+
+analyses.to_csv("class_analyses.csv", index=False)
+scores.to_csv("class_scores.csv", index=False)
 ```
 
-Incremental refresh, so you only fetch what changed since your last pull:
+Or, without Python, a one-line export with `psql`:
+
+```
+psql "postgresql://...same as above..." -c "\copy (select * from class_analyses) to 'class_analyses.csv' csv header"
+```
+
+### Step 5. Keep it fresh without re-pulling everything
+
+Remember the time of your last pull, and ask only for what changed since:
 
 ```sql
-select * from kb.class_analyses where analysed_at > %(since)s order by analysed_at;
-select * from kb.class_scores   where synced_at   > %(since)s order by synced_at;
+select * from class_analyses where analysed_at > '2026-09-21 00:00+00' order by analysed_at;
+select * from class_scores   where synced_at   > '2026-09-21 00:00+00' order by synced_at;
 ```
 
-A one-off CSV from the command line (`psql` installed):
+`synced_at` on a score row changes only when the sheet changed that class, so this is cheap.
+Once a day is plenty; the data itself refreshes three times a day at most.
 
-```
-psql "<connection string>" -c "\copy (select * from kb.class_analyses) to 'class_analyses.csv' csv header"
-```
+### Step 6. Read the columns right
 
-## Limits, on purpose
+In `class_scores`:
 
-- Read-only. Any write is refused.
-- At most 5 open connections and 60 seconds per statement. Pull in one query rather than row by row.
-- The ratings data refreshes from the sheet once an hour; analyses appear when a PM runs one. Polling more often than hourly finds nothing new.
-- Not included: transcripts (confidential, and deleted after 20 days anyway), learner-level data, user accounts, Slack settings.
+- `sentiment_score`: 0 to 100. `sentiment_band`: `excellent`, `good`, `average`, `bad`, or empty when fewer than 6 learners answered (too few to judge).
+- `sentiment_action`: what the band asks for. `video` = someone watches the recording, `transcript` = someone reads the transcript, `none` = nothing needed, `watch` = too few responses, kept an eye on.
+- `sentiment_flags`: short codes explaining the band, for example `under_rating_line` (rated below 4.3) or `thin_low_rating_read` (too few responses, but rated low enough to read anyway).
+- `yes_votes` / `no_votes`: answers to "would you want this instructor again?". `approval_pct` is yes as a share of answers.
+- `num_ratings` = learners who rated; `attended` = learners who attended.
 
-## What we promise about the shape
+In `class_analyses`:
 
-The three views are the contract. We may **add** columns; we will not rename or remove one, or
-change a column's meaning, without telling you first. Everything under the views (tables, formula
-versions) can change freely.
+- `overall`: the one-paragraph verdict.
+- `flags`: the findings, as JSON. Each has `flag` (what kind: `pace`, `clarity`, `correctness`, `coverage`, `doubt_handling`, ...), `severity` (`minor`, `moderate`, `major`), `confidence`, and `evidence` (a list of `{timestamp, quote}` from the transcript).
+- `instructor_summary`: the short summary written for the instructor. `feedback_text`: the full note. `feedback_status`: `draft` (not yet reviewed by a PM), `approved`, or `sent`. For a knowledge base, prefer rows where `feedback_status` is `approved` or `sent`.
+- `reclass`: `yes`, `no` or `maybe`: whether the class should be taught again. `reclass_reason` says why.
+- `video_used`: whether frames from the recording were part of the analysis.
 
-## Questions
+---
 
-Bishal Roy, New Programs team. If you need a column that is not here, ask; adding one to a view is
-a small change.
+## 3. Rules of the road
+
+- **Read-only.** Any write is refused by the database, not by convention.
+- **At most 5 open connections and 60 seconds per query.** Pull with one query, not one per row.
+- **Don't poll faster than hourly.** Nothing changes more often than that.
+- **Not included, by design:** transcripts (confidential, deleted after 20 days anyway), learner-level data, user accounts, Slack settings.
+- **Treat the content as internal.** It names instructors and quotes their classes.
+
+## 4. What we promise
+
+The three tables are the contract. We may **add** columns; we will not rename or remove one, or
+change what a column means, without telling you first. Everything underneath can change freely.
+
+## 5. Questions
+
+Bishal Roy, New Programs team. Need a column that isn't here? Ask; adding one to a view is a small
+change.
