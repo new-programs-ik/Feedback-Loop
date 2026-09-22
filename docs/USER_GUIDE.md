@@ -86,10 +86,9 @@ Written for anyone on the team — no technical background needed. Each section 
 ## To run an AI analysis on a class
 
 1. From the queue or the drawer, click **Analyze**. The New analysis form opens with the course,
-   class name, instructor, date, kind, rating and votes filled in. (Starting from a blank form
-   also works: **Feedback → New analysis** inside your course. The small helper box on the blank
-   form still speaks the older rule's language; when a class is in the queue, the queue's band is
-   the team's verdict.)
+   class name, instructor, date, kind, rating and responses filled in. Starting from a blank
+   form also works: **Feedback → New analysis** inside your course. The queue's band is the
+   team's verdict on which analysis to run.
 2. Give it the recording. The class's **Vimeo link** lives in IK's UpLevel: *Resources → Videos →*
    open the class *→ Basic Details →* copy the **VIMEO URL** box. Or upload a `.vtt` / `.srt`
    transcript file.

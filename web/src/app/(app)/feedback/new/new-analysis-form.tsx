@@ -9,11 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Reveal, EASE_OUT } from "@/components/motion/reveal";
-import {
-  Check, CircleDashed, Clapperboard, Eye, FileText, Loader2, Paperclip, Upload, type LucideIcon,
-} from "lucide-react";
+import { Clapperboard, FileText, Loader2, Paperclip, Upload } from "lucide-react";
 import { voteLabel } from "@/lib/decision";
-import { ACTION_LABEL, BAND_META, BAND_ORDER, explainClass, scoreClass, type Action, type Band, type ScoreInputs, type ScoringConfig } from "@/lib/sentiment";
+import type { Action, Band } from "@/lib/sentiment";
 import { ScorePill } from "@/components/score/score-pill";
 import { cn } from "@/lib/utils";
 
@@ -27,14 +25,6 @@ const prettyDate = (isoDate: string) =>
 const MAX_MATERIALS_BYTES = 4 * 1024 * 1024;
 const fmtSize = (bytes: number) =>
   bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-
-const VERDICT_ICON: Record<string, LucideIcon> = {
-  "Video Analysis": Clapperboard,
-  "Transcript Analysis": FileText,
-  "Watch only": Eye,
-  "No analysis needed": Check,
-  "Almost there": CircleDashed,
-};
 
 function Section({
   icon: Icon,
@@ -68,23 +58,13 @@ export type Prefill = {
   classType: "live_class" | "ars";
   rating: string;
   numRatings: string;
-  attended: string;
   yesVotes: string;
   noVotes: string;
-  trackAvg: number | null;
   /** The stored Class Sentiment Score of the class this form was opened from. */
   score: number | null;
   band: Band | null;
   action: Action | null;
-  escalated: boolean;
   video: boolean;
-};
-
-const ACTION_TITLE: Record<Action, string> = {
-  video: "Video Analysis",
-  transcript: "Transcript Analysis",
-  none: "No analysis needed",
-  watch: "Watch only",
 };
 
 /** Drop zone for class materials. Files dropped on it are handed to the real <input type=file>
@@ -203,14 +183,11 @@ export function NewAnalysisForm({
   instructorNames,
   prefill,
   defaultCourseId,
-  scoring,
 }: {
   courses: { id: string; name: string }[];
   instructorNames: string[];
   prefill?: Prefill;
   defaultCourseId?: string | null;
-  /** The active scoring version — the helper scores what you type with the same rule as the queue. */
-  scoring: { version: number | null; config: ScoringConfig };
 }) {
   const reduce = useReducedMotion();
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
@@ -218,61 +195,16 @@ export function NewAnalysisForm({
   const [classType, setClassType] = useState<"live_class" | "ars">(prefill?.classType ?? "live_class");
   const [source, setSource] = useState<"vimeo" | "upload">("vimeo");
   const [analyzeVideo, setAnalyzeVideo] = useState(prefill?.video ?? false);
-  // "Which analysis?" helper (the team's decision rules, built in) — a queue prefill
-  // lights it up so the recommendation is visible immediately.
+  // The rating and the count are controlled so a queue prefill lands in them.
   const [hRating, setHRating] = useState(prefill?.rating ?? "");
-  const [hAttended, setHAttended] = useState(prefill?.attended ?? "");
   const [hRated, setHRated] = useState(prefill?.numRatings ?? "");
-  const [hYes, setHYes] = useState(prefill?.yesVotes ?? "");
-  const [hNo, setHNo] = useState(prefill?.noVotes ?? "");
-  const [hEscalation, setHEscalation] = useState(prefill?.escalated ?? false);
 
   // A failed start is loud (toast) AND persistent (inline, below the form).
   useEffect(() => {
     if (state.error) toast.error("Couldn't start the analysis", { description: state.error });
   }, [state]);
 
-  const r = parseFloat(hRating);
-  const att = parseInt(hAttended, 10);
-  const yes = parseInt(hYes, 10);
-  const no = parseInt(hNo, 10);
-  const hasVote = !Number.isNaN(yes) && !Number.isNaN(no) && yes + no > 0;
-  // Yes + No equals the number of ratings on every sheet row, so the vote can stand in for it.
-  const typedRated = parseInt(hRated, 10);
-  const rat = !Number.isNaN(typedRated) ? typedRated : hasVote ? yes + no : NaN;
-  // The rule lives in ONE place — the scoring function in the database, mirrored by
-  // src/lib/sentiment.ts and pinned to the same fixtures. This helper only translates the
-  // verdict of the ACTIVE version into form advice, so it can never disagree with the queue.
-  let advice: {
-    title: string; detail: string; video: boolean | null; band?: Band | null; score?: number | null; provisional?: boolean;
-  } | null = null;
-  if (hEscalation) {
-    advice = { title: "Video Analysis", detail: "There is an escalation — always use video for escalated classes.", video: true };
-  } else if (!Number.isNaN(r)) {
-    const inputs: ScoreInputs = {
-      rating: r,
-      num_ratings: Number.isNaN(rat) ? null : rat,
-      attended: att > 0 ? att : null,
-      yes_votes: hasVote ? yes : null,
-      no_votes: hasVote ? no : null,
-      escalated: false,
-      track_avg: prefill?.trackAvg ?? null,
-    };
-    const res = scoreClass(inputs, scoring.config);
-    advice = {
-      title: ACTION_TITLE[res.action],
-      detail: explainClass(inputs, res, scoring.config),
-      video: res.action === "none" ? false : res.action === "watch" ? null : res.action === "video",
-      band: res.band,
-      score: res.score,
-      provisional: res.provisional,
-    };
-  }
   const prefillVote = prefill ? voteLabel(parseInt(prefill.yesVotes, 10), parseInt(prefill.noVotes, 10)) : null;
-  // The card re-animates only when the VERDICT changes — not on every keystroke that nudges
-  // the explanation, which would flicker while you type.
-  const verdictKey = advice ? `${advice.title}|${advice.band ?? ""}` : "none";
-  const VerdictIcon = advice ? (VERDICT_ICON[advice.title] ?? CircleDashed) : CircleDashed;
 
   return (
     <Card className="shadow-soft">
@@ -309,77 +241,6 @@ export function NewAnalysisForm({
               </div>
             </Reveal>
           )}
-          <div className="bg-accent/40 space-y-3 rounded-xl border p-4">
-            <div className="text-sm font-semibold">🧭 Not sure which analysis? Fill in the rating and count above, then a few more things:</div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">Learners attended</label>
-                <input type="number" min="0" value={hAttended}
-                       onChange={(e) => setHAttended(e.target.value)} placeholder="10" className={field} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">Would have them back — Yes</label>
-                <input type="number" min="0" value={hYes}
-                       onChange={(e) => setHYes(e.target.value)} placeholder="7" className={field} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-muted-foreground text-xs font-medium">Would have them back — No</label>
-                <input type="number" min="0" value={hNo}
-                       onChange={(e) => setHNo(e.target.value)} placeholder="1" className={field} />
-              </div>
-              <label className="flex items-end gap-2 pb-2 text-sm">
-                <input type="checkbox" checked={hEscalation} onChange={(e) => setHEscalation(e.target.checked)} />
-                Escalation reported
-              </label>
-            </div>
-            {/* height reserved so the card never jumps the rest of the form around */}
-            <div className={cn("relative", advice ? "min-h-14" : "min-h-0")}>
-              <AnimatePresence mode="wait" initial={false}>
-                {advice && (
-                  <motion.div
-                    key={verdictKey}
-                    initial={reduce ? false : { opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={reduce ? undefined : { opacity: 0, y: -4 }}
-                    transition={{ duration: 0.22, ease: EASE_OUT }}
-                    className="bg-card flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
-                    aria-live="polite"
-                  >
-                    <div className="flex min-w-0 items-start gap-2.5 text-sm">
-                      <span
-                        className={cn(
-                          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
-                          advice.video === true ? "bg-destructive/10 text-destructive"
-                          : advice.title === "No analysis needed" ? "bg-success/10 text-success"
-                          : advice.title === "Transcript Analysis" ? "bg-warning/15 text-warning"
-                          : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        <VerdictIcon className="size-3.5" aria-hidden />
-                      </span>
-                      <div className="min-w-0">
-                        <span className="font-semibold">{advice.title}</span>
-                        {advice.band && <ScorePill variant="sm" score={advice.score} band={advice.band} provisional={advice.provisional} className="ml-2 align-middle" />}
-                        <span className="text-muted-foreground"> — {advice.detail}</span>
-                      </div>
-                    </div>
-                    {advice.video != null && advice.title !== "No analysis needed" && (
-                      <Button type="button" size="sm" variant={advice.video === analyzeVideo ? "outline" : "default"}
-                              onClick={() => setAnalyzeVideo(advice!.video === true)}>
-                        {advice.video === analyzeVideo ? "Applied ✓" : advice.video ? "Turn video ON" : "Keep transcript only"}
-                      </Button>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            <p className="text-muted-foreground text-xs">
-              Class Sentiment Score{scoring.version != null ? `, version ${scoring.version}` : ""}:{" "}
-              {BAND_ORDER.map((b) => `${BAND_META[b].label} → ${ACTION_LABEL[scoring.config.actions[b]]}`).join(" · ")} · fewer than{" "}
-              {scoring.config.min_votes.action || 6} responses → {ACTION_LABEL[scoring.config.actions.no_data]} · any escalation → watch the recording.
-            </p>
-          </div>
-
           {/* two columns from lg: the class on the left, the recording and materials on the right */}
           <div className="grid gap-7 lg:grid-cols-2 lg:gap-8">
           <div className="space-y-7">
