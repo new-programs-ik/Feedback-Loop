@@ -203,7 +203,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                   : stuck
                     ? "It has been running for over 30 minutes — the background worker probably restarted mid-job. Retry to run it again (materials and video are not stored, so a retry is transcript-only)."
                     : klass.status === "scheduled"
-                      ? "Waiting for the analysis service to take the job. This usually takes a few seconds; up to a minute if the service was asleep."
+                      ? "Waiting for the analysis service to take the job. Usually a few seconds; up to a minute if the service was asleep. If it could not be reached, it picks the class up on its own within a couple of minutes."
                       : "Fetching the transcript, reading your materials, and writing the feedback. A long class can take a few minutes — this page updates on its own, no need to refresh."}
               </p>
               {stuck && canRetry && <RetryButton classId={String(klass.id)} />}

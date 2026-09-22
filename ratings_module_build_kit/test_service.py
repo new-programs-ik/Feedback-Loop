@@ -358,6 +358,152 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
             self.assertEqual(r.status_code, 401)
 
 
+class TestTheDatabaseIsRetriedBeforeItIsCalledUnreachable(unittest.TestCase):
+    """22 Sep 2026: four connection failures in five minutes, one try each, four 503s, one class
+    marked failed four times. A blip is retried; only a real outage is reported."""
+
+    def test_a_connection_that_fails_then_succeeds_is_not_a_failure(self):
+        conn = object()
+        timeouts = []
+
+        def connect(url, connect_timeout):
+            timeouts.append(connect_timeout)
+            if len(timeouts) < 3:
+                raise service.ST.psycopg2.OperationalError("could not connect")
+            return conn
+
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST.psycopg2, "connect", side_effect=connect), \
+             patch.object(service.ST, "_sleep") as sleep:
+            self.assertIs(service.ST._connect(attempts=3, waits=(2, 5)), conn)
+        self.assertEqual(timeouts, [8, 8, 8])
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [2, 5])
+
+    def test_it_gives_up_after_the_last_try(self):
+        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
+             patch.object(service.ST.psycopg2, "connect",
+                          side_effect=service.ST.psycopg2.OperationalError("down")) as connect, \
+             patch.object(service.ST, "_sleep"):
+            with self.assertRaises(service.ST.psycopg2.OperationalError):
+                service.ST._connect(attempts=3)
+        self.assertEqual(connect.call_count, 3)
+
+    def test_a_missing_url_is_not_retried(self):
+        with patch.dict(os.environ, {"DATABASE_URL": ""}), patch.object(service.ST.psycopg2, "connect") as connect:
+            with self.assertRaises(RuntimeError):
+                service.ST._connect()
+        connect.assert_not_called()
+
+    def test_health_says_whether_the_database_can_be_reached(self):
+        with patch.object(service.ST, "ping", return_value="unreachable"):
+            r = client.get("/health")
+        self.assertEqual(r.json()["database"], "unreachable")
+        self.assertIn("jobs_running", r.json())
+
+
+class TestJobsSurviveARestart(unittest.TestCase):
+    """The platform restarts the worker on every deploy. A class the website queued and nobody
+    took, or one a restart interrupted, is picked up by the worker on its own."""
+
+    ROW = {"class_id": "c9", "vimeo_url": "https://vimeo.com/1", "course": "Advanced ML",
+           "topic": "ML Architectures", "instructor": "Sarfaraz", "rating": "4.62", "agenda": "",
+           "class_type": "live_class"}
+
+    def setUp(self):
+        service.RUNNING.clear()
+
+    def test_a_queued_class_nobody_took_is_resumed(self):
+        with patch.object(service.ST, "scheduled_to_resume", return_value=[dict(self.ROW)]), \
+             patch.object(service.ST, "claim_for_analysis", return_value=True) as claim, \
+             patch.object(service.ST, "record_resume") as note, \
+             patch.object(service, "_run_analysis_job") as job:
+            self.assertEqual(service._resume_scheduled(), 1)
+        claim.assert_called_once_with("c9")
+        note.assert_called_once_with("c9")
+        req = job.call_args.args[0]
+        self.assertEqual((req.class_id, req.vimeo_url, req.course, req.topic, req.instructor, req.rating, req.class_type),
+                         ("c9", "https://vimeo.com/1", "Advanced ML", "ML Architectures", "Sarfaraz", "4.62", "live_class"))
+        self.assertEqual(req.agenda, "(not provided)")
+
+    def test_nothing_is_resumed_while_a_job_runs_here(self):
+        service.RUNNING.add("busy")
+        with patch.object(service.ST, "scheduled_to_resume") as look, patch.object(service, "_run_analysis_job") as job:
+            self.assertEqual(service._resume_scheduled(), 0)
+        look.assert_not_called()
+        job.assert_not_called()
+
+    def test_a_class_someone_else_took_is_left_alone(self):
+        with patch.object(service.ST, "scheduled_to_resume", return_value=[dict(self.ROW)]), \
+             patch.object(service.ST, "claim_for_analysis", return_value=False), \
+             patch.object(service, "_run_analysis_job") as job:
+            self.assertEqual(service._resume_scheduled(), 0)
+        job.assert_not_called()
+
+    def test_a_database_that_cannot_be_asked_means_try_later_not_crash(self):
+        with patch.object(service.ST, "scheduled_to_resume", side_effect=RuntimeError("down")), \
+             patch.object(service, "_run_analysis_job") as job:
+            self.assertEqual(service._resume_scheduled(), 0)
+        job.assert_not_called()
+
+    def test_the_switch_turns_it_off(self):
+        with patch.dict(os.environ, {"RESUME_SCHEDULED": "0"}), \
+             patch.object(service.ST, "scheduled_to_resume") as look:
+            self.assertEqual(service._resume_scheduled(), 0)
+        look.assert_not_called()
+
+    def test_a_stopping_worker_queues_its_running_classes_again(self):
+        service.RUNNING.update({"c2", "c1"})
+        with patch.object(service.ST, "requeue_running", return_value=2) as requeue:
+            self.assertEqual(service._requeue_running(), 2)
+        requeue.assert_called_once_with(["c1", "c2"])
+        service.RUNNING.clear()
+        with patch.object(service.ST, "requeue_running") as requeue:
+            self.assertEqual(service._requeue_running(), 0)
+        requeue.assert_not_called()
+
+    def test_the_job_registers_itself_while_it_runs(self):
+        seen = {}
+
+        def persist(class_id, *a, **k):
+            seen["during"] = set(service.RUNNING)
+
+        req = service.AnalyzeAsyncRequest(class_id="c5", transcript=SRT)
+        with patch.object(service, "gather_materials", return_value=None), \
+             patch.object(service, "_run_video_stage", return_value=(None, {})), \
+             patch.object(service.E, "analyse_cues", return_value=({}, {"cost_usd": 0})), \
+             patch.object(service, "_merge_video_meta"), \
+             patch.object(service.ST, "persist_analysis", side_effect=persist), \
+             patch.object(service, "KeepAwake"):
+            service._run_analysis_job(req)
+        self.assertEqual(seen["during"], {"c5"})
+        self.assertEqual(service.RUNNING, set())
+
+    def test_queued_rows_come_back_as_named_fields(self):
+        class Cur:
+            def execute(self, sql, params):
+                self.sql, self.params = sql, params
+
+            def fetchall(self):
+                return [("c9", "https://vimeo.com/1", "Advanced ML", "ML Architectures", "Sarfaraz", "4.62", "", "ars")]
+
+        class Conn:
+            cur = Cur()
+
+            def cursor(self):
+                return self.cur
+
+            def close(self):
+                pass
+
+        conn = Conn()
+        with patch.object(service.ST, "_connect", return_value=conn):
+            rows = service.ST.scheduled_to_resume(min_age_s=60)
+        self.assertEqual(rows[0]["class_type"], "ars")
+        self.assertEqual(rows[0]["topic"], "ML Architectures")
+        self.assertIn("status = 'scheduled'", conn.cur.sql)
+        self.assertEqual(conn.cur.params, (60, 3))
+
+
 class TestRequestsThatUsedToBreakTheWorker(unittest.TestCase):
     def test_a_non_ascii_key_is_a_401_not_a_500(self):
         # The HTTP client will not even send non-ASCII header bytes, so the check is called directly:

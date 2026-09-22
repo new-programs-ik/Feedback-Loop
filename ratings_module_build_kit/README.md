@@ -58,7 +58,7 @@ uvicorn service:app --port 8000
 ```
 | Endpoint | Purpose |
 |---|---|
-| `GET /health` | liveness, the pinned model, the build, the active scoring-config version, `rule_version` |
+| `GET /health` | liveness, the pinned model, the build, the active scoring-config version, `rule_version`, `database` (ok / unreachable from this instance), `jobs_running` |
 | `POST /dry-run` | `{cues, windows, est_tokens}` — cheap pre-check, no API key |
 | `POST /transcript` | captions from a Vimeo URL |
 | `POST /analyze` | `{result, meta}` — the full analysis (needs `ANTHROPIC_API_KEY`) |

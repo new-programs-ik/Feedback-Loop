@@ -73,7 +73,7 @@ that guide about what not to touch matter.
 Checks before any push, all of which must be green:
 
 ```
-ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (407 tests)
+ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (419 tests)
 cd web && npx tsc --noEmit && npx next build && npm test             # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py   # the database scorer against the fixtures
 ```

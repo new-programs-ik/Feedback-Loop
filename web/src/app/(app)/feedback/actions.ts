@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/session";
 import { hrefIn } from "@/lib/workspace-shared";
 
-export type AnalyzeState = { error?: string };
+export type AnalyzeState = { error?: string; notice?: string };
 
 const VIMEO_HOSTS = ["vimeo.com", "player.vimeo.com"];
 
@@ -35,6 +35,22 @@ function isStuck(status: string, updatedAt: unknown): boolean {
   return (status === "scheduled" && ageMin > 10) || (status === "analyzing" && ageMin > 30);
 }
 const RUNNING_MSG = "An analysis is already running for this class — give it a few minutes.";
+const QUEUED_MSG =
+  "The analysis service could not be reached just now. The class stays queued and the service picks it up on its own within a couple of minutes; this page updates by itself.";
+
+/** The service was asleep, unreachable, or could not reach the database. The class stays
+ *  `scheduled`: the worker looks for queued classes on its own (every 90 seconds, and when it
+ *  starts), so a blip on either side is a delay, not a failure. The review page shows "Starting…"
+ *  and, after ten minutes with no taker, offers Retry. One audit line says why the start was slow. */
+async function noteQueued(
+  supabase: Awaited<ReturnType<typeof createClient>>, classId: string, actorId: string,
+  where: string, detail: Record<string, unknown>,
+) {
+  await supabase.from("audit_log").insert({
+    class_id: classId, actor_id: actorId, action: "queued",
+    detail: { where, ...detail, message: "the analysis service was not reachable just now; the worker picks the class up on its own" },
+  });
+}
 
 function safeDetail(s: string): string {
   try {
@@ -186,14 +202,19 @@ export async function createAnalysis(_prev: AnalyzeState, formData: FormData): P
     return { error: msg };
   }
 
-  let res: Response;
+  let res: Response | null = null;
   try {
     res = await fetch(`${workerUrl}/analyze-async`, {
       method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(60_000),
     });
   } catch {
-    return failStart("worker-start", { message: "unreachable" },
-      "Could not reach the analysis service — try again in a moment (it may be waking up).");
+    res = null;
+  }
+  if (res === null || res.status >= 500) {
+    await noteQueued(supabase, classId, user.id, "worker-start",
+      res === null ? { message: "unreachable" } : { status: res.status, detail: (await res.text()).slice(0, 300) });
+    revalidatePath("/", "layout");
+    redirect(`/feedback/${classId}`);   // the review page shows "Starting…" and updates on its own
   }
   if (res.status === 409) {
     // The worker already holds a job for this class. Leave the row alone; the page keeps polling.
@@ -388,37 +409,45 @@ export async function retryAnalysis(formData: FormData): Promise<AnalyzeState | 
   const workerUrl = process.env.ANALYSIS_WORKER_URL || "http://localhost:8000";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (process.env.WORKER_API_KEY) headers.Authorization = `Bearer ${process.env.WORKER_API_KEY}`;
+  const body = JSON.stringify({
+    class_id: classId,
+    vimeo_url: klass.vimeo_link,
+    course: (klass.courses as { name?: string } | null)?.name ?? "(unspecified)",
+    topic: klass.topic,
+    instructor: (klass.instructors as { name?: string } | null)?.name ?? "(unspecified)",
+    rating: klass.rating != null ? String(klass.rating) : "(unspecified)",
+    agenda: klass.agenda || "(not provided)",
+    class_type: klass.session_type === "ars" ? "ars" : "live_class",
+  });
+  let res: Response | null = null;
   try {
-    const res = await fetch(`${workerUrl}/analyze-async`, {
-      method: "POST", headers, signal: AbortSignal.timeout(60_000),
-      body: JSON.stringify({
-        class_id: classId,
-        vimeo_url: klass.vimeo_link,
-        course: (klass.courses as { name?: string } | null)?.name ?? "(unspecified)",
-        topic: klass.topic,
-        instructor: (klass.instructors as { name?: string } | null)?.name ?? "(unspecified)",
-        rating: klass.rating != null ? String(klass.rating) : "(unspecified)",
-        agenda: klass.agenda || "(not provided)",
-        class_type: klass.session_type === "ars" ? "ars" : "live_class",
-      }),
-    });
-    if (res.status === 409) {
-      // The worker already holds a job for this class: put the row back as it was and say so.
-      await supabase.from("classes").update({ status: previous }).eq("id", classId);
-      return { error: RUNNING_MSG };
-    } else if (!res.ok) {
-      throw new Error(`worker rejected the retry (${res.status})`);
-    } else {
-      const reply = (await res.json().catch(() => null)) as { status?: string } | null;
-      if (reply?.status !== "accepted") throw new Error("worker did not take the retry");
-    }
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "worker unreachable";
+    res = await fetch(`${workerUrl}/analyze-async`, { method: "POST", headers, signal: AbortSignal.timeout(60_000), body });
+  } catch {
+    res = null;
+  }
+  if (res === null || res.status >= 500) {
+    // Not a failure: the class stays queued and the worker takes it on its own (see noteQueued).
+    await noteQueued(supabase, classId, user.id, "retry",
+      res === null ? { message: "unreachable" } : { status: res.status, detail: (await res.text()).slice(0, 300) });
+    revalidatePath(`/feedback/${classId}`);
+    return { notice: QUEUED_MSG };
+  }
+  if (res.status === 409) {
+    // The worker already holds a job for this class: put the row back as it was and say so.
+    await supabase.from("classes").update({ status: previous }).eq("id", classId);
+    return { error: RUNNING_MSG };
+  }
+  const reply = res.ok ? ((await res.json().catch(() => null)) as { status?: string } | null) : null;
+  if (reply?.status !== "accepted") {
+    const message = res.ok
+      ? "the analysis service did not take the retry"
+      : `the analysis service refused the retry (HTTP ${res.status})`;
     await supabase.from("classes").update({ status: "failed" }).eq("id", classId);
     await supabase.from("audit_log").insert({
-      class_id: classId, actor_id: user.id, action: "error",
-      detail: { where: "retry", message: /fetch|network|ECONN/i.test(message) ? "worker unreachable" : message },
+      class_id: classId, actor_id: user.id, action: "error", detail: { where: "retry", message },
     });
+    revalidatePath(`/feedback/${classId}`);
+    return { error: message.charAt(0).toUpperCase() + message.slice(1) + "." };
   }
   revalidatePath(`/feedback/${classId}`);
   redirect(`/feedback/${classId}`);

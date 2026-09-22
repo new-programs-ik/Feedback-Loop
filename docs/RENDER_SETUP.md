@@ -122,8 +122,10 @@ variable:
    INFO:     Uvicorn running on http://0.0.0.0:10000
    ```
 2. Open `https://<your-worker>.onrender.com/health` in a browser. You want to see
-   `"status":"ok"`, `"anthropic_key":true`, `"sheet_configured":true`, `"slack_configured":true`
-   (if you set Slack), `"ffmpeg":true`, and `"scoring_config_version"` with a number.
+   `"status":"ok"`, `"database":"ok"`, `"anthropic_key":true`, `"sheet_configured":true`,
+   `"slack_configured":true` (if you set Slack), `"ffmpeg":true`, and `"scoring_config_version"`
+   with a number. `"database":"unreachable"` means the worker cannot talk to Supabase right now:
+   check `DATABASE_URL` (Step 3) and Supabase's status page.
 3. Open the **live website**, sign in, go to **Admin › Sync** and click **Sync now**. Within a
    minute or two the table shows a run with status **ok**, rows fetched and rows scored.
 4. Run a **New analysis** on one class from the queue (click **Analyze** on a row). It shows

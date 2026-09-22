@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import collections
+import contextlib
 import io
 import json as _json
 import logging
@@ -56,7 +57,88 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 MAX_BODY_BYTES = 40 * 1024 * 1024        # the largest honest request is a transcript + a few decks
 
 
-app = FastAPI(title="Ratings Analysis Worker", version="2.0")
+# ─────────────────────────── jobs that survive a restart ───────────────────────────
+# The platform restarts the worker on every deploy. A job running at that moment used to die
+# silently: the class sat on "analyzing" until a sweep called it failed ninety minutes later, and
+# a person had to notice and press Retry. Now the stopping instance puts its running classes back
+# in the queue, and every instance looks for queued classes on its own - the ones the website
+# could not hand over (worker asleep or unreachable, database blip) as well as the requeued ones.
+RUNNING: set[str] = set()                 # class ids with a job in this process
+_RUNNING_LOCK = threading.Lock()
+RESUME_EVERY_S = 90                       # how often a running worker looks for queued classes
+RESUME_MIN_AGE_S = 60                     # a queued class must be this old: the website's own request has
+#                                           come and gone, and a stopping instance (30 s grace) is dead
+_RESUME_STOP = threading.Event()
+
+
+def _resume_enabled() -> bool:
+    return (os.environ.get("RESUME_SCHEDULED") or "1").strip().lower() not in ("0", "false", "no")
+
+
+def _resume_scheduled() -> int:
+    """Run the classes the website queued that nobody took. One at a time, never while another
+    job runs in this process (memory), never when the database cannot be asked."""
+    if not _resume_enabled():
+        return 0
+    with _RUNNING_LOCK:
+        if RUNNING:
+            return 0
+    try:
+        rows = ST.scheduled_to_resume(min_age_s=RESUME_MIN_AGE_S)
+    except Exception:
+        log.warning("could not look for queued classes to resume; trying again later", exc_info=True)
+        return 0
+    done = 0
+    for row in rows:
+        req = AnalyzeAsyncRequest(
+            class_id=row["class_id"], vimeo_url=row["vimeo_url"], course=row["course"] or "(unspecified)",
+            topic=row["topic"] or "(unspecified)", instructor=row["instructor"] or "(unspecified)",
+            rating=row["rating"] or "(unspecified)", agenda=row["agenda"] or "(not provided)",
+            class_type="ars" if row["class_type"] == "ars" else "live_class")
+        try:
+            if not ST.claim_for_analysis(req.class_id):
+                continue                          # someone took it in the meantime
+        except ST.StoreUnavailable:
+            break
+        ST.record_resume(req.class_id)
+        log.warning("resuming queued class %s (%s)", req.class_id, req.topic)
+        _run_analysis_job(req)
+        done += 1
+    return done
+
+
+def _resume_loop() -> None:
+    delay = RESUME_MIN_AGE_S
+    while not _RESUME_STOP.wait(delay):
+        delay = RESUME_EVERY_S
+        try:
+            _resume_scheduled()
+        except Exception:                             # pragma: no cover - defensive
+            log.exception("the resume loop failed once; it keeps going")
+
+
+def _requeue_running() -> int:
+    with _RUNNING_LOCK:
+        ids = sorted(RUNNING)
+    if not ids:
+        return 0
+    moved = ST.requeue_running(ids)
+    log.warning("stopping with %d job(s) running; %d class(es) queued again for the next instance", len(ids), moved)
+    return moved
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    thread = threading.Thread(target=_resume_loop, name="resume-queued", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        _RESUME_STOP.set()
+        _requeue_running()
+
+
+app = FastAPI(title="Ratings Analysis Worker", version="2.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -290,6 +372,10 @@ def health() -> dict:
                                  and (os.environ.get("GOOGLE_SA_JSON_FILE")
                                       or os.environ.get("GOOGLE_SA_JSON"))),
         "slack_configured": bool(os.environ.get("SLACK_BOT_TOKEN")),
+        # Can this instance reach the database right now? "unreachable" is the answer to
+        # "why does my analysis say the service could not be reached" (checked at most once a minute).
+        "database": ST.ping(),
+        "jobs_running": len(RUNNING),
     }
 
 
@@ -389,6 +475,8 @@ class KeepAwake:
 
 def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
     """The background job: fetch transcript + digest materials (+ sample video) + analyze + save."""
+    with _RUNNING_LOCK:
+        RUNNING.add(req.class_id)
     try:
         with KeepAwake():
             transcript_text = req.transcript
@@ -408,6 +496,9 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
         logging.exception("async analysis failed for class %s", req.class_id)
         ST.mark_failed(req.class_id, str(e))
+    finally:
+        with _RUNNING_LOCK:
+            RUNNING.discard(req.class_id)
 
 
 def _sweep_stuck() -> int:
@@ -417,7 +508,7 @@ def _sweep_stuck() -> int:
     nothing ever released them. Best-effort: a failure here is logged and never blocks a job.
     """
     try:
-        conn = ST._connect()
+        conn = ST._connect(attempts=1, connect_timeout=5)   # quick: a request is waiting on this
         try:
             cur = conn.cursor()
             released = RST.reset_stuck_analyses(cur)

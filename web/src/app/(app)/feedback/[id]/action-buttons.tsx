@@ -24,12 +24,17 @@ type Msg = { ok: { title: string; description?: string }; fail: string };
 
 function useServerAction() {
   const [pending, startTransition] = React.useTransition();
-  const run = (fn: (fd: FormData) => Promise<void | { error?: string }>, fd: FormData, msg: Msg) =>
+  const run = (fn: (fd: FormData) => Promise<void | { error?: string; notice?: string }>, fd: FormData, msg: Msg) =>
     startTransition(async () => {
       try {
         const result = await fn(fd);
         if (result && typeof result === "object" && result.error) {
           toast.error(msg.fail, { description: result.error });
+          return;
+        }
+        if (result && typeof result === "object" && result.notice) {
+          // Neither success nor failure: the class is queued and will start on its own.
+          toast.info("Queued", { description: result.notice });
           return;
         }
         toast.success(msg.ok.title, { description: msg.ok.description });

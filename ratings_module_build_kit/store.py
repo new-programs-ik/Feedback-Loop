@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import psycopg2
 from psycopg2.extras import Json
@@ -16,17 +17,67 @@ from psycopg2.extras import Json
 
 log = logging.getLogger("store")
 
+_sleep = time.sleep                       # patched by the tests
+PATIENT_WAITS = (2, 4, 8, 15, 15, 30, 30)  # seconds between tries when nobody is waiting on us
 
-def _connect():
+
+def _connect(attempts: int = 3, connect_timeout: int = 8, waits: tuple[float, ...] = (2, 5)):
+    """A connection, after up to `attempts` tries.
+
+    The database is in Singapore and the worker is in Oregon; a connection that fails on the
+    first try usually succeeds on the second. With one try and no retry, every such blip became
+    a 503 on the website and the whole class became 'failed' (22 Sep 2026: four in five minutes).
+    Only connection errors are retried; a missing URL or a bad password fails at once.
+    """
     url = os.environ.get("DATABASE_URL", "").replace("postgresql+psycopg2://", "postgresql://")
     if not url:
         raise RuntimeError("DATABASE_URL is not set — the worker cannot persist async results")
-    return psycopg2.connect(url, connect_timeout=15)
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            return psycopg2.connect(url, connect_timeout=connect_timeout)
+        except psycopg2.OperationalError as e:
+            last = e
+            if i + 1 >= attempts:
+                break
+            wait = waits[min(i, len(waits) - 1)] if waits else 1
+            log.warning("database connection failed (try %d of %d): %s; retrying in %ss",
+                        i + 1, attempts, str(e).strip()[:160], wait)
+            _sleep(wait)
+    assert last is not None
+    raise last
+
+
+_PING: tuple[str, float] | None = None
+
+
+def ping(cache_s: int = 60) -> str:
+    """'ok' or 'unreachable': can the worker reach the database right now? One quick try, cached
+    briefly, so /health answers the question a person has when an analysis will not start."""
+    global _PING
+    now = time.monotonic()
+    if _PING and now - _PING[1] < cache_s:
+        return _PING[0]
+    try:
+        conn = _connect(attempts=1, connect_timeout=5)
+        try:
+            cur = conn.cursor()
+            cur.execute("select 1")
+            cur.fetchone()
+        finally:
+            conn.close()
+        state = "ok"
+    except Exception as e:
+        log.warning("database ping failed: %s", str(e).strip()[:160])
+        state = "unreachable"
+    _PING = (state, now)
+    return state
 
 
 def persist_analysis(class_id: str, result: dict, meta: dict, transcript_text: str, source: str) -> None:
     """Write transcript + analysis + draft feedback, flip the class to draft_ready, and audit it."""
-    conn = _connect()
+    # A finished analysis is paid for; nobody is waiting on this call, so it waits for the database.
+    conn = _connect(attempts=8, connect_timeout=10, waits=PATIENT_WAITS)
     cur = conn.cursor()
     try:
         if transcript_text and transcript_text.strip():
@@ -134,7 +185,7 @@ def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> N
     """
     conn = None
     try:
-        conn = _connect()
+        conn = _connect(attempts=4, waits=(2, 5, 10))
         cur = conn.cursor()
         cur.execute("update classes set status='failed', updated_at=now() "
                     "where id=%s and status='analyzing'", (class_id,))
@@ -158,3 +209,85 @@ def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> N
                 conn.close()
             except Exception:
                 log.exception("could not close the connection after marking class %s failed", class_id)
+
+
+def requeue_running(class_ids: list[str]) -> int:
+    """The worker is stopping with these jobs still running (a deploy, a restart): put the classes
+    back to 'scheduled' so the next instance resumes them, and say so in the audit trail.
+    Quick and best-effort - a stopping process has seconds, not minutes."""
+    if not class_ids:
+        return 0
+    conn = None
+    try:
+        conn = _connect(attempts=1, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute("update classes set status='scheduled', updated_at=now() "
+                    "where id = any(%s::uuid[]) and status='analyzing' returning id", (list(class_ids),))
+        moved = [str(r[0]) for r in cur.fetchall()]
+        for cid in moved:
+            cur.execute(
+                "insert into audit_log(class_id, actor_label, action, detail) values (%s,'worker','queued',%s)",
+                (cid, Json({"where": "analyze", "message": "the worker was restarted mid-analysis (a deploy); "
+                                                          "the class is queued again and resumes on its own"})))
+        conn.commit()
+        return len(moved)
+    except Exception:
+        log.exception("could not queue %d running class(es) again before stopping", len(class_ids))
+        return 0
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                log.exception("could not close the connection after queueing classes again")
+
+
+RESUME_COLUMNS = ("class_id", "vimeo_url", "course", "topic", "instructor", "rating", "agenda", "class_type")
+
+
+def scheduled_to_resume(min_age_s: int = 60, limit: int = 3) -> list[dict]:
+    """Classes the website queued that no job took: the worker was asleep, unreachable, could not
+    reach the database, or was restarted mid-run. Only rows old enough that the website's own
+    request has surely come and gone, and that the stopping instance is surely dead (the platform
+    kills it within about thirty seconds of the stop signal). Raises when the database cannot be
+    asked; the caller decides what that means."""
+    conn = _connect(attempts=1, connect_timeout=5)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            select c.id::text, c.vimeo_link, coalesce(co.name, '(unspecified)'), c.topic,
+                   coalesce(i.name, '(unspecified)'), c.rating::text, coalesce(c.agenda, ''), c.session_type
+              from classes c
+              left join courses co on co.id = c.course_id
+              left join instructors i on i.id = c.instructor_id
+             where c.status = 'scheduled'
+               and c.updated_at < now() - make_interval(secs => %s)
+               and c.vimeo_link is not null and c.vimeo_link <> ''
+             order by c.updated_at asc
+             limit %s
+            """, (min_age_s, limit))
+        return [dict(zip(RESUME_COLUMNS, r)) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def record_resume(class_id: str) -> None:
+    """One audit line: the worker took this class on its own, not because the website asked."""
+    conn = None
+    try:
+        conn = _connect(attempts=1, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute(
+            "insert into audit_log(class_id, actor_label, action, detail) values (%s,'worker','retried',%s)",
+            (class_id, Json({"where": "resume", "message": "picked up by the worker on its own: the website's "
+                                                          "request did not reach it, or the worker was restarted"})))
+        conn.commit()
+    except Exception:
+        log.exception("could not record the resume of class %s", class_id)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                log.exception("could not close the connection after recording a resume")

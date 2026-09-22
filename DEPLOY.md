@@ -25,7 +25,7 @@ that uses it is deployed, so the order is always: migration, then code.
 
 - The Google service-account key file is at `ratings_module_build_kit/google-sa.json` and the
   ratings sheet is shared with that account as **Viewer**.
-- Tests are green: worker `pytest -q` (407), web `npm test` (144) and `npx tsc --noEmit` and
+- Tests are green: worker `pytest -q` (419), web `npm test` (144) and `npx tsc --noEmit` and
   `npx next build`, and `supabase/test_scoring_sql.py` against the database (120 fixture cases).
 - Take a backup:
   ```bash
@@ -209,7 +209,16 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... -e DATABASE_URL=... -e WORKER_A
 
 `GET /health` reports the model, the build (`commit`), the SDK version, whether the keys are
 present, whether ffmpeg was found, whether video and the self-check pass are enabled, the ratings
-source, whether the sheet and Slack are configured, and the active scoring version.
+source, whether the sheet and Slack are configured, the active scoring version, whether the
+database can be reached from the worker right now (`database`: ok / unreachable, checked at most
+once a minute) and how many analyses are running (`jobs_running`).
+
+**Jobs survive a restart.** A push to `main` restarts the worker. An analysis running at that
+moment is put back in the queue by the stopping instance, and every instance looks for queued
+classes on its own (a minute after it starts, then every 90 seconds): the ones it was handed and
+could not take, the ones the website could not hand over because the worker was asleep or could
+not reach the database, and the ones a restart interrupted. A resumed class runs transcript-only
+(materials and video are never stored). `RESUME_SCHEDULED=0` switches this off.
 
 ---
 

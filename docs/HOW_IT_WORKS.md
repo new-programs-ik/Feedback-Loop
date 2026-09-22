@@ -614,8 +614,18 @@ URL*) or an uploaded transcript file; optionally tick **Analyze the video too**;
 the **class materials** (upload, paste text, or paste a Google Drive / Docs / Slides link). Click
 **Analyze class**. The website hands the job to the worker, which runs it in the background and
 writes the finished analysis to the database; the page refreshes itself. Transcript-only takes
-3–4 minutes, with video 6–8. A failed run is marked failed with the reason; a stalled one is
-detected; both offer one-click **Retry**.
+3–4 minutes, with video 6–8.
+
+**When something breaks.** The worker restarts on every deploy and sleeps when idle, and the
+database is far away; none of that loses a class. If the website cannot hand the job over (the
+worker was asleep or unreachable, or could not reach the database at that moment), the class
+stays *queued* and the worker picks it up on its own within a couple of minutes: the page says
+*Starting…* and updates itself. If a restart interrupts a run, the stopping worker puts the class
+back in the queue and the next one resumes it (transcript-only: materials and video are never
+stored). A run that really fails is marked failed with the reason and offers **Retry**; a class
+nobody took for ten minutes says so and offers **Retry** too. The worker tries the database
+several times before calling it unreachable, and waits patiently before giving up on saving a
+finished, paid-for analysis.
 
 **How it reads a class.**
 
