@@ -73,7 +73,7 @@ that guide about what not to touch matter.
 Checks before any push, all of which must be green:
 
 ```
-ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (422 tests)
+ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (435 tests)
 cd web && npx tsc --noEmit && npx next build && npm test             # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py   # the database scorer against the fixtures
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py    # the worker's SQL against the real database (rolled back)
@@ -116,6 +116,7 @@ bug.
 | [docs/THE_AI_ANALYSIS_PROMPTS.md](docs/THE_AI_ANALYSIS_PROMPTS.md) | the exact prompts the engine uses (generated from the code) |
 | [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) | to run it on your computer |
 | [DEPLOY.md](DEPLOY.md), [docs/RENDER_SETUP.md](docs/RENDER_SETUP.md), [docs/GOOGLE_SHEET_SYNC_SETUP.md](docs/GOOGLE_SHEET_SYNC_SETUP.md), [docs/VIMEO_VIDEO_ACCESS.md](docs/VIMEO_VIDEO_ACCESS.md) | to deploy or connect a service |
+| [docs/UPLEVEL_VIDEO_LINK.md](docs/UPLEVEL_VIDEO_LINK.md) | to find a class's recording link in UpLevel (by hand, or the automatic match) |
 | [docs/B2B_DATA_ACCESS.md](docs/B2B_DATA_ACCESS.md) | to read the analyses from another team's system (the `kb` schema) |
 | [supabase/README.md](supabase/README.md), [ratings_module_build_kit/README.md](ratings_module_build_kit/README.md), [web/README.md](web/README.md) | the three parts, for developers |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | how changes are made and checked, and the documentation rule |

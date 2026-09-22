@@ -79,3 +79,8 @@ Formula-One-Pager.pdf
 # design-review screenshots, regenerated on demand
 web/shots/
 shots/
+
+# Uplevel: the borrowed browser session, any saved HAR files, and the raw API answers (uplevel.py)
+ratings_module_build_kit/uplevel-cookies.txt
+*.har
+local-reports/
