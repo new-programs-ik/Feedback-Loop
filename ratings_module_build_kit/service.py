@@ -507,10 +507,39 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
             logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
         logging.exception("async analysis failed for class %s", req.class_id)
-        ST.mark_failed(req.class_id, str(e))
+        ST.mark_failed(req.class_id, plain_failure(e), technical=str(e))
     finally:
         with _RUNNING_LOCK:
             RUNNING.discard(req.class_id)
+
+
+# What the review page says when a job fails: the reason in words, and what to do. The technical
+# text is kept in the audit row for whoever debugs it; nobody should have to read a JSON error
+# from the AI provider to learn that the account needs credit.
+PLAIN_FAILURES: tuple[tuple[str, str], ...] = (
+    ("credit balance is too low",
+     "The AI account has no credit left. Add credit at console.anthropic.com › Plans & Billing, then press Retry."),
+    ("invalid x-api-key|authentication_error|401",
+     "The AI key on the worker is not accepted. Check ANTHROPIC_API_KEY on Render, then press Retry."),
+    ("rate_limit|429",
+     "The AI service is rate-limited right now. Press Retry in a few minutes."),
+    ("overloaded|529|503 Service Unavailable",
+     "The AI service is overloaded right now. Press Retry in a few minutes."),
+    ("no transcript|no text track|has no captions|no captions",
+     "This recording has no transcript on Vimeo yet. Vimeo makes one a while after upload; press Retry later, or upload a transcript file."),
+    ("vimeo.*(403|404|not found|forbidden)|(403|404).*vimeo",
+     "The recording could not be fetched from Vimeo: the link is wrong, private, or the worker's Vimeo token cannot see it."),
+    ("ffmpeg",
+     "The video stage failed on the worker. Run it again without 'Analyze the video too'."),
+)
+
+
+def plain_failure(err: BaseException) -> str:
+    text = str(err)
+    for pattern, words in PLAIN_FAILURES:
+        if re.search(pattern, text, re.I | re.S):
+            return words
+    return text[:400] or type(err).__name__
 
 
 def _sweep_stuck() -> int:

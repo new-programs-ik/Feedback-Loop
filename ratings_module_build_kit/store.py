@@ -177,7 +177,8 @@ def claim_for_analysis(class_id: str) -> bool:
                 log.exception("could not close the connection after claiming class %s", class_id)
 
 
-def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> None:
+def mark_failed(class_id: str, message: str, cost_usd: float | None = None,
+                technical: str | None = None) -> None:
     """Flag a class whose background analysis failed, so the UI can show it (recoverable — retry).
 
     Two things used to go wrong here. Every error was swallowed with a bare `pass` and no log, so a
@@ -194,6 +195,8 @@ def mark_failed(class_id: str, message: str, cost_usd: float | None = None) -> N
                     "where id=%s and status='analyzing'", (class_id,))
         moved = cur.rowcount
         detail = {"where": "analyze", "message": str(message)[:400]}
+        if technical and technical != message:
+            detail["technical"] = str(technical)[:800]     # for whoever debugs it; the page shows `message`
         if cost_usd:
             detail["cost_usd"] = round(float(cost_usd), 4)
         if not moved:

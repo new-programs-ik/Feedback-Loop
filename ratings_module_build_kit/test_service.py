@@ -504,6 +504,37 @@ class TestJobsSurviveARestart(unittest.TestCase):
         self.assertEqual(conn.cur.params, (60, 3))
 
 
+class TestAFailureIsExplainedInWords(unittest.TestCase):
+    """22 Sep 2026: the page showed the AI provider's JSON error verbatim. The reason and what to
+    do are said in words; the technical text goes to the audit row."""
+
+    def test_known_failures_get_words_and_an_action(self):
+        cases = {
+            "Error code: 400 - {'error': {'message': 'Your credit balance is too low to access the Anthropic API.'}}": "no credit left",
+            "Error code: 429 - rate_limit_error": "rate-limited",
+            "Error code: 529 - overloaded_error": "overloaded",
+            "VimeoError: no text track on this video": "no transcript on Vimeo",
+            "GET https://api.vimeo.com/videos/1 → 404": "could not be fetched from Vimeo",
+        }
+        for text, expected in cases.items():
+            self.assertIn(expected, service.plain_failure(RuntimeError(text)), text)
+
+    def test_an_unknown_failure_keeps_its_own_words(self):
+        self.assertEqual(service.plain_failure(RuntimeError("something odd")), "something odd")
+        self.assertEqual(service.plain_failure(RuntimeError("")), "RuntimeError")
+
+    def test_the_job_records_the_words_and_keeps_the_technical_text(self):
+        req = service.AnalyzeAsyncRequest(class_id="c7", transcript=SRT)
+        with patch.object(service, "gather_materials", return_value=None), \
+             patch.object(service, "_run_video_stage", side_effect=RuntimeError("Error code: 400 - credit balance is too low")), \
+             patch.object(service.ST, "mark_failed") as failed, patch.object(service, "KeepAwake"):
+            service._run_analysis_job(req)
+        args, kwargs = failed.call_args
+        self.assertEqual(args[0], "c7")
+        self.assertIn("no credit left", args[1])
+        self.assertIn("credit balance is too low", kwargs["technical"])
+
+
 class TestRequestsThatUsedToBreakTheWorker(unittest.TestCase):
     def test_a_non_ascii_key_is_a_401_not_a_500(self):
         # The HTTP client will not even send non-ASCII header bytes, so the check is called directly:

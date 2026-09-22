@@ -25,7 +25,7 @@ that uses it is deployed, so the order is always: migration, then code.
 
 - The Google service-account key file is at `ratings_module_build_kit/google-sa.json` and the
   ratings sheet is shared with that account as **Viewer**.
-- Tests are green: worker `pytest -q` (419), web `npm test` (144) and `npx tsc --noEmit` and
+- Tests are green: worker `pytest -q` (422), web `npm test` (144) and `npx tsc --noEmit` and
   `npx next build`, `supabase/test_scoring_sql.py` against the database (120 fixture cases), and
   `supabase/test_worker_sql.py` (the worker's statements run against the real database and
   rolled back; the unit tests cannot see a statement Postgres refuses).

@@ -294,7 +294,8 @@ study that chose the live settings is in `analysis/formula/` and the manager's r
 | A cohort is missing from the Cohorts page. | Its text in the sheet could not be parsed, or the class is unmapped. Admin → Sync shows unparsed cohorts per run; Settings → Cohorts lets you rename. |
 | What does one analysis cost? | About $0.51 transcript-only, about $0.70 with video. The queue shows the week's total; each analysis shows its exact cost. |
 | A class says **Starting…** for a while. | The analysis service was asleep, or could not be reached for a moment. The class is queued and the service picks it up on its own within a couple of minutes; the page updates by itself. After ten minutes with no taker it says so and offers **Retry**. |
-| The analysis didn't finish. | The reason is on the page. **Retry** runs it again (transcript-only: materials and video are not stored). If the reason mentions the database, wait a minute first. |
+| The analysis didn't finish. | The reason is on the page, in words, with what to do. **Retry** runs it again (transcript-only: materials and video are not stored). If the reason mentions the database, wait a minute first. |
+| "The AI account has no credit left." | The Anthropic account that runs the analyses is empty. Whoever holds it adds credit at console.anthropic.com › Plans & Billing; then press **Retry**. Nothing was charged for the failed run. |
 | Is my materials file stored? | No. Materials and video frames are used in memory for that one analysis, then discarded. Transcripts auto-delete after 20 days. |
 | Who can see the re-class recommendation? | Only signed-in IK staff, in this tool. It is never part of the instructor note. |
 | An old Slack link goes to a page I do not recognise. | Old links redirect to the new course pages; the class they pointed at opens in the queue with the drawer. |
