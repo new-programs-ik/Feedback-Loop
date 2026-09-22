@@ -547,7 +547,9 @@ class TestRequestsThatUsedToBreakTheWorker(unittest.TestCase):
 
         with patch.object(service.ST, "_connect", return_value=Conn()):
             self.assertTrue(REAL_CLAIM("c1"))
-        self.assertIn("status = any(", seen["sql"])
+        # `status::text`: the column is an enum and the list arrives as text[] (see the store).
+        # supabase/test_worker_sql.py runs this statement against the real database.
+        self.assertIn("status::text = any(", seen["sql"])
         self.assertEqual(seen["params"], ("c1", ["scheduled", "failed"]))
 
     def test_a_malformed_scheduler_token_never_reaches_the_database(self):

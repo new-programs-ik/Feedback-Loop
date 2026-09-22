@@ -75,17 +75,23 @@ def _resume_enabled() -> bool:
     return (os.environ.get("RESUME_SCHEDULED") or "1").strip().lower() not in ("0", "false", "no")
 
 
+RESUME_STATE: dict = {"last_check": None, "last_error": None, "resumed": 0}   # shown on /health
+
+
 def _resume_scheduled() -> int:
     """Run the classes the website queued that nobody took. One at a time, never while another
-    job runs in this process (memory), never when the database cannot be asked."""
+    job runs in this process (memory), never when the database cannot be asked. What happened
+    last is on /health, because the platform's logs are not where the team looks."""
     if not _resume_enabled():
         return 0
     with _RUNNING_LOCK:
         if RUNNING:
             return 0
+    RESUME_STATE["last_check"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     try:
         rows = ST.scheduled_to_resume(min_age_s=RESUME_MIN_AGE_S)
-    except Exception:
+    except Exception as e:
+        RESUME_STATE["last_error"] = f"looking for queued classes: {str(e).strip()[:160]}"
         log.warning("could not look for queued classes to resume; trying again later", exc_info=True)
         return 0
     done = 0
@@ -98,12 +104,17 @@ def _resume_scheduled() -> int:
         try:
             if not ST.claim_for_analysis(req.class_id):
                 continue                          # someone took it in the meantime
-        except ST.StoreUnavailable:
+        except ST.StoreUnavailable as e:
+            RESUME_STATE["last_error"] = f"claiming {req.class_id[:8]}: {str(e).strip()[:160]}"
             break
+        RESUME_STATE["last_error"] = None
         ST.record_resume(req.class_id)
         log.warning("resuming queued class %s (%s)", req.class_id, req.topic)
         _run_analysis_job(req)
         done += 1
+        RESUME_STATE["resumed"] += 1
+    if not rows:
+        RESUME_STATE["last_error"] = None
     return done
 
 
@@ -376,6 +387,7 @@ def health() -> dict:
         # "why does my analysis say the service could not be reached" (checked at most once a minute).
         "database": ST.ping(),
         "jobs_running": len(RUNNING),
+        "resume": dict(RESUME_STATE),
     }
 
 

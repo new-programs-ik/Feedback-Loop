@@ -82,6 +82,7 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
    | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Yes, if you analyze **Vimeo links**. |
    | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video frames per class. |
    | `VIDEO_DISABLED` | `1` | Optional kill-switch: video analysis off on this deployment. |
+   | `RESUME_SCHEDULED` | `0` | Optional: stops the worker picking up queued classes on its own (it does by default, a minute after it starts and every 90 seconds). |
    | `RATINGS_SHEET_TABS` | tab names, comma-separated | Only if the tabs are not `MLSU_Live_Class_Poll,Agentic_AI_Live_Class_Poll`. |
    | `NOTIFY_MAX_AGE_DAYS` / `NOTIFY_MAX_PER_RUN` | `10` / `25` | Optional guard rails for Slack: only classes this recent are pinged, at most this many per sync run. `0` for the second one holds every card. |
    | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |

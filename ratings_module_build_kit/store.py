@@ -158,8 +158,11 @@ def claim_for_analysis(class_id: str) -> bool:
     try:
         conn = _connect()
         cur = conn.cursor()
+        # `status` is the enum class_status; a Python list arrives as text[] and Postgres refuses
+        # `enum = any(text[])`. That refusal was reported as "the database could not be reached"
+        # on every start from 21 to 22 September 2026. The cast keeps the comparison honest.
         cur.execute("update classes set status='analyzing', updated_at=now() "
-                    " where id=%s and status = any(%s) returning id", (class_id, list(CLAIMABLE)))
+                    " where id=%s and status::text = any(%s) returning id", (class_id, list(CLAIMABLE)))
         won = cur.fetchone() is not None
         conn.commit()
         return won

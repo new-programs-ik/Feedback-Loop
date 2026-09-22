@@ -29,6 +29,7 @@ Which document, by what changed:
 ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q                    # the worker
 cd web && npx tsc --noEmit && npx next build && npm test                          # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py    # the database scorer
+ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py     # the worker's SQL, run for real and rolled back
 ```
 
 A push to `main` deploys to production within minutes. There is no staging environment, so the

@@ -105,6 +105,7 @@ cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest            # 2
 cd web && npm test                                                           # 107 tests: the score mirror against supabase/fixtures/scoring_cases.json, and the report window
 cd web && npx tsc --noEmit                                                   # type-check
 ./ratings_module_build_kit/.venv/Scripts/python supabase/test_scoring_sql.py # the database's scoring function against the same fixtures (needs DATABASE_URL)
+./ratings_module_build_kit/.venv/Scripts/python supabase/test_worker_sql.py  # the worker's SQL against the real database, rolled back (needs DATABASE_URL)
 ./ratings_module_build_kit/.venv/Scripts/python -m unittest analysis.test_sentiment_score   # the 44 edge cases, from the repo root
 ```
 

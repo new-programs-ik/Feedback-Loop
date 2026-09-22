@@ -76,7 +76,11 @@ Checks before any push, all of which must be green:
 ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (419 tests)
 cd web && npx tsc --noEmit && npx next build && npm test             # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py   # the database scorer against the fixtures
+ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py    # the worker's SQL against the real database (rolled back)
 ```
+
+The last one exists because a statement can read fine and still be refused by Postgres; the
+worker's unit tests have no database and cannot tell.
 
 ## Deploying
 
