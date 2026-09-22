@@ -510,7 +510,7 @@ class TestAFailureIsExplainedInWords(unittest.TestCase):
 
     def test_known_failures_get_words_and_an_action(self):
         cases = {
-            "Error code: 400 - {'error': {'message': 'Your credit balance is too low to access the Anthropic API.'}}": "no credit left",
+            "Error code: 400 - {'error': {'message': 'Your credit balance is too low to access the Anthropic API.'}}": "Claude API fund is empty",
             "Error code: 429 - rate_limit_error": "rate-limited",
             "Error code: 529 - overloaded_error": "overloaded",
             "VimeoError: no text track on this video": "no transcript on Vimeo",
@@ -531,8 +531,11 @@ class TestAFailureIsExplainedInWords(unittest.TestCase):
             service._run_analysis_job(req)
         args, kwargs = failed.call_args
         self.assertEqual(args[0], "c7")
-        self.assertIn("no credit left", args[1])
+        self.assertIn("Claude API fund is empty", args[1])
+        self.assertIn("not a fault in the system", args[1])
         self.assertIn("credit balance is too low", kwargs["technical"])
+        self.assertEqual(kwargs["kind"], "no_credit")
+        self.assertIsNone(service.failure_kind(RuntimeError("something odd")))
 
 
 class TestRequestsThatUsedToBreakTheWorker(unittest.TestCase):

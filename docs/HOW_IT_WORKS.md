@@ -625,7 +625,10 @@ back in the queue and the next one resumes it (transcript-only: materials and vi
 stored). A run that really fails is marked failed with the reason and offers **Retry**; a class
 nobody took for ten minutes says so and offers **Retry** too. The worker tries the database
 several times before calling it unreachable, and waits patiently before giving up on saving a
-finished, paid-for analysis.
+finished, paid-for analysis. A failure is explained in words with what to do (no credit, key not
+accepted, rate-limited, no transcript on Vimeo yet, recording not fetchable); if the Claude API
+fund is empty, a notice at the top of every page says so, and that it is not a fault in the
+system, until an analysis completes again.
 
 **How it reads a class.**
 

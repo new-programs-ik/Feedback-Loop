@@ -507,7 +507,7 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
             logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
         logging.exception("async analysis failed for class %s", req.class_id)
-        ST.mark_failed(req.class_id, plain_failure(e), technical=str(e))
+        ST.mark_failed(req.class_id, plain_failure(e), technical=str(e), kind=failure_kind(e))
     finally:
         with _RUNNING_LOCK:
             RUNNING.discard(req.class_id)
@@ -515,31 +515,47 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
 
 # What the review page says when a job fails: the reason in words, and what to do. The technical
 # text is kept in the audit row for whoever debugs it; nobody should have to read a JSON error
-# from the AI provider to learn that the account needs credit.
-PLAIN_FAILURES: tuple[tuple[str, str], ...] = (
-    ("credit balance is too low",
-     "The AI account has no credit left. Add credit at console.anthropic.com › Plans & Billing, then press Retry."),
-    ("invalid x-api-key|authentication_error|401",
-     "The AI key on the worker is not accepted. Check ANTHROPIC_API_KEY on Render, then press Retry."),
-    ("rate_limit|429",
-     "The AI service is rate-limited right now. Press Retry in a few minutes."),
-    ("overloaded|529|503 Service Unavailable",
-     "The AI service is overloaded right now. Press Retry in a few minutes."),
-    ("no transcript|no text track|has no captions|no captions",
+# from the AI provider to learn that the account needs credit. The `kind` lets the website tell
+# an empty fund apart from everything else and say so at the top of every page, because a failed
+# analysis otherwise reads as a fault in the system.
+NO_CREDIT_WORDS = ("The Claude API fund is empty, so the analysis could not run. This is not a fault in the "
+                   "system. Please recharge the Claude API credit first (console.anthropic.com › Plans & "
+                   "Billing), then press Retry.")
+PLAIN_FAILURES: tuple[tuple[str, str, str], ...] = (
+    ("credit balance is too low", "no_credit", NO_CREDIT_WORDS),
+    ("invalid x-api-key|authentication_error|401", "bad_key",
+     "The Claude API key on the worker is not accepted. Check ANTHROPIC_API_KEY on Render, then press Retry."),
+    ("rate_limit|429", "rate_limited",
+     "The Claude API is rate-limited right now. Press Retry in a few minutes."),
+    ("overloaded|529|503 Service Unavailable", "overloaded",
+     "The Claude API is overloaded right now. Press Retry in a few minutes."),
+    ("no transcript|no text track|has no captions|no captions", "no_transcript",
      "This recording has no transcript on Vimeo yet. Vimeo makes one a while after upload; press Retry later, or upload a transcript file."),
-    ("vimeo.*(403|404|not found|forbidden)|(403|404).*vimeo",
+    ("vimeo.*(403|404|not found|forbidden)|(403|404).*vimeo", "vimeo",
      "The recording could not be fetched from Vimeo: the link is wrong, private, or the worker's Vimeo token cannot see it."),
-    ("ffmpeg",
+    ("ffmpeg", "video",
      "The video stage failed on the worker. Run it again without 'Analyze the video too'."),
 )
 
 
-def plain_failure(err: BaseException) -> str:
+def _match_failure(err: BaseException) -> tuple[str, str] | None:
     text = str(err)
-    for pattern, words in PLAIN_FAILURES:
+    for pattern, kind, words in PLAIN_FAILURES:
         if re.search(pattern, text, re.I | re.S):
-            return words
-    return text[:400] or type(err).__name__
+            return kind, words
+    return None
+
+
+def plain_failure(err: BaseException) -> str:
+    hit = _match_failure(err)
+    if hit:
+        return hit[1]
+    return str(err)[:400] or type(err).__name__
+
+
+def failure_kind(err: BaseException) -> Optional[str]:
+    hit = _match_failure(err)
+    return hit[0] if hit else None
 
 
 def _sweep_stuck() -> int:

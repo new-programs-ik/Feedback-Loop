@@ -7,6 +7,7 @@ import { Topbar } from "@/components/topbar";
 import { CommandPalette } from "@/components/command-palette";
 import { AppToaster } from "@/components/app-toaster";
 import { AppMotionConfig } from "@/components/motion/motion-config";
+import { ServiceNotice } from "@/components/service-notice";
 import { syncNow } from "@/app/(app)/c/[course]/queue/actions";
 
 /** The app shell. The course list, the member's role in each course and the default workspace
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <AppSidebar role={user.role} />
           <div className="relative flex min-w-0 flex-1 flex-col">
             <Topbar user={user} />
+            {staff && <ServiceNotice />}
             <main className="relative flex-1 p-4 md:p-8">{children}</main>
           </div>
           <CommandPalette role={user.role} instructors={instructorsRes.data ?? []} syncNow={staff ? syncNow : undefined} />
