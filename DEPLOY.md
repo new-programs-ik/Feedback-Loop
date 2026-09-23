@@ -25,7 +25,7 @@ that uses it is deployed, so the order is always: migration, then code.
 
 - The Google service-account key file is at `ratings_module_build_kit/google-sa.json` and the
   ratings sheet is shared with that account as **Viewer**.
-- Tests are green: worker `pytest -q` (435), web `npm test` (144) and `npx tsc --noEmit` and
+- Tests are green: worker `pytest -q` (450), web `npm test` (152) and `npx tsc --noEmit` and
   `npx next build`, `supabase/test_scoring_sql.py` against the database (120 fixture cases), and
   `supabase/test_worker_sql.py` (the worker's statements run against the real database and
   rolled back; the unit tests cannot see a statement Postgres refuses).
@@ -74,6 +74,7 @@ $P supabase/apply_migrations.py 0023_flip_share_definition.sql
 | `0028_sync_fingerprints.sql` | `class_ratings.row_hash` and `sync_runs.rows_unchanged`: the sync skips rows the sheet did not change. |
 | `0029_tighten_access.sql` | Share links, course members and handlers, scoring versions and audit inserts are staff-only. |
 | `0030_sync_heartbeat.sql` | `sync_runs.heartbeat_at`: a long run says it is alive; stale means no heartbeat. |
+| `0032_integrations.sql` | `integration_credentials` (the UpLevel session: RLS on, no policies, revoked from the API roles) and `integration_status` (the UpLevel connection and the Claude API credit, readable by staff), seeded from the audit trail. |
 
 Migrations 0012–0014 are already applied; re-running them is harmless. Do **not** re-run
 `0000_drop_legacy_m1.sql` on a database with real data (it is the one-time legacy drop) — that is

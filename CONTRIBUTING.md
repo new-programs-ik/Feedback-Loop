@@ -35,6 +35,11 @@ ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py   
 A push to `main` deploys to production within minutes. There is no staging environment, so the
 tests are the gate. If a change cannot be tested, say so in the commit message and why.
 
+**Tests never touch real services.** `ratings_module_build_kit/conftest.py` sets harmless values for
+the database URL and every credential before any test imports the worker, so the production values
+in `.env` are never loaded during a test run. A test that needs a database, the Claude API, Vimeo,
+Slack or UpLevel fakes it. (Until 23 September 2026 one test ran a real, paid analysis.)
+
 ## The database
 
 - Local work and production share one database. **Migrations are additive only**: add tables,

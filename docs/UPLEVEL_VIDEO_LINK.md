@@ -30,49 +30,66 @@ That is the whole job: match name + date + instructor + category, take the link.
 
 ---
 
-## The automatic way (built into the worker)
+## The automatic way: the form does it for you
 
-`ratings_module_build_kit/uplevel.py` does the same search. Given a class's topic, instructor,
-date and kind, it reads UpLevel's Videos table, ranks the recordings that could be this class, and
-returns the best one **with the reasons in words** (same date, instructor matches, class name
-matches, category matches). The caller shows that to a PM, who confirms before it is used —
-exactly like checking it yourself. It never guesses silently, and when it cannot reach UpLevel it
-says "could not look it up", never "no recording".
+Open **New analysis** from the queue (or fill the class name and date by hand) and the recording
+is looked up on UpLevel by itself. What you see in the Recording box:
 
-**How it works underneath.** UpLevel's Videos page is a table served by `GET /get_videos/`
-(a DataTables endpoint: `search[value]=<one word>`, plus `draw`, `start`, `length`). Each row is
-one recording: `vimeo_link`, `topic__name` (the clean class name), `duration_in_sec`, and a `name`
-string that carries the instructor, the category and the date
-(*"ML Architectures Live Class with Sarfaraz, …, Sunday, September 13, 2026 …"*). The module
-searches by the instructor's name, parses the date and category out of each `name`, compares the
-class name, and scores the fit.
+- **"Found in UpLevel and filled in."** One recording matches clearly. The Vimeo link is filled
+  and the box shows the recording's full UpLevel name, date, type and length, so you can check at a
+  glance that it is the right class. Not this one? "Other recordings" lists the next closest.
+- **"N recordings match this class on the same day. Pick the right one."** Two cohorts, or a
+  re-upload. Nothing is filled; you click **Use this** on the right one.
+- **"No recording for this class in UpLevel yet."** Recordings appear a few hours after the class.
+  Check the class name, date and instructor, or paste the link by hand.
+- **"Automatic lookup is off"** or **"The UpLevel connection has expired."** Paste the link by hand
+  (the steps are in the box); an admin reconnects UpLevel in two minutes (below).
+- **"You changed the class details after the lookup."** The link may belong to a different class
+  now; press **Search again**.
 
-**Proven on real data (22 September 2026).** Two classes we already knew were checked and matched
-exactly: *ML Architectures / Sarfaraz / 13 Sep* → `vimeo.com/1226433411`, and
-*MLOps – Model Training / Lakshaya / 13 Sep* → `vimeo.com/1226939172`. A sweep of 30 recent classes
-matched all 30, every one on the same date with the instructor and class name agreeing. Some
-classes have more than one recording on the same day (two cohorts, or a re-upload); those come back
-as several candidates and the PM picks the right one — which is why the confirm step exists.
+It never overwrites a link you typed yourself, and a live class is never matched to an assignment
+review. If UpLevel cannot be reached it says so, never "no recording".
 
-**Tests.** `test_uplevel.py` locks the parsing and the matching offline (no session needed).
+**How it matches.** The worker (`ratings_module_build_kit/uplevel.py`) reads UpLevel's Videos
+table (`GET /get_videos/`, the same list the Videos page shows), searching by the instructor's
+name and a word of the class name. Each row carries the Vimeo link, the clean class name
+(`topic__name`), the length, and a `name` string with the instructor, the type and the date
+(*"ML Architectures Live Class with Sarfaraz, …, Sunday, September 13, 2026 …"*). A recording on
+a different day is ruled out; the rest are scored on instructor, class name and type, and come back
+best first with the reasons in words.
+
+**Proven on real data (22 September 2026).** *ML Architectures / Sarfaraz / 13 Sep* →
+`vimeo.com/1226433411` and *MLOps – Model Training / Lakshaya / 13 Sep* → `vimeo.com/1226939172`,
+both exact. A sweep of 30 recent classes matched all 30 on date, instructor and class name.
+`test_uplevel.py` locks the parsing and matching offline.
 
 ---
 
-## The one thing still needed: a durable login
+## Connecting UpLevel (an admin, once every two weeks or so)
 
-UpLevel is a Django app behind AWS Cognito. There is **no service token yet**, so today the worker
-borrows a **signed-in browser session**:
+UpLevel has **no service token yet**, so the tool borrows a signed-in session. An admin connects it
+on **Admin › UpLevel**:
 
-- Sign in to UpLevel in Chrome, open the Videos page, DevTools → Network → right-click any request
-  → **Copy as cURL (bash)**.
-- Put that in the `UPLEVEL_COOKIE` environment variable on the worker (a full cookie header
-  string), or, for local work, save it in `ratings_module_build_kit/uplevel-cookies.txt`
-  (gitignored, never committed).
+1. In Chrome, sign in to UpLevel and open the **Videos** page.
+2. Press **F12**, click **Network**, refresh the page.
+3. Right-click any request › **Copy** › **Copy as cURL (bash)** (cmd, PowerShell or the raw headers
+   also work).
+4. Paste it into the box on Admin › UpLevel and press **Save and test**. It says "Connected".
 
-**This is temporary.** A browser session lasts at most about a day and dies when the person logs
-out, and the Cognito tokens inside it expire within the hour. A button the whole team uses cannot
-depend on one person's session. **Ask the platform team for one of:** a service account or API
-token for the Videos endpoints, or a documented refresh-token flow. When that exists, only one
-function in `uplevel.py` (`_session()`) changes — nothing else. Until then, treat automatic
-fetching as a convenience that may need the session refreshed, and the manual way above as the
-fallback that always works.
+Only two cookies are kept (`sessionid` and `csrftoken`); everything else in the paste, including
+the refresh token, is thrown away. They are stored in `integration_credentials`, which nobody signed
+in can read (migration 0032), and are never shown again. Never paste the request anywhere else,
+including chat.
+
+**How long it lasts.** What UpLevel checks is the `sessionid` (tested: the fetch kept working after
+the one-hour login token inside the cookie had expired). It lasts **about two weeks, or until the
+person who copied it logs out of UpLevel**. When it stops, Admin › UpLevel shows *Expired* and the
+form says so; paste a fresh one. Nothing else breaks meanwhile: the form falls back to pasting the
+link by hand.
+
+**The permanent fix.** Ask the UpLevel platform team for a service account or a read-only API token
+for the Videos list (or a documented refresh-token flow). When it exists, only one function in
+`uplevel.py` (`_session()`) changes, and nobody has to paste anything again.
+
+For local work only, `UPLEVEL_COOKIE` (environment) or `ratings_module_build_kit/uplevel-cookies.txt`
+(gitignored) still work as fallbacks; what an admin saved in the app always wins.

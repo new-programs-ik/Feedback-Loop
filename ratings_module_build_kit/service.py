@@ -126,6 +126,58 @@ def _resume_loop() -> None:
             _resume_scheduled()
         except Exception:                             # pragma: no cover - defensive
             log.exception("the resume loop failed once; it keeps going")
+        try:
+            _recheck_credit_if_empty()
+        except Exception:                             # pragma: no cover - defensive
+            log.exception("the credit re-check failed once; it keeps going")
+
+
+# ─────────────────────────── the Claude API credit: say "empty" only while it is ───────────────────────────
+# A refusal for want of credit marks the credit 'empty' (integration_status, migration 0032) and the
+# website says so on the analysis pages. Nothing else would ever clear it until someone paid for an
+# analysis, so a recharged account kept showing "empty". While the state is 'empty', the worker
+# re-checks with the smallest possible request (one token, a fraction of a cent) at most every
+# CREDIT_RECHECK_S, and the website asks for a re-check when a person opens an analysis page.
+CREDIT_RECHECK_S = 600
+CREDIT_CACHE_S = 90
+_CREDIT: dict = {"state": None, "at": 0.0}
+
+
+def probe_credit(force: bool = False) -> str:
+    """'ok', 'empty' or 'unknown' for the Claude API credit right now, from a one-token request.
+    Cached for CREDIT_CACHE_S so a busy page cannot turn into a stream of requests."""
+    now = time.monotonic()
+    if not force and _CREDIT["state"] and now - _CREDIT["at"] < CREDIT_CACHE_S:
+        return _CREDIT["state"]
+    try:
+        E._client().messages.create(model=E.CFG.model, max_tokens=1,
+                                    messages=[{"role": "user", "content": "ok"}])
+        state = "ok"
+    except Exception as e:                            # noqa: BLE001 - classified below
+        state = "empty" if failure_kind(e) == "no_credit" else "unknown"
+        if state == "unknown":
+            log.warning("credit re-check could not tell: %s", str(e)[:200])
+    _CREDIT.update(state=state, at=now)
+    if state == "ok":
+        ST.set_integration_status("claude_credit", "ok")
+    elif state == "empty":
+        ST.set_integration_status("claude_credit", "empty",
+                                  "The Claude API credit is empty: analyses are refused until it is recharged.")
+    return state
+
+
+_LAST_CREDIT_RECHECK = {"at": 0.0}
+
+
+def _recheck_credit_if_empty() -> None:
+    """Called from the resume loop: only when the stored state says 'empty', at most every
+    CREDIT_RECHECK_S. Costs nothing when the credit is fine (no request is made)."""
+    now = time.monotonic()
+    if now - _LAST_CREDIT_RECHECK["at"] < CREDIT_RECHECK_S:
+        return
+    _LAST_CREDIT_RECHECK["at"] = now
+    if ST.get_integration_state("claude_credit") == "empty":
+        probe_credit(force=True)
 
 
 def _requeue_running() -> int:
@@ -505,9 +557,14 @@ def _run_analysis_job(req: AnalyzeAsyncRequest) -> None:
             _merge_video_meta(result, meta, video_meta)
             ST.persist_analysis(req.class_id, result, meta, transcript_text, source)
             logging.info("async analysis stored for class %s (cost $%s)", req.class_id, meta.get("cost_usd"))
+        ST.set_integration_status("claude_credit", "ok")          # a paid analysis proves the credit
     except Exception as e:  # noqa: BLE001 — background job, record failure so the UI can show it
         logging.exception("async analysis failed for class %s", req.class_id)
-        ST.mark_failed(req.class_id, plain_failure(e), technical=str(e), kind=failure_kind(e))
+        kind = failure_kind(e)
+        ST.mark_failed(req.class_id, plain_failure(e), technical=str(e), kind=kind)
+        if kind == "no_credit":
+            ST.set_integration_status("claude_credit", "empty",
+                                      "The last analysis was refused because the Claude API credit was empty.")
     finally:
         with _RUNNING_LOCK:
             RUNNING.discard(req.class_id)
@@ -659,6 +716,101 @@ def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) 
     background.add_task(RSY.run_sync, trigger, full=full)
     return {"status": "accepted", "trigger": trigger}
 
+
+
+@app.post("/ai-credit/check", dependencies=[Depends(require_worker_auth)])
+def ai_credit_check() -> dict:
+    """The website asks this when it is about to tell a person the credit is empty: is it still?"""
+    return {"credit": probe_credit()}
+
+
+# ─────────────────────────── UpLevel: find a class's recording (uplevel.py) ───────────────────────────
+class UplevelFindRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=300)
+    instructor: str = Field(default="", max_length=200)
+    class_date: Optional[str] = Field(default=None, max_length=10)     # YYYY-MM-DD
+    class_type: Literal["live_class", "ars"] = "live_class"
+
+
+def _match_json(m) -> dict:
+    v = m.video
+    return {
+        "vimeo_link": v.vimeo_link, "vimeo_id": v.vimeo_id, "name": v.name, "topic": v.topic,
+        "category": v.category, "class_date": v.class_date.isoformat() if v.class_date else None,
+        "duration_min": round(v.duration_s / 60) if v.duration_s else None,
+        "score": m.score, "reasons": m.reasons,
+    }
+
+
+def _keep_refreshed_uplevel_cookie(session, before: str) -> None:
+    """If UpLevel handed back a new session cookie while we used it, keep the new one."""
+    import uplevel as UP
+    after = UP.cookie_header_of(session)
+    if after and before and after != before and "sessionid=" in after:
+        ST.save_integration_secret("uplevel", after)
+
+
+def _uplevel_session():
+    """(session, the cookie it started with) or a dict answer for the caller to return as-is."""
+    import uplevel as UP
+    try:
+        s = UP._session()
+    except UP.UplevelNotConnected as e:
+        return None, {"status": "not_connected", "message": str(e), "matches": []}
+    except UP.UplevelAuthError as e:
+        ST.set_integration_status("uplevel", "expired", str(e))
+        return None, {"status": "expired", "message": str(e), "matches": []}
+    return s, UP.cookie_header_of(s)
+
+
+@app.post("/uplevel/find", dependencies=[Depends(require_worker_auth)])
+def uplevel_find(req: UplevelFindRequest) -> dict:
+    """The recordings on UpLevel that could be this class, best first, with the reasons in words.
+    Always answers with a status the website can put in a sentence; never a 500 for a login
+    problem. 'none' means we looked and found nothing; 'unreachable' means we could not look."""
+    import datetime as _dt
+    import uplevel as UP
+    date = None
+    if req.class_date:
+        try:
+            date = _dt.date.fromisoformat(req.class_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="class_date must be YYYY-MM-DD")
+    session, before = _uplevel_session()
+    if session is None:
+        return before
+    try:
+        matches = UP.find_recording(topic=req.topic, instructor=req.instructor, class_date=date,
+                                    kind=req.class_type, session=session)
+    except UP.UplevelAuthError as e:
+        ST.set_integration_status("uplevel", "expired",
+                                  "UpLevel did not accept the saved session: it has expired or its owner logged out.")
+        return {"status": "expired", "message": str(e), "matches": []}
+    except UP.UplevelError as e:
+        return {"status": "unreachable", "message": str(e), "matches": []}
+    ST.set_integration_status("uplevel", "ok")
+    _keep_refreshed_uplevel_cookie(session, before)
+    return {"status": "ok" if matches else "none", "matches": [_match_json(m) for m in matches[:6]]}
+
+
+@app.post("/uplevel/check", dependencies=[Depends(require_worker_auth)])
+def uplevel_check() -> dict:
+    """Admin › UpLevel's 'Test connection': one small search, and the status recorded."""
+    import uplevel as UP
+    session, before = _uplevel_session()
+    if session is None:
+        return {"status": before["status"], "message": before["message"]}
+    try:
+        rows = UP.search_rows("live", limit=1, session=session)
+    except UP.UplevelAuthError:
+        msg = "UpLevel did not accept the saved session: it has expired or its owner logged out."
+        ST.set_integration_status("uplevel", "expired", msg)
+        return {"status": "expired", "message": msg}
+    except UP.UplevelError as e:
+        return {"status": "unreachable", "message": str(e)}
+    ST.set_integration_status("uplevel", "ok", "Connected: the Videos list answered.")
+    _keep_refreshed_uplevel_cookie(session, before)
+    return {"status": "ok", "message": f"Connected. UpLevel answered ({len(rows)} row checked)."}
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

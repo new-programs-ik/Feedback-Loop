@@ -608,9 +608,15 @@ exact prompts are in [THE_AI_ANALYSIS_PROMPTS.md](THE_AI_ANALYSIS_PROMPTS.md); t
 version.
 
 **The journey of one class.** The form arrives prefilled from the queue (course, class name,
-instructor, date, kind, rating, the votes) — or you fill it by hand. You give it the recording:
-the class's **Vimeo link** (from UpLevel: *Resources → Videos → the class → Basic Details → VIMEO
-URL*) or an uploaded transcript file; optionally tick **Analyze the video too**; optionally attach
+instructor, date, kind, rating, the votes) — or you fill it by hand. The recording is **looked up
+on UpLevel by itself**: the worker searches UpLevel's Videos list by the instructor, and matches
+the class name, the date (a different day is a different class) and the type (a live class is never
+matched to an assignment review). One clear match fills the Vimeo link and shows which recording it
+is; several are listed for the PM to pick; the form never overwrites a link someone typed. UpLevel
+has no service token yet, so an admin connects it once on **Admin › UpLevel** by pasting a signed-in
+session (it lasts about two weeks); when it is missing or expired the form says so and the link is
+pasted by hand ([UPLEVEL_VIDEO_LINK.md](UPLEVEL_VIDEO_LINK.md)). An uploaded transcript file works
+too; optionally tick **Analyze the video too**; optionally attach
 the **class materials** (upload, paste text, or paste a Google Drive / Docs / Slides link). Click
 **Analyze class**. The website hands the job to the worker, which runs it in the background and
 writes the finished analysis to the database; the page refreshes itself. Transcript-only takes
@@ -626,9 +632,12 @@ stored). A run that really fails is marked failed with the reason and offers **R
 nobody took for ten minutes says so and offers **Retry** too. The worker tries the database
 several times before calling it unreachable, and waits patiently before giving up on saving a
 finished, paid-for analysis. A failure is explained in words with what to do (no credit, key not
-accepted, rate-limited, no transcript on Vimeo yet, recording not fetchable); if the Claude API
-fund is empty, a notice at the top of every page says so, and that it is not a fault in the
-system, until an analysis completes again.
+accepted, rate-limited, no transcript on Vimeo yet, recording not fetchable). If the Claude API
+credit is empty, the worker records it (`integration_status`, migration 0032) and the New analysis
+page says so, and that it is not a fault in the system. It says it only while the credit is
+actually empty: opening the page asks the worker to re-check with a one-token request, a running
+worker re-checks every ten minutes while the state is "empty", and any finished analysis marks it
+recharged. The failed class's own page then says the credit is back and to press **Retry**.
 
 **How it reads a class.**
 
@@ -688,6 +697,8 @@ silence to a false criticism, and anchors every point to a verbatim quote and a 
 | **Uploaded materials and video frames** | ❌ **Never** | Read once in memory for that analysis, then discarded. |
 | Share links | ✅ The token, the period, the expiry, who made it | Revocable; the page needs a staff sign-in. |
 | The `kb` export views | ✅ Read-only views of the analyses and scores | For other teams' knowledge bases, through a role that can read nothing else ([B2B_DATA_ACCESS.md](B2B_DATA_ACCESS.md)). |
+| The UpLevel login | ✅ Two cookies only (`sessionid`, `csrftoken`), who connected it and when | In `integration_credentials`: row-level security on, no policies, no access for signed-in users; only the website's server and the worker read it. Never shown back. Replaced when an admin pastes a fresh one; deleted on Disconnect. |
+| Outside services' health | ✅ The state of the UpLevel connection and of the Claude API credit | `integration_status`, readable by staff; a sentence, never a secret. |
 | Every meaningful action (activations, merges, hand-overs, confirmations, dismissals, share links…) | ✅ The audit log | Admin › Audit, filterable by action. |
 | Anything on GitHub | ❌ No confidential data | The code and these docs only. The workbook, the study PDFs and Word documents, key files and `.env` files are gitignored. |
 

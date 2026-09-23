@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { parseUplevelPaste } from "@/lib/uplevel-cookie";
+import { postToWorker } from "@/lib/worker";
 import { getCurrentUser, type SessionUser } from "@/lib/session";
 import {
   askWorkerToSync,
@@ -568,5 +570,73 @@ export async function revokeShareLink(input: { id: string }): Promise<ActionResu
   await auditLog(supabase, user, "share_link_revoked", { share_id: input.id });
   revalidatePath("/admin/people");
   revalidatePath("/c/[course]/settings", "page");
+  return done(null);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════ UpLevel connection
+/** What the worker's connection test says, in words for the page. */
+export type UplevelCheck = { status: "ok" | "expired" | "not_connected" | "unreachable" | "unknown"; message: string };
+
+async function askWorkerToCheckUplevel(): Promise<UplevelCheck> {
+  const reply = await postToWorker<{ status?: string; message?: string }>("/uplevel/check", {}, 55_000);
+  if (!reply.ok) {
+    return { status: "unknown", message: "Saved. The analysis service could not be reached to test it just now (it may be waking up); press Test connection in a minute." };
+  }
+  const s = reply.data?.status;
+  const status = s === "ok" || s === "expired" || s === "not_connected" || s === "unreachable" ? s : "unknown";
+  return { status, message: String(reply.data?.message ?? "") };
+}
+
+/** Connect UpLevel: an admin pastes one copied request; only the sessionid and csrftoken cookies
+ *  are kept, stored where nobody signed in can read them (migration 0032), and tested at once.
+ *  The session itself never comes back to the browser, and the audit row does not hold it. */
+export async function connectUplevel(pasted: string): Promise<ActionResult<UplevelCheck>> {
+  const user = await requireAdmin();
+  if (!user) return fail(NOT_ADMIN);
+  const parsed = parseUplevelPaste(String(pasted ?? ""));
+  if (!parsed.ok) return fail(parsed.error);
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+  const { error } = await admin.from("integration_credentials").upsert(
+    { name: "uplevel", secret: parsed.cookie, set_by: user.id, set_by_label: user.email, set_at: now },
+    { onConflict: "name" },
+  );
+  if (error) return fail(`Could not save the session: ${error.message}`);
+  await admin.from("integration_status").upsert(
+    { name: "uplevel", state: "unknown", detail: "Saved; being tested.", set_at: now, set_by_label: user.email, updated_at: now },
+    { onConflict: "name" },
+  );
+  await auditLog(await createClient(), user, "uplevel_connected", {});
+  const check = await askWorkerToCheckUplevel();
+  revalidatePath("/admin/uplevel");
+  revalidatePath("/feedback/new");
+  return done(check);
+}
+
+/** Test the saved session now (Admin › UpLevel). */
+export async function testUplevel(): Promise<ActionResult<UplevelCheck>> {
+  const user = await requireAdmin();
+  if (!user) return fail(NOT_ADMIN);
+  const check = await askWorkerToCheckUplevel();
+  revalidatePath("/admin/uplevel");
+  revalidatePath("/feedback/new");
+  return done(check);
+}
+
+/** Forget the saved session; the form falls back to pasting the link by hand. */
+export async function disconnectUplevel(): Promise<ActionResult<null>> {
+  const user = await requireAdmin();
+  if (!user) return fail(NOT_ADMIN);
+  const admin = createAdminClient();
+  const { error } = await admin.from("integration_credentials").delete().eq("name", "uplevel");
+  if (error) return fail(`Could not remove the session: ${error.message}`);
+  await admin.from("integration_status").upsert(
+    { name: "uplevel", state: "not_set", detail: "Disconnected by an admin.", updated_at: new Date().toISOString() },
+    { onConflict: "name" },
+  );
+  await auditLog(await createClient(), user, "uplevel_disconnected", {});
+  revalidatePath("/admin/uplevel");
+  revalidatePath("/feedback/new");
   return done(null);
 }

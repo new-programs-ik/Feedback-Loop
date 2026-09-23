@@ -299,3 +299,97 @@ def record_resume(class_id: str) -> None:
                 conn.close()
             except Exception:
                 log.exception("could not close the connection after recording a resume")
+
+
+# ─────────────────────────── outside services: their secret and their health (migration 0032) ───────────────────────────
+INTEGRATION_STATES = ("ok", "expired", "empty", "error", "not_set", "unknown")
+
+
+def set_integration_status(name: str, state: str, detail: str | None = None) -> None:
+    """Record how an outside service is doing ('uplevel', 'claude_credit'). Best-effort: a status
+    that could not be written is logged and never breaks the work that produced it."""
+    if state not in INTEGRATION_STATES:
+        raise ValueError(f"unknown integration state {state!r}")
+    conn = None
+    try:
+        conn = _connect(attempts=2, connect_timeout=5, waits=(2,))
+        cur = conn.cursor()
+        cur.execute(
+            "insert into integration_status (name, state, detail, checked_at, updated_at, last_ok_at, last_error_at) "
+            "values (%s, %s, %s, now(), now(), "
+            "        case when %s = 'ok' then now() end, "
+            "        case when %s in ('expired','empty','error') then now() end) "
+            "on conflict (name) do update set state = excluded.state, detail = excluded.detail, "
+            "  checked_at = now(), updated_at = now(), "
+            "  last_ok_at = coalesce(excluded.last_ok_at, integration_status.last_ok_at), "
+            "  last_error_at = coalesce(excluded.last_error_at, integration_status.last_error_at)",
+            (name, state, (detail or None) and str(detail)[:400], state, state))
+        conn.commit()
+    except Exception:
+        log.warning("could not record the %s status as %s", name, state, exc_info=True)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_integration_state(name: str) -> str | None:
+    """The recorded state of one outside service, or None when it cannot be read."""
+    conn = None
+    try:
+        conn = _connect(attempts=1, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute("select state from integration_status where name = %s", (name,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception:
+        log.warning("could not read the %s status", name, exc_info=True)
+        return None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_integration_secret(name: str) -> str | None:
+    """The stored credential for one outside service (e.g. the UpLevel session), or None when none
+    is stored. Raises StoreUnavailable when the database cannot be asked: 'not connected' and
+    'could not look' must not be confused."""
+    conn = None
+    try:
+        conn = _connect(attempts=2, connect_timeout=5, waits=(2,))
+        cur = conn.cursor()
+        cur.execute("select secret from integration_credentials where name = %s", (name,))
+        row = cur.fetchone()
+        return row[0] if row and row[0] else None
+    except Exception as e:
+        raise StoreUnavailable(f"could not read the {name} credential: {type(e).__name__}") from e
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def save_integration_secret(name: str, secret: str) -> None:
+    """Keep a refreshed credential (UpLevel can hand back a new session cookie while we use it).
+    Only replaces a row that exists: an admin's disconnect is never undone by a late write."""
+    conn = None
+    try:
+        conn = _connect(attempts=2, connect_timeout=5, waits=(2,))
+        cur = conn.cursor()
+        cur.execute("update integration_credentials set secret = %s where name = %s", (secret, name))
+        conn.commit()
+    except Exception:
+        log.warning("could not keep the refreshed %s credential", name, exc_info=True)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass

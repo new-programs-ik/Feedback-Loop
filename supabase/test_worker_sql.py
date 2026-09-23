@@ -142,6 +142,33 @@ def main() -> int:
                            RST.finish_notification(cur, cr[0], ok=False, error="sql check"))[0])
         check("mark_stale_runs / running_run_exists (the sync's guard)",
               lambda: (RST.mark_stale_runs(cur), RST.running_run_exists(cur))[1])
+
+        # migration 0032: the outside services' state and the stored UpLevel session. The store's
+        # writers swallow errors on purpose (a status must never break a job), so each check reads
+        # the row back: a statement Postgres refused would show up as an unchanged value.
+        def credit_state_round_trip():
+            ST.set_integration_status("claude_credit", "empty", "sql check")
+            assert ST.get_integration_state("claude_credit") == "empty"
+            ST.set_integration_status("claude_credit", "ok")
+            cur.execute("select state, last_ok_at is not null, last_error_at is not null "
+                        "from integration_status where name='claude_credit'")
+            state, ok_at, err_at = cur.fetchone()
+            assert (state, ok_at, err_at) == ("ok", True, True), (state, ok_at, err_at)
+            return "empty -> ok, both timestamps kept"
+
+        check("set_integration_status / get_integration_state (the credit)", credit_state_round_trip)
+
+        def uplevel_secret_round_trip():
+            cur.execute("delete from integration_credentials where name='uplevel'")
+            assert ST.get_integration_secret("uplevel") is None
+            cur.execute("insert into integration_credentials(name, secret, set_by_label) "
+                        "values ('uplevel', 'sessionid=a; csrftoken=b', 'sql check')")
+            assert ST.get_integration_secret("uplevel") == "sessionid=a; csrftoken=b"
+            ST.save_integration_secret("uplevel", "sessionid=c; csrftoken=b")
+            assert ST.get_integration_secret("uplevel") == "sessionid=c; csrftoken=b"
+            return "none -> stored -> refreshed"
+
+        check("get_integration_secret / save_integration_secret (UpLevel session)", uplevel_secret_round_trip)
     finally:
         conn.rollback()
         conn.close()

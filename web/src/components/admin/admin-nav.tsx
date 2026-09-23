@@ -9,10 +9,11 @@ const ITEMS = [
   { href: "/admin/identity", label: "Identity" },
   { href: "/admin/people", label: "People" },
   { href: "/admin/sync", label: "Sync" },
+  { href: "/admin/uplevel", label: "UpLevel" },
   { href: "/admin/audit", label: "Audit" },
 ] as const;
 
-/** The five admin surfaces as one quiet strip under the page title, so an admin can move
+/** The admin surfaces as one quiet strip under the page title, so an admin can move
  *  between them without the rail (which the shell owns). Active = underline, not a fill. */
 export function AdminNav({ className }: { className?: string }) {
   const pathname = usePathname();

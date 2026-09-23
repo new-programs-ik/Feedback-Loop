@@ -30,17 +30,60 @@ _auth_patch = patch.object(service, "ALLOW_NO_AUTH", True)
 _claim_patch = patch.object(service.ST, "claim_for_analysis", return_value=True)
 REAL_CLAIM = service.ST.claim_for_analysis          # captured before the patch starts, for the test of the claim itself
 
+# The worker loads ratings_module_build_kit/.env at import, and on a developer's machine that is the
+# PRODUCTION database. Nothing in this suite may reach it: every store call that is not the subject
+# of a test is replaced here, and the tests that check one patch it again on purpose.
+REAL_STORE = {n: getattr(service.ST, n) for n in (
+    "ping", "set_integration_status", "get_integration_state", "get_integration_secret",
+    "save_integration_secret", "mark_failed", "persist_analysis", "requeue_running",
+    "scheduled_to_resume", "record_resume")}
+_store_patches = [
+    patch.object(service.ST, "ping", return_value="ok"),
+    patch.object(service.ST, "set_integration_status"),
+    patch.object(service.ST, "get_integration_state", return_value=None),
+    patch.object(service.ST, "get_integration_secret", return_value=None),
+    patch.object(service.ST, "save_integration_secret"),
+    patch.object(service.ST, "mark_failed"),
+    patch.object(service.ST, "persist_analysis"),
+    patch.object(service.ST, "requeue_running", return_value=0),
+    patch.object(service.ST, "scheduled_to_resume", return_value=[]),
+    patch.object(service.ST, "record_resume"),
+]
+
+
+REAL_SWEEP = service._sweep_stuck
+
+
+def _no_claude(*a, **k):
+    raise RuntimeError("the test suite must never call the Claude API")
+
+
+# Two nets under everything above. The database URL points at a closed local port, so a store call
+# nobody patched fails at once instead of reaching production. And the Claude client refuses: a test
+# that forgets to fake the engine fails loudly instead of paying for a real analysis (one did, until
+# 23 Sep 2026).
+NO_DATABASE = "postgresql://tests:tests@127.0.0.1:9/never"
+_safety_patches = [
+    patch.dict(os.environ, {"DATABASE_URL": NO_DATABASE}),
+    patch.object(service.E, "_client", side_effect=_no_claude),
+    patch.object(service, "_sweep_stuck", return_value=0),
+]
+
 
 def setUpModule():
     _version_patch.start()
     _auth_patch.start()
     _claim_patch.start()
+    for p in _store_patches + _safety_patches:
+        p.start()
 
 
 def tearDownModule():
     _version_patch.stop()
     _auth_patch.stop()
     _claim_patch.stop()
+    for p in _store_patches + _safety_patches:
+        p.stop()
 
 
 SRT = "1\n00:00:01,000 --> 00:00:03,000\nHello everyone.\n"
@@ -134,7 +177,7 @@ class TestService(unittest.TestCase):
         r = client.post("/analyze", json={"transcript": SRT, "class_type": "workshop"})
         self.assertEqual(r.status_code, 422)
 
-    @patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"})
+    @patch.dict(os.environ, {"DATABASE_URL": NO_DATABASE})
     def test_analyze_async_accepts_and_runs_job(self):
         with patch.object(service.E, "analyse_cues", return_value=(RESULT, META)), \
              patch.object(service.ST, "persist_analysis") as persist:
@@ -144,7 +187,7 @@ class TestService(unittest.TestCase):
         persist.assert_called_once()                       # background job ran + persisted
         self.assertEqual(persist.call_args.args[0], "c-123")  # to the right class
 
-    @patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"})
+    @patch.dict(os.environ, {"DATABASE_URL": NO_DATABASE})
     def test_analyze_async_failure_marks_class(self):
         with patch.object(service.E, "analyse_cues", side_effect=RuntimeError("boom")), \
              patch.object(service.ST, "mark_failed") as failed:
@@ -184,7 +227,7 @@ class TestService(unittest.TestCase):
         self.assertEqual(r.status_code, 200)                      # analysis still succeeds
         self.assertIn("no playable", r.json()["video"]["video_error"])
 
-    @patch.dict(os.environ, {"DATABASE_URL": "postgresql://test"})
+    @patch.dict(os.environ, {"DATABASE_URL": NO_DATABASE})
     def test_async_with_video_persists_video_meta(self):
         with patch.object(service.E, "analyse_cues", return_value=(dict(RESULT), dict(META))), \
              patch.object(service.VD, "analyze_video",
@@ -317,7 +360,7 @@ class TestOneAnalysisPerClass(unittest.TestCase):
 
     def test_a_sweep_that_cannot_reach_the_database_never_blocks_a_job(self):
         with patch.object(service.ST, "_connect", side_effect=RuntimeError("no database")):
-            self.assertEqual(service._sweep_stuck(), 0)
+            self.assertEqual(REAL_SWEEP(), 0)
 
 
 class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
@@ -497,7 +540,7 @@ class TestJobsSurviveARestart(unittest.TestCase):
 
         conn = Conn()
         with patch.object(service.ST, "_connect", return_value=conn):
-            rows = service.ST.scheduled_to_resume(min_age_s=60)
+            rows = REAL_STORE["scheduled_to_resume"](min_age_s=60)
         self.assertEqual(rows[0]["class_type"], "ars")
         self.assertEqual(rows[0]["topic"], "ML Architectures")
         self.assertIn("status = 'scheduled'", conn.cur.sql)
@@ -664,3 +707,172 @@ class TestTheWorkerStaysAwakeWhileItWorks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheCreditIsReportedOnlyWhileItIsEmpty(unittest.TestCase):
+    """23 Sep 2026: the 'credit is empty' notice stayed up after a recharge, on every page, until
+    someone paid for an analysis. The state now follows the credit both ways."""
+
+    def setUp(self):
+        service._CREDIT.update(state=None, at=0.0)
+
+    def test_a_refusal_for_credit_marks_it_empty(self):
+        req = service.AnalyzeAsyncRequest(class_id="c1", transcript=SRT)
+        err = RuntimeError("Error code: 400 - Your credit balance is too low to access the Anthropic API.")
+        with patch.object(service, "gather_materials", return_value=None), \
+             patch.object(service, "_run_video_stage", side_effect=err), patch.object(service, "KeepAwake"), \
+             patch.object(service.ST, "set_integration_status") as status:
+            service._run_analysis_job(req)
+        status.assert_called_once()
+        self.assertEqual(status.call_args.args[:2], ("claude_credit", "empty"))
+
+    def test_any_other_failure_leaves_the_credit_alone(self):
+        req = service.AnalyzeAsyncRequest(class_id="c1", transcript=SRT)
+        with patch.object(service, "gather_materials", return_value=None), \
+             patch.object(service, "_run_video_stage", side_effect=RuntimeError("ffmpeg died")), \
+             patch.object(service, "KeepAwake"), patch.object(service.ST, "set_integration_status") as status:
+            service._run_analysis_job(req)
+        status.assert_not_called()
+
+    def test_a_finished_analysis_marks_it_ok(self):
+        req = service.AnalyzeAsyncRequest(class_id="c1", transcript=SRT)
+        with patch.object(service, "gather_materials", return_value=None), \
+             patch.object(service, "_run_video_stage", return_value=("", {})), \
+             patch.object(service.E, "analyse_cues", return_value=(dict(RESULT), dict(META))), \
+             patch.object(service, "KeepAwake"), patch.object(service.ST, "set_integration_status") as status:
+            service._run_analysis_job(req)
+        status.assert_called_once_with("claude_credit", "ok")
+
+    @staticmethod
+    def _fake_client(create):
+        class Messages:
+            def create(self, **kw):
+                return create(**kw)
+
+        class Client:
+            messages = Messages()
+        return Client()
+
+    @staticmethod
+    def _raise(text):
+        def create(**kw):
+            raise RuntimeError(text)
+        return create
+
+    def test_the_probe_tells_empty_from_ok_from_unknown(self):
+        with patch.object(service.E, "_client", return_value=self._fake_client(lambda **kw: object())), \
+             patch.object(service.ST, "set_integration_status") as status:
+            self.assertEqual(service.probe_credit(force=True), "ok")
+        status.assert_called_once_with("claude_credit", "ok")
+        with patch.object(service.E, "_client", return_value=self._fake_client(self._raise("credit balance is too low"))), \
+             patch.object(service.ST, "set_integration_status") as status:
+            self.assertEqual(service.probe_credit(force=True), "empty")
+        self.assertEqual(status.call_args.args[:2], ("claude_credit", "empty"))
+        with patch.object(service.E, "_client", return_value=self._fake_client(self._raise("Error code: 529 overloaded"))), \
+             patch.object(service.ST, "set_integration_status") as status:
+            self.assertEqual(service.probe_credit(force=True), "unknown")
+        status.assert_not_called()          # an outage says nothing about the credit
+
+    def test_the_probe_is_cached_so_a_busy_page_cannot_hammer_the_api(self):
+        calls = []
+        with patch.object(service.E, "_client", return_value=self._fake_client(lambda **kw: calls.append(1))):
+            client.post("/ai-credit/check")
+            r = client.post("/ai-credit/check")
+        self.assertEqual(r.json(), {"credit": "ok"})
+        self.assertEqual(len(calls), 1)
+
+    def test_the_loop_rechecks_only_while_the_stored_state_is_empty(self):
+        service._LAST_CREDIT_RECHECK["at"] = 0.0
+        with patch.object(service.ST, "get_integration_state", return_value="ok"), \
+             patch.object(service, "probe_credit") as probe:
+            service._recheck_credit_if_empty()
+        probe.assert_not_called()                         # nothing is spent while the credit is fine
+        service._LAST_CREDIT_RECHECK["at"] = 0.0
+        with patch.object(service.ST, "get_integration_state", return_value="empty"), \
+             patch.object(service, "probe_credit") as probe:
+            service._recheck_credit_if_empty()
+            service._recheck_credit_if_empty()            # the second is inside the ten minutes
+        probe.assert_called_once_with(force=True)
+
+
+class TestTheFormFindsTheRecording(unittest.TestCase):
+    """The New-analysis form asks the worker for the class's recording on UpLevel. Every answer is
+    a status the page can put in a sentence; a login problem is never a 500."""
+
+    BODY = {"topic": "ML Architectures", "instructor": "Sarfaraz", "class_date": "2026-09-13",
+            "class_type": "live_class"}
+
+    def _match(self, vid="1226433411", score=1.0):
+        import datetime as dt
+        import uplevel as UP
+        v = UP.Video(vimeo_id=vid, vimeo_link=f"https://vimeo.com/{vid}", topic="ML Architectures",
+                     category="live_class", class_date=dt.date(2026, 9, 13),
+                     name="ML Architectures Live Class with Sarfaraz, Sunday, September 13, 2026",
+                     duration_s=17508)
+        return UP.Match(video=v, score=score, reasons=["same date", "instructor matches"])
+
+    def _session(self):
+        import requests
+        s = requests.Session()
+        s.cookies.set("sessionid", "abc", domain="uplevel.interviewkickstart.com")
+        return s
+
+    def test_a_match_comes_back_with_the_link_and_the_reasons(self):
+        import uplevel as UP
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "find_recording", return_value=[self._match()]) as find, \
+             patch.object(service.ST, "set_integration_status") as status:
+            r = client.post("/uplevel/find", json=self.BODY)
+        body = r.json()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(body["status"], "ok")
+        m = body["matches"][0]
+        self.assertEqual((m["vimeo_link"], m["class_date"], m["duration_min"]),
+                         ("https://vimeo.com/1226433411", "2026-09-13", 292))
+        self.assertEqual(find.call_args.kwargs["kind"], "live_class")
+        status.assert_called_once_with("uplevel", "ok")
+
+    def test_nothing_found_is_none_not_an_error(self):
+        import uplevel as UP
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "find_recording", return_value=[]):
+            self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "none")
+
+    def test_not_connected_expired_and_unreachable_are_told_apart(self):
+        import uplevel as UP
+        with patch.object(UP, "_session", side_effect=UP.UplevelNotConnected("nobody connected it")):
+            self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "not_connected")
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "find_recording", side_effect=UP.UplevelAuthError("login page")), \
+             patch.object(service.ST, "set_integration_status") as status:
+            self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "expired")
+        self.assertEqual(status.call_args.args[:2], ("uplevel", "expired"))
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "find_recording", side_effect=UP.UplevelError("timeout")):
+            self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "unreachable")
+
+    def test_a_bad_date_is_refused(self):
+        r = client.post("/uplevel/find", json=dict(self.BODY, class_date="13/09/2026"))
+        self.assertEqual(r.status_code, 422)
+
+    def test_a_refreshed_session_cookie_is_kept(self):
+        import uplevel as UP
+        s = self._session()
+
+        def find(**kw):
+            s.cookies.set("sessionid", "new-one", domain="uplevel.interviewkickstart.com")
+            return [self._match()]
+
+        with patch.object(UP, "_session", return_value=s), patch.object(UP, "find_recording", side_effect=find), \
+             patch.object(service.ST, "save_integration_secret") as save:
+            client.post("/uplevel/find", json=self.BODY)
+        save.assert_called_once_with("uplevel", "sessionid=new-one")
+
+    def test_the_connection_check_reports_ok_or_expired(self):
+        import uplevel as UP
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "search_rows", return_value=[{"id": 1}]):
+            self.assertEqual(client.post("/uplevel/check").json()["status"], "ok")
+        with patch.object(UP, "_session", return_value=self._session()), \
+             patch.object(UP, "search_rows", side_effect=UP.UplevelAuthError("login page")):
+            self.assertEqual(client.post("/uplevel/check").json()["status"], "expired")

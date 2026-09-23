@@ -8,12 +8,15 @@ when the date lines up and the instructor and topic agree, and the caller still 
 it is used.
 
 Authentication. UpLevel is a Django app behind AWS Cognito. There is no service token yet, so the
-worker borrows a signed-in browser session: the cookies from one "Copy as cURL" on the Videos page,
-put in `UPLEVEL_COOKIE` (a full cookie header string), or, for local work, in the gitignored file
-`uplevel-cookies.txt` beside this module. That session lasts at most a day and dies when the person
-logs out, so this module is written so that swapping it for a real token later is one function,
-`_session()`, not a rewrite. Until a durable credential exists, treat a failure to reach UpLevel as
-"could not look it up", never as "no recording exists".
+worker borrows a signed-in session: an admin pastes one "Copy as cURL" on Admin › UpLevel, the
+website keeps only the `sessionid` and `csrftoken` cookies, and they are stored in
+`integration_credentials` (migration 0032), which nobody can read through the website's API. The
+`UPLEVEL_COOKIE` environment variable and the gitignored `uplevel-cookies.txt` still work as
+fallbacks. What matters is Django's `sessionid` (tested 22 Sep 2026: the fetch kept working after
+the Cognito token inside the cookie had expired); it lasts about two weeks, or until that person
+logs out, so a fresh paste is needed that often. Swapping it for a real token later is one
+function, `_session()`, not a rewrite. A failure to reach UpLevel is "could not look it up", never
+"no recording exists".
 
 Nothing here is imported by the worker's request path automatically; it is called only when a PM
 asks to fetch a link, so a missing or stale session never affects scoring or the analysis engine.
@@ -204,15 +207,31 @@ def rank_matches(rows: Iterable[dict], *, topic: str, instructor: str,
 
 
 # ─────────────────────────── the session (the one seam to swap for a token) ───────────────────────────
+class UplevelNotConnected(UplevelAuthError):
+    """No session is stored anywhere: nobody has connected UpLevel yet."""
+
+
+def _stored_secret() -> str:
+    """The session an admin saved on Admin › UpLevel (migration 0032), or '' when none is stored
+    or the database cannot be asked (then the env var or local file may still answer)."""
+    try:
+        import store as ST
+        return ST.get_integration_secret("uplevel") or ""
+    except Exception:                                    # noqa: BLE001 - fall through to env / file
+        log.warning("could not read the stored UpLevel session; trying the environment", exc_info=True)
+        return ""
+
+
 def _read_cookie_header() -> str:
-    raw = os.environ.get("UPLEVEL_COOKIE", "").strip()
+    """Where the session comes from, first hit wins: what an admin saved in the app, then the
+    UPLEVEL_COOKIE environment variable, then (local work only) uplevel-cookies.txt."""
+    raw = _stored_secret().strip() or os.environ.get("UPLEVEL_COOKIE", "").strip()
     if not raw and os.path.exists(COOKIE_FILE):
         raw = open(COOKIE_FILE, encoding="utf-8", errors="replace").read()
     if not raw:
-        raise UplevelAuthError(
-            "No UpLevel session. Set UPLEVEL_COOKIE to a signed-in cookie header, or (for local "
-            "work) save one in uplevel-cookies.txt. This is temporary until the platform team "
-            "gives us a durable token.")
+        raise UplevelNotConnected(
+            "UpLevel is not connected. An admin connects it once on Admin › UpLevel (paste a "
+            "signed-in session). Until then, paste the recording link by hand.")
     m = re.search(r"(?:-b|--cookie)\s+(['\"])(.*?)\1", raw, re.S) or \
         re.search(r"-H\s+(['\"])cookie:\s*(.*?)\1", raw, re.I | re.S)
     if m:
@@ -241,6 +260,19 @@ def _session():
     return s
 
 
+SESSION_COOKIES = ("sessionid", "csrftoken")
+
+
+def cookie_header_of(session) -> str:
+    """The minimal cookie header a session needs to keep working (what we store)."""
+    parts = []
+    for name in SESSION_COOKIES:
+        value = session.cookies.get(name, domain="uplevel.interviewkickstart.com") or session.cookies.get(name)
+        if value:
+            parts.append(f"{name}={value}")
+    return "; ".join(parts)
+
+
 def search_rows(query: str, *, limit: int = 50, session=None) -> list[dict]:
     """Rows from UpLevel's Videos table for a one-word search (the search is a plain substring, so
     a single distinctive word — usually the instructor's first name — works; a phrase does not)."""
@@ -267,11 +299,13 @@ def _search_terms(instructor: str, topic: str) -> list[str]:
     for p in _norm(topic).split():
         if len(p) > 3 and p not in terms:
             terms.append(p)
-    return terms[:3] or [_norm(topic).split()[0]] if _norm(topic) else terms
+    if not terms and _norm(topic):
+        terms = [_norm(topic).split()[0]]
+    return terms[:3]
 
 
 def find_recording(*, topic: str, instructor: str, class_date: Optional[dt.date],
-                   kind: Optional[str] = None, session=None, limit_per_term: int = 60) -> list[Match]:
+                   kind: Optional[str] = None, session=None, limit_per_term: int = 100) -> list[Match]:
     """The one call a caller makes: the ranked recordings that could be this class, best first.
     An empty list means none was found (search terms tried, nothing matched); an UplevelError
     means we could not look — the two must never be confused. The caller shows the top match and

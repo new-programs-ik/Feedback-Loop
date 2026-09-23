@@ -89,9 +89,14 @@ Written for anyone on the team — no technical background needed. Each section 
    class name, instructor, date, kind, rating and responses filled in. Starting from a blank
    form also works: **Feedback → New analysis** inside your course. The queue's band is the
    team's verdict on which analysis to run.
-2. Give it the recording. The class's **Vimeo link** lives in IK's UpLevel: *Resources → Videos →*
-   open the class *→ Basic Details →* copy the **VIMEO URL** box. Or upload a `.vtt` / `.srt`
-   transcript file.
+2. The recording is **found for you**. The form looks the class up on UpLevel by its name, date,
+   instructor and type (live class or assignment review). One clear match fills the Vimeo link and
+   shows which recording it is (its full UpLevel name, date and length): check it is the right
+   class. If two recordings match the same day, both are listed and you pick one. Change the class
+   details afterwards and it tells you the link may no longer match. If UpLevel is not connected or
+   the connection has expired, it says so and you paste the link by hand (the steps are in the box,
+   and in [UPLEVEL_VIDEO_LINK.md](UPLEVEL_VIDEO_LINK.md)). You can also upload a `.vtt` / `.srt`
+   transcript file instead.
 3. Tick **🎬 Analyze the video too** when the band says video. It adds a few minutes and about
    $0.20, and catches camera and screen problems that words never show.
 4. Optionally attach **materials** — upload slides or a notebook, paste a Google Drive link, or
@@ -295,7 +300,9 @@ study that chose the live settings is in `analysis/formula/` and the manager's r
 | What does one analysis cost? | About $0.51 transcript-only, about $0.70 with video. The queue shows the week's total; each analysis shows its exact cost. |
 | A class says **Starting…** for a while. | The analysis service was asleep, or could not be reached for a moment. The class is queued and the service picks it up on its own within a couple of minutes; the page updates by itself. After ten minutes with no taker it says so and offers **Retry**. |
 | The analysis didn't finish. | The reason is on the page, in words, with what to do. **Retry** runs it again (transcript-only: materials and video are not stored). If the reason mentions the database, wait a minute first. |
-| "The Claude API fund is empty." | The Claude (Anthropic) account that runs the analyses has no credit. It is not a fault in the system. A notice also sits at the top of every page until an analysis completes again. Whoever holds the account recharges it at console.anthropic.com › Plans & Billing; then press **Retry** on the failed class. Nothing was charged for the failed run. |
+| "The Claude API credit is empty." | The Claude (Anthropic) account that runs the analyses has no credit. It is not a fault in the system. The notice appears only on the New analysis page, and only while the credit really is empty: it re-checks when the page opens and disappears by itself once the credit is recharged. Whoever holds the account recharges it at console.anthropic.com › Plans & Billing; then press **Retry** on the failed class, whose page by then says the credit is back. Nothing was charged for the failed run. |
+| "Automatic lookup is off: UpLevel is not connected" (or "has expired"). | The saved UpLevel login is missing or no longer accepted (it lasts about two weeks, or until its owner logs out of UpLevel). Paste the link by hand for now; an admin reconnects it on **Admin › UpLevel** in two minutes. |
+| The form filled in a recording that is not the class. | Pick the right one from "other recordings", or paste the link yourself: the form never overwrites a link you typed. Then check the class name, date, instructor and type above, since those are what it matches on. |
 | Is my materials file stored? | No. Materials and video frames are used in memory for that one analysis, then discarded. Transcripts auto-delete after 20 days. |
 | Who can see the re-class recommendation? | Only signed-in IK staff, in this tool. It is never part of the instructor note. |
 | An old Slack link goes to a page I do not recognise. | Old links redirect to the new course pages; the class they pointed at opens in the queue with the drawer. |

@@ -1,5 +1,5 @@
 import {
-  BookOpen, GraduationCap, LayoutDashboard, ListChecks, MessageSquareText,
+  BookOpen, Clapperboard, GraduationCap, LayoutDashboard, ListChecks, MessageSquareText,
   RefreshCw, Rows3, ScrollText, Settings, SlidersHorizontal, Table2, UserCog, Users, FileText, type LucideIcon,
 } from "lucide-react";
 import type { Role } from "./session";
@@ -47,6 +47,7 @@ export const ADMIN_NAV: NavItem[] = [
   { key: "identity", label: "Identity", path: "/admin/identity", icon: UserCog, roles: ["admin"] },
   { key: "people", label: "People", path: "/admin/people", icon: Users, roles: ["admin"] },
   { key: "sync", label: "Sync", path: "/admin/sync", icon: RefreshCw, roles: ["admin"] },
+  { key: "uplevel", label: "UpLevel", path: "/admin/uplevel", icon: Clapperboard, roles: ["admin"] },
   { key: "audit", label: "Audit", path: "/admin/audit", icon: ScrollText, roles: ["admin"] },
 ];
 

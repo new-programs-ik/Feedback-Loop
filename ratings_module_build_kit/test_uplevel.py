@@ -89,20 +89,44 @@ class TestMatching(unittest.TestCase):
 
 
 class TestSessionSeam(unittest.TestCase):
-    def test_a_missing_session_is_an_auth_error_not_a_silent_empty(self):
+    def test_a_missing_session_is_not_connected_not_a_silent_empty(self):
         import os
         from unittest.mock import patch
         with patch.dict(os.environ, {"UPLEVEL_COOKIE": ""}, clear=False), \
+             patch.object(UP, "_stored_secret", return_value=""), \
              patch.object(UP, "COOKIE_FILE", "/does/not/exist"):
-            with self.assertRaises(UP.UplevelAuthError):
+            with self.assertRaises(UP.UplevelNotConnected):
                 UP._read_cookie_header()
 
     def test_the_cookie_is_pulled_from_a_copy_as_curl(self):
         import os
         from unittest.mock import patch
         curl = "curl 'https://uplevel.interviewkickstart.com/videos/' -b 'sessionid=abc; csrftoken=def'"
-        with patch.dict(os.environ, {"UPLEVEL_COOKIE": curl}, clear=False):
+        with patch.dict(os.environ, {"UPLEVEL_COOKIE": curl}, clear=False), \
+             patch.object(UP, "_stored_secret", return_value=""):
             self.assertEqual(UP._read_cookie_header(), "sessionid=abc; csrftoken=def")
+
+    def test_what_an_admin_saved_in_the_app_wins_over_the_environment(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"UPLEVEL_COOKIE": "sessionid=from-env"}, clear=False), \
+             patch.object(UP, "_stored_secret", return_value="sessionid=from-app; csrftoken=x"):
+            self.assertEqual(UP._read_cookie_header(), "sessionid=from-app; csrftoken=x")
+
+    def test_a_database_that_cannot_be_asked_falls_back_to_the_environment(self):
+        import os
+        from unittest.mock import patch
+        import store as ST
+        with patch.dict(os.environ, {"UPLEVEL_COOKIE": "sessionid=from-env"}, clear=False), \
+             patch.object(ST, "get_integration_secret", side_effect=ST.StoreUnavailable("down")):
+            self.assertEqual(UP._read_cookie_header(), "sessionid=from-env")
+
+    def test_only_the_two_session_cookies_are_kept(self):
+        import requests
+        s = requests.Session()
+        for k, v in (("sessionid", "abc"), ("csrftoken", "def"), ("refresh_token", "secret"), ("_ga", "x")):
+            s.cookies.set(k, v, domain="uplevel.interviewkickstart.com")
+        self.assertEqual(UP.cookie_header_of(s), "sessionid=abc; csrftoken=def")
 
 
 if __name__ == "__main__":

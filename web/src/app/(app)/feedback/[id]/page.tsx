@@ -12,7 +12,8 @@ import { DeleteAnalysisButton, MarkSentButton, RetryButton } from "./action-butt
 import { AutoRefresh } from "@/components/auto-refresh";
 import { hrefIn } from "@/lib/workspace-shared";
 import { confidenceLabel, findingLabel, reclassLabel, severityLabel } from "@/lib/labels";
-import { NO_CREDIT_MSG } from "@/components/service-notice";
+import { CREDIT_BACK_MSG, NO_CREDIT_MSG, isCreditFailure } from "@/components/ai-credit-notice";
+import { getIntegrationStatus } from "@/lib/integrations";
 
 function sevVariant(s?: string): "destructive" | "warning" | "secondary" {
   return s === "major" ? "destructive" : s === "moderate" ? "warning" : "secondary";
@@ -82,8 +83,12 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     const d = (err?.detail ?? {}) as { message?: string; detail?: string };
     failReason = d.message || d.detail || "";
-    // Rows written before the worker learned to say it in words.
-    if (/credit balance is too low/i.test(failReason)) failReason = NO_CREDIT_MSG;
+    // A refusal for want of Claude API credit: say whether the credit is still empty or is back,
+    // so the page never tells a PM to recharge an account that has already been recharged.
+    if (isCreditFailure(failReason)) {
+      const credit = await getIntegrationStatus("claude_credit");
+      failReason = credit?.state === "empty" ? NO_CREDIT_MSG : CREDIT_BACK_MSG;
+    }
   }
   const feedbacks = (klass.feedback ?? []) as Array<Record<string, unknown>>;
   const feedback = feedbacks[feedbacks.length - 1];

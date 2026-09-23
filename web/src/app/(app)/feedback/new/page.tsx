@@ -6,6 +6,8 @@ import { NewAnalysisForm } from "./new-analysis-form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import type { Action, Band } from "@/lib/sentiment";
+import { getIntegrationStatus } from "@/lib/integrations";
+import { AiCreditNotice } from "@/components/ai-credit-notice";
 
 // Give the analysis kick-off (Vimeo fetch + handing the job to the worker) the platform max.
 export const maxDuration = 60;
@@ -20,7 +22,7 @@ export default async function NewAnalysisPage({
 
   const supabase = await createClient();
   const { prefill: prefillId, course: courseParam } = await searchParams;
-  const [{ data: courses }, { data: instructors }, prefillRes] = await Promise.all([
+  const [{ data: courses }, { data: instructors }, prefillRes, uplevel] = await Promise.all([
     supabase.from("courses").select("id, name").order("name"),
     supabase.from("instructors").select("name").order("name"),
     prefillId
@@ -32,6 +34,7 @@ export default async function NewAnalysisPage({
           .eq("id", prefillId)
           .maybeSingle()
       : Promise.resolve({ data: null }),
+    getIntegrationStatus("uplevel"),
   ]);
   const instructorNames = ((instructors ?? []) as Array<{ name: string }>).map((i) => i.name);
   const p = prefillRes.data as {
@@ -76,7 +79,11 @@ export default async function NewAnalysisPage({
           </p>
         </div>
       </div>
-      <NewAnalysisForm courses={courses ?? []} instructorNames={instructorNames} prefill={prefill} defaultCourseId={courseParam} />
+      <AiCreditNotice />
+      <NewAnalysisForm
+        courses={courses ?? []} instructorNames={instructorNames} prefill={prefill} defaultCourseId={courseParam}
+        uplevel={uplevel?.state ?? "unknown"} isAdmin={user.role === "admin"}
+      />
     </div>
   );
 }

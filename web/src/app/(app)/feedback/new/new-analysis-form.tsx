@@ -14,6 +14,7 @@ import { voteLabel } from "@/lib/decision";
 import type { Action, Band } from "@/lib/sentiment";
 import { ScorePill } from "@/components/score/score-pill";
 import { cn } from "@/lib/utils";
+import { RecordingFinder } from "./recording-finder";
 
 const label = "text-sm font-medium";
 const field =
@@ -183,11 +184,16 @@ export function NewAnalysisForm({
   instructorNames,
   prefill,
   defaultCourseId,
+  uplevel,
+  isAdmin,
 }: {
   courses: { id: string; name: string }[];
   instructorNames: string[];
   prefill?: Prefill;
   defaultCourseId?: string | null;
+  /** The UpLevel connection's state (Admin › UpLevel): decides whether the recording is looked up. */
+  uplevel: "ok" | "expired" | "not_set" | "unknown" | "error" | "empty";
+  isAdmin: boolean;
 }) {
   const reduce = useReducedMotion();
   const [state, formAction, pending] = useActionState<AnalyzeState, FormData>(createAnalysis, {});
@@ -198,6 +204,16 @@ export function NewAnalysisForm({
   // The rating and the count are controlled so a queue prefill lands in them.
   const [hRating, setHRating] = useState(prefill?.rating ?? "");
   const [hRated, setHRated] = useState(prefill?.numRatings ?? "");
+  // The class and the recording are controlled so the UpLevel lookup can read the details and
+  // fill the link.
+  const [topic, setTopic] = useState(prefill?.topic ?? "");
+  const [instructor, setInstructor] = useState(prefill?.instructor ?? "");
+  const [classDate, setClassDate] = useState(prefill?.classDate ?? "");
+  const [vimeoUrl, setVimeoUrl] = useState("");
+  const useRecording = React.useCallback((link: string) => {
+    setSource("vimeo");
+    setVimeoUrl(link);
+  }, []);
 
   // A failed start is loud (toast) AND persistent (inline, below the form).
   useEffect(() => {
@@ -263,12 +279,12 @@ export function NewAnalysisForm({
               <div className="space-y-1.5">
                 <label htmlFor="topic" className={label}>Class topic</label>
                 <input id="topic" name="topic" required className={field} placeholder="e.g. Decision Trees & Ensembles"
-                       defaultValue={prefill?.topic} />
+                       value={topic} onChange={(e) => setTopic(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="instructor" className={label}>Instructor</label>
                 <input id="instructor" name="instructor" list="instructor-options" className={field}
-                       placeholder="Type or pick a name" defaultValue={prefill?.instructor} />
+                       placeholder="Type or pick a name" value={instructor} onChange={(e) => setInstructor(e.target.value)} />
                 <datalist id="instructor-options">
                   {instructorNames.map((n) => <option key={n} value={n} />)}
                 </datalist>
@@ -276,7 +292,7 @@ export function NewAnalysisForm({
               <div className="space-y-1.5">
                 <label htmlFor="class_date" className={label}>Class date</label>
                 <input id="class_date" name="class_date" type="date" required className={field}
-                       defaultValue={prefill?.classDate} />
+                       value={classDate} onChange={(e) => setClassDate(e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="class_type" className={label}>Class type</label>
@@ -320,7 +336,14 @@ export function NewAnalysisForm({
               </label>
             </div>
             {source === "vimeo" ? (
-              <Input name="vimeo_url" type="url" placeholder="https://vimeo.com/123456789" />
+              <>
+                <RecordingFinder
+                  topic={topic} instructor={instructor} classDate={classDate} classType={classType}
+                  connection={uplevel} currentLink={vimeoUrl} onUse={useRecording} isAdmin={isAdmin}
+                />
+                <Input name="vimeo_url" type="url" placeholder="https://vimeo.com/123456789" aria-label="Vimeo link"
+                       value={vimeoUrl} onChange={(e) => setVimeoUrl(e.target.value)} />
+              </>
             ) : (
               <Input name="file" type="file" accept=".vtt,.srt" className="file:mr-3 file:text-sm" />
             )}

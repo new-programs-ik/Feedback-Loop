@@ -66,6 +66,9 @@ uvicorn service:app --port 8000
 | `POST /revise` | rewrite a draft per the PM's instruction |
 | `POST /sync-ratings` | one ratings sync in the background ("Sync now"; body `{"full": true}` rewrites every row) |
 | `POST /sync-ratings/cron` | the same sync, started by the database's schedule with a single-use token instead of the key |
+| `POST /uplevel/find` | the class's recording on UpLevel: `{status, matches}` ranked with reasons; status `ok` / `none` / `not_connected` / `expired` / `unreachable` (`uplevel.py`) |
+| `POST /uplevel/check` | Admin › UpLevel's "Test connection": one small search, status recorded |
+| `POST /ai-credit/check` | is the Claude API credit still empty? A one-token request, cached 90 seconds |
 
 If `WORKER_API_KEY` is set, every POST needs `Authorization: Bearer <it>`.
 

@@ -45,6 +45,7 @@ account). This file is the front door; the detailed documents are listed at the 
 | `/team` | All courses for leadership; `/team/queue`, `/team/instructors`, `/team/reports` |
 | `/admin/scoring` | Scoring versions: draft, preview on real months, activate, roll back |
 | `/admin/identity`, `/admin/people`, `/admin/sync`, `/admin/audit` | Instructor name matching, course members, sync runs, the audit trail |
+| `/admin/uplevel` | The UpLevel connection that lets the New analysis form find each class's recording by itself |
 
 Roles: **admin** (everything), **pm** (any IK staff sign-in: every course, the queue, analyses),
 **learner** (no access to ratings or analyses).
@@ -55,7 +56,7 @@ Roles: **admin** (everything), **pm** (any IK staff sign-in: every course, the q
 |---|---|
 | [`web/`](web/) | The website: Next.js 16, React 19, Tailwind 4, TypeScript. Deployed on Vercel. |
 | [`ratings_module_build_kit/`](ratings_module_build_kit/) | The worker: Python, FastAPI. The sheet sync, the AI engine, the reports. Deployed on Render as a Docker container. |
-| [`supabase/`](supabase/) | The database: migrations 0001 to 0031, the scoring function, the shared scoring fixtures, the SQL contract test. |
+| [`supabase/`](supabase/) | The database: migrations 0001 to 0032, the scoring function, the shared scoring fixtures, the SQL contract test. |
 | [`analysis/`](analysis/) | The reference scorer (`sentiment_score.py`), the fixture builder, the formula study and the report builders. |
 | [`docs/`](docs/) | The guides listed below. |
 
@@ -73,7 +74,7 @@ that guide about what not to touch matter.
 Checks before any push, all of which must be green:
 
 ```
-ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (435 tests)
+ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q       # the worker (450 tests)
 cd web && npx tsc --noEmit && npx next build && npm test             # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py   # the database scorer against the fixtures
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py    # the worker's SQL against the real database (rolled back)

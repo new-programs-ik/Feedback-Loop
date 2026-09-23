@@ -14,7 +14,7 @@ touches it.
 - `migrations/0002_auth_hooks.sql` — the JWT role-claim hook + the new-user provisioning trigger.
 - `migrations/0003` … `0014` — feedback-module additions, team access, the ratings ingest
   (`class_ratings`, `sync_runs`, handlers, notifications), the instructor approval columns.
-- **Feedback Loop v3 (0015 → 0031, applied in this order; all additive, all idempotent):**
+- **Feedback Loop v3 (0015 → 0032, applied in this order; all additive, all idempotent):**
   - `0015_scoring_configs.sql` — the Class Sentiment Score in the database: `scoring_configs`
     (versioned, one active), `score_class_rating()`, `course_priors()`, `apply_scoring_config()`
     (activate + re-score every class), `scoring_whatif_summary()` (preview any config),
@@ -40,6 +40,7 @@ touches it.
   - `0028_sync_fingerprints.sql` — `row_hash` on class rows; the sync skips rows the sheet did not change.
   - `0029_tighten_access.sql` — share links, members, handlers, scoring versions and audit inserts are staff-only.
   - `0030_sync_heartbeat.sql` — `heartbeat_at` on sync runs.
+  - `0032_integrations.sql` — `integration_credentials` (the UpLevel session; nobody signed in can read it) and `integration_status` (the UpLevel connection and the Claude API credit, readable by staff).
 - `fixtures/scoring_cases.json`, `fixtures/scoring_configs.json` — the scoring contract (94 cases,
   six configs) shared by `analysis/sentiment_score.py`, the SQL function and the web mirror.
 - `test_scoring_sql.py` — runs every fixture case through `score_class_rating()`; exits non-zero on
