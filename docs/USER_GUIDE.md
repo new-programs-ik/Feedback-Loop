@@ -99,21 +99,19 @@ Written for anyone on the team — no technical background needed. Each section 
    transcript file instead.
 3. Tick **🎬 Analyze the video too** when the band says video. It adds a few minutes and about
    $0.20, and catches camera and screen problems that words never show.
-4. Optionally attach **materials** — upload slides or a notebook, paste a Google Drive link, or
-   paste text. It makes the analysis more precise; materials are never stored.
-5. Click **Analyze class** and wait. The page refreshes itself: 3–4 minutes transcript-only, 6–8
+4. Click **Analyze class** and wait. The page refreshes itself: 3–4 minutes transcript-only, 6–8
    with video. If it fails or looks stuck for more than 30 minutes, the page says so and offers
    **Retry analysis**.
-6. Read the report. Check the badges first — **🎬 Video verified · N frames** or **Transcript
+5. Read the report. Check the badges first — **🎬 Video verified · N frames** or **Transcript
    only** (hover for why), and **✓ Self-checked**. **▶ Watch recording** opens the video so you can
    check any flag yourself. The report has five parts: *Overall*, the *Flags* (each with severity,
    an exact quote and a timestamp), the *Self-check* (what the second reviewer confirmed, softened
    or removed), the **Summary to send the instructor** (one opening line with the rating, then at
    most four or five bullets — one error and its Fix each; **this is the only part the instructor
    receives**), and the PM-only *Re-class recommendation*.
-7. **Edit** the text directly, or type what you want changed under it — "warmer", "focus on the
+6. **Edit** the text directly, or type what you want changed under it — "warmer", "focus on the
    skipped problems" — and click **Revise**. Repeat until it is right.
-8. **Approve & store**, **copy** the summary, send it the way you normally do, then click
+7. **Approve & store**, **copy** the summary, send it the way you normally do, then click
    **Mark as sent**. The class shows *Sent to instructor ✓*, and the report's loop funnel counts
    it.
 
@@ -303,7 +301,7 @@ study that chose the live settings is in `analysis/formula/` and the manager's r
 | "The Claude API credit is empty." | The Claude (Anthropic) account that runs the analyses has no credit. It is not a fault in the system. The notice appears only on the New analysis page, and only while the credit really is empty: it re-checks when the page opens and disappears by itself once the credit is recharged. Whoever holds the account recharges it at console.anthropic.com › Plans & Billing; then press **Retry** on the failed class, whose page by then says the credit is back. Nothing was charged for the failed run. |
 | "Automatic lookup is off: UpLevel is not connected" (or "has expired"). | The saved UpLevel login is missing or no longer accepted (it lasts about two weeks, or until its owner logs out of UpLevel). Paste the link by hand for now; an admin reconnects it on **Admin › UpLevel** in two minutes. |
 | The form filled in a recording that is not the class. | Pick the right one from "other recordings", or paste the link yourself: the form never overwrites a link you typed. Then check the class name, date, instructor and type above, since those are what it matches on. |
-| Is my materials file stored? | No. Materials and video frames are used in memory for that one analysis, then discarded. Transcripts auto-delete after 20 days. |
+| Where do I attach the class materials? | Not for now. Attaching slides or notebooks is switched off on the form, because the free worker does not have the memory to read large files reliably; it comes back once it does. The analysis reads the transcript (and the video when ticked). Video frames are used in memory for that one analysis, then discarded; transcripts auto-delete after 20 days. |
 | Who can see the re-class recommendation? | Only signed-in IK staff, in this tool. It is never part of the instructor note. |
 | An old Slack link goes to a page I do not recognise. | Old links redirect to the new course pages; the class they pointed at opens in the queue with the drawer. |
 | Something is wrong / I have an idea. | Message **Bishal Roy** (New Programs), or open an issue on this repo. |

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { createAnalysis, type AnalyzeState } from "../actions";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Reveal, EASE_OUT } from "@/components/motion/reveal";
-import { Clapperboard, FileText, Loader2, Paperclip, Upload } from "lucide-react";
+import { Clapperboard, FileText, Loader2 } from "lucide-react";
 import { voteLabel } from "@/lib/decision";
 import type { Action, Band } from "@/lib/sentiment";
 import { ScorePill } from "@/components/score/score-pill";
@@ -23,9 +23,6 @@ const field =
 const prettyDate = (isoDate: string) =>
   new Date(isoDate + "T00:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" });
 
-const MAX_MATERIALS_BYTES = 4 * 1024 * 1024;
-const fmtSize = (bytes: number) =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 function Section({
   icon: Icon,
@@ -67,117 +64,6 @@ export type Prefill = {
   action: Action | null;
   video: boolean;
 };
-
-/** Drop zone for class materials. Files dropped on it are handed to the real <input type=file>
- *  (via DataTransfer) so the form posts exactly as before; the input stays focusable for
- *  keyboard users. Drag-over is a visible state, not just a cursor. */
-function MaterialsDropZone() {
-  const reduce = useReducedMotion();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [files, setFiles] = useState<{ name: string; size: number }[]>([]);
-
-  const [sizeError, setSizeError] = useState<string | null>(null);
-  const readFiles = (list: FileList | null) => {
-    const picked = Array.from(list ?? []);
-    const total = picked.reduce((a, f) => a + f.size, 0);
-    if (total > MAX_MATERIALS_BYTES) {
-      // Checked here, before the upload: the server used to reject only after everything was sent.
-      setSizeError(`Materials are ${fmtSize(total)} together — keep the total under 4 MB (export the deck as PDF, or paste the key content instead).`);
-      if (inputRef.current) inputRef.current.value = "";
-      setFiles([]);
-      return;
-    }
-    setSizeError(null);
-    setFiles(picked.map((f) => ({ name: f.name, size: f.size })));
-  };
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (!dragging) setDragging(true);
-  };
-  const onDragLeave = (e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
-    setDragging(false);
-  };
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const input = inputRef.current;
-    if (!input) return;
-    const dt = new DataTransfer();
-    for (const f of Array.from(e.dataTransfer.files)) dt.items.add(f);
-    input.files = dt.files;
-    readFiles(dt.files);
-  };
-  const clear = () => {
-    if (inputRef.current) inputRef.current.value = "";
-    setFiles([]);
-  };
-
-  return (
-    <div className="space-y-2">
-      <motion.label
-        htmlFor="materials"
-        onDragEnter={onDragOver}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        animate={{ scale: dragging && !reduce ? 1.01 : 1 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-        className={cn(
-          "focus-within:ring-ring flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed px-4 py-5 text-center transition-colors focus-within:ring-2",
-          dragging ? "border-primary bg-primary/5" : "hover:bg-muted/40",
-        )}
-      >
-        <span
-          className={cn(
-            "bg-muted text-muted-foreground flex size-9 items-center justify-center rounded-full transition-colors",
-            dragging && "bg-primary/10 text-primary",
-          )}
-        >
-          <Upload className="size-4" aria-hidden />
-        </span>
-        <span className="text-sm font-medium">{dragging ? "Drop to attach" : "Drop files here, or click to browse"}</span>
-        <span className="text-muted-foreground text-xs">PDF, PPTX, DOCX, TXT, MD, IPYNB · keep the total under ~4 MB</span>
-        <input
-          ref={inputRef}
-          id="materials"
-          name="materials"
-          type="file"
-          multiple
-          accept=".pdf,.pptx,.docx,.txt,.md,.ipynb"
-          className="sr-only"
-          onChange={(e) => readFiles(e.target.files)}
-        />
-      </motion.label>
-      {sizeError && <p className="text-destructive text-xs" role="alert">{sizeError}</p>}
-      <AnimatePresence initial={false}>
-        {files.length > 0 && (
-          <motion.ul
-            className="space-y-1 text-xs"
-            initial={reduce ? false : { opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: EASE_OUT }}
-          >
-            {files.map((f) => (
-              <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
-                <FileText className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-                <span className="min-w-0 truncate">{f.name}</span>
-                <span className="text-muted-foreground shrink-0" data-numeric>{fmtSize(f.size)}</span>
-              </li>
-            ))}
-            <li>
-              <button type="button" onClick={clear} className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
-                Clear files
-              </button>
-            </li>
-          </motion.ul>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 export function NewAnalysisForm({
   courses,
@@ -227,7 +113,7 @@ export function NewAnalysisForm({
       <CardHeader>
         <CardTitle>Class details</CardTitle>
         <CardDescription>
-          Fill in the class, attach the recording (and optionally the materials), then analyze.
+          Fill in the class and the recording, then analyze.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -257,7 +143,7 @@ export function NewAnalysisForm({
               </div>
             </Reveal>
           )}
-          {/* two columns from lg: the class on the left, the recording and materials on the right */}
+          {/* two columns from lg: the class on the left, the recording on the right */}
           <div className="grid gap-7 lg:grid-cols-2 lg:gap-8">
           <div className="space-y-7">
           <Section icon={FileText} title="The class">
@@ -365,19 +251,6 @@ export function NewAnalysisForm({
                 analysis continues transcript-only.
               </p>
             </div>
-          </Section>
-
-          <Section icon={Paperclip} title="Class materials" hint="optional — improves accuracy, costs more tokens">
-            <MaterialsDropZone />
-            <input name="materials_url" type="url" className={field}
-                   placeholder="…or paste a materials LINK (Google Drive / Docs / Slides)" />
-            <textarea name="materials_text" rows={2} className={field + " h-auto py-2"}
-                      placeholder="…or paste key materials/notes here." />
-            <p className="text-muted-foreground text-xs">
-              The AI checks the class against what was planned (coverage &amp; correctness). Uploads under
-              ~4&nbsp;MB; links have no size limit (share &quot;Anyone with the link&quot;). Materials are used only
-              for this analysis and <strong>never stored</strong>.
-            </p>
           </Section>
           </div>
           </div>

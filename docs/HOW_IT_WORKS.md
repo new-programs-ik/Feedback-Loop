@@ -616,9 +616,10 @@ is; several are listed for the PM to pick; the form never overwrites a link some
 has no service token yet, so an admin connects it once on **Admin › UpLevel** by pasting a signed-in
 session (it lasts about two weeks); when it is missing or expired the form says so and the link is
 pasted by hand ([UPLEVEL_VIDEO_LINK.md](UPLEVEL_VIDEO_LINK.md)). An uploaded transcript file works
-too; optionally tick **Analyze the video too**; optionally attach
-the **class materials** (upload, paste text, or paste a Google Drive / Docs / Slides link). Click
-**Analyze class**. The website hands the job to the worker, which runs it in the background and
+too; optionally tick **Analyze the video too**. Click **Analyze class**. (Attaching the class
+materials is switched off on the form for now: the free worker does not have the memory to read
+large decks and notebooks reliably. The worker and the start action still accept materials, so
+bringing it back is a change to the form only.) The website hands the job to the worker, which runs it in the background and
 writes the finished analysis to the database; the page refreshes itself. Transcript-only takes
 3–4 minutes, with video 6–8.
 
@@ -642,7 +643,8 @@ recharged. The failed class's own page then says the credit is back and to press
 **How it reads a class.**
 
 1. *The materials agent* converts slides, notebooks or docs into a clean outline of what was
-   planned, so the analysis can say "slide 14's topic was never taught".
+   planned, so the analysis can say "slide 14's topic was never taught". It runs only when
+   materials are given, which the form does not offer for now.
 2. *The session map*: Claude reads the whole transcript once — who is the instructor, who are the
    learners, the real order of topics, which doubts were answered later. Nothing is judged out of
    context.
@@ -715,7 +717,7 @@ Access is enforced by the database's row-level security, not just by the screens
 migration 0021 the ratings tables are readable by staff only.
 
 **What it costs.** Measured on real classes: about **$0.51** per transcript analysis and
-**$0.70** with video; a short review session costs less, materials add a little. The queue shows
+**$0.70** with video; a short review session costs less. The queue shows
 the week's total before anyone starts. The website, the database and the worker run on the free
 tiers of Vercel, Supabase and Render today; the sheet is read through a free service account.
 
@@ -732,6 +734,11 @@ Designed in the v3 plan and left for the next release. None of these exist in th
   chapter per course) are built (`ratings_module_build_kit/reports.py`) and run from the command
   line; scheduling them monthly and yearly to Google Drive and Slack waits on a Drive folder and
   a Slack bot.
+- **Class materials on the New-analysis form, again.** Switched off on 23 September 2026 because
+  the free worker (512 MB) cannot read large decks and notebooks reliably. The worker's materials
+  agent and the start action are unchanged; the form section can be restored from git history
+  (commit "Class materials come off the New-analysis form for now") once the worker has the memory,
+  ideally with files read one at a time on a paid instance.
 - **The weekly Slack digest** to every course member (the routing table is in place).
 - **Per-course scoring overrides** (one version applies to every course).
 - **A TA-quality view** from the sheet's TA tab.
