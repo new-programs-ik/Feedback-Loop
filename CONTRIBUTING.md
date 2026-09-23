@@ -40,6 +40,10 @@ the database URL and every credential before any test imports the worker, so the
 in `.env` are never loaded during a test run. A test that needs a database, the Claude API, Vimeo,
 Slack or UpLevel fakes it. (Until 23 September 2026 one test ran a real, paid analysis.)
 
+**A new worker file goes in the Dockerfile.** The container copies the worker's files from an
+explicit list. `test_packaging.py` fails if a module the worker imports is not on it, so the
+worker suite catches it before the server does.
+
 ## The database
 
 - Local work and production share one database. **Migrations are additive only**: add tables,

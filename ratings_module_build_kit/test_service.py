@@ -876,3 +876,32 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
         with patch.object(UP, "_session", return_value=self._session()), \
              patch.object(UP, "search_rows", side_effect=UP.UplevelAuthError("login page")):
             self.assertEqual(client.post("/uplevel/check").json()["status"], "expired")
+
+
+class TestASavedSessionIsTestedOnItsOwn(unittest.TestCase):
+    """23 Sep 2026: an admin saved the UpLevel session while the worker could not test it, and the
+    page sat on "Saved, not tested yet". The worker now tests it from the resume loop."""
+
+    def setUp(self):
+        service._LAST_UPLEVEL_SELF_CHECK["at"] = 0.0
+
+    def test_an_untested_session_is_tested(self):
+        with patch.object(service.ST, "get_integration_state", return_value="unknown"), \
+             patch.object(service, "_run_uplevel_check", return_value={"status": "ok"}) as check:
+            service._check_uplevel_if_untested()
+        check.assert_called_once()
+
+    def test_a_known_state_costs_nothing(self):
+        for state in ("ok", "expired", "not_set", None):
+            service._LAST_UPLEVEL_SELF_CHECK["at"] = 0.0
+            with patch.object(service.ST, "get_integration_state", return_value=state), \
+                 patch.object(service, "_run_uplevel_check") as check:
+                service._check_uplevel_if_untested()
+            check.assert_not_called()
+
+    def test_it_is_asked_at_most_every_five_minutes(self):
+        with patch.object(service.ST, "get_integration_state", return_value="unknown") as state, \
+             patch.object(service, "_run_uplevel_check", return_value={"status": "unreachable"}):
+            service._check_uplevel_if_untested()
+            service._check_uplevel_if_untested()
+        state.assert_called_once()

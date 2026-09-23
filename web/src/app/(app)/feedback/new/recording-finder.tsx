@@ -281,13 +281,15 @@ export function RecordingFinder({
                 {result.status === "none" && "No recording for this class in UpLevel yet."}
                 {result.status === "not_connected" && "Automatic lookup is off: UpLevel is not connected."}
                 {result.status === "expired" && "The UpLevel connection has expired."}
-                {result.status === "unreachable" && "Could not reach UpLevel just now."}
+                {result.status === "unreachable" && "Could not look it up just now."}
                 {result.status === "invalid" && (result.message ?? "The class details are not enough to search.")}
               </div>
               <div className="text-muted-foreground mt-0.5 text-xs">
                 {result.status === "none" && <>Recordings usually appear a few hours after the class ends. Check the class name, date and instructor above, or paste the link by hand. </>}
                 {(result.status === "not_connected" || result.status === "expired") && <>Paste the link by hand for now.{reconnect} </>}
-                {result.status === "unreachable" && <>The analysis service may be waking up. </>}
+                {result.status === "unreachable" && (
+                  <>{result.message ? result.message.charAt(0).toUpperCase() + result.message.slice(1) : "Try again in a moment."} </>
+                )}
                 {result.status !== "invalid" && (
                   <button type="button" className="text-primary hover:underline" onClick={() => void search()}>Search again</button>
                 )}

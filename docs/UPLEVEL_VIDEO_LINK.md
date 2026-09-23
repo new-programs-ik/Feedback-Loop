@@ -61,6 +61,9 @@ best first with the reasons in words.
 **Proven on real data (22 September 2026).** *ML Architectures / Sarfaraz / 13 Sep* →
 `vimeo.com/1226433411` and *MLOps – Model Training / Lakshaya / 13 Sep* → `vimeo.com/1226939172`,
 both exact. A sweep of 30 recent classes matched all 30 on date, instructor and class name.
+Some classes really have two recordings on the same day (MLOps – Model Training / Lakshaya /
+13 Sep has two): the form lists both, with their lengths, and the PM picks. Another instructor's
+class on the same day is never offered unless its class name matches.
 `test_uplevel.py` locks the parsing and matching offline.
 
 ---
@@ -75,6 +78,8 @@ on **Admin › UpLevel**:
 3. Right-click any request › **Copy** › **Copy as cURL (bash)** (cmd, PowerShell or the raw headers
    also work).
 4. Paste it into the box on Admin › UpLevel and press **Save and test**. It says "Connected".
+   If the worker could not test it at that moment (asleep, or being deployed), the page shows
+   *Saved, not tested yet* and the worker tests it on its own within a few minutes.
 
 Only two cookies are kept (`sessionid` and `csrftoken`); everything else in the paste, including
 the refresh token, is thrown away. They are stored in `integration_credentials`, which nobody signed

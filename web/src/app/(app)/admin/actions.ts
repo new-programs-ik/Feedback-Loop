@@ -581,7 +581,12 @@ export type UplevelCheck = { status: "ok" | "expired" | "not_connected" | "unrea
 async function askWorkerToCheckUplevel(): Promise<UplevelCheck> {
   const reply = await postToWorker<{ status?: string; message?: string }>("/uplevel/check", {}, 55_000);
   if (!reply.ok) {
-    return { status: "unknown", message: "Saved. The analysis service could not be reached to test it just now (it may be waking up); press Test connection in a minute." };
+    return {
+      status: "unknown",
+      message: reply.status
+        ? `Saved, but the analysis service answered with an error (HTTP ${reply.status}), so it could not be tested. It re-tests a saved session on its own every few minutes.`
+        : "Saved. The analysis service did not answer (it may be waking up). It tests the saved session on its own within a few minutes, or press Test connection in a minute.",
+    };
   }
   const s = reply.data?.status;
   const status = s === "ok" || s === "expired" || s === "not_connected" || s === "unreachable" ? s : "unknown";

@@ -130,6 +130,10 @@ def _resume_loop() -> None:
             _recheck_credit_if_empty()
         except Exception:                             # pragma: no cover - defensive
             log.exception("the credit re-check failed once; it keeps going")
+        try:
+            _check_uplevel_if_untested()
+        except Exception:                             # pragma: no cover - defensive
+            log.exception("the UpLevel self-check failed once; it keeps going")
 
 
 # ─────────────────────────── the Claude API credit: say "empty" only while it is ───────────────────────────
@@ -793,9 +797,8 @@ def uplevel_find(req: UplevelFindRequest) -> dict:
     return {"status": "ok" if matches else "none", "matches": [_match_json(m) for m in matches[:6]]}
 
 
-@app.post("/uplevel/check", dependencies=[Depends(require_worker_auth)])
-def uplevel_check() -> dict:
-    """Admin › UpLevel's 'Test connection': one small search, and the status recorded."""
+def _run_uplevel_check() -> dict:
+    """One small search with the saved session, and the result recorded (ok / expired)."""
     import uplevel as UP
     session, before = _uplevel_session()
     if session is None:
@@ -811,6 +814,29 @@ def uplevel_check() -> dict:
     ST.set_integration_status("uplevel", "ok", "Connected: the Videos list answered.")
     _keep_refreshed_uplevel_cookie(session, before)
     return {"status": "ok", "message": f"Connected. UpLevel answered ({len(rows)} row checked)."}
+
+
+@app.post("/uplevel/check", dependencies=[Depends(require_worker_auth)])
+def uplevel_check() -> dict:
+    """Admin › UpLevel's 'Test connection'."""
+    return _run_uplevel_check()
+
+
+_LAST_UPLEVEL_SELF_CHECK = {"at": 0.0}
+UPLEVEL_SELF_CHECK_S = 300
+
+
+def _check_uplevel_if_untested() -> None:
+    """A session an admin saved but nobody could test yet (the worker was asleep, busy or being
+    deployed) is tested here, from the resume loop, so the admin page settles on its own. Only while
+    the state is 'unknown', at most every five minutes: nothing is spent once it is known."""
+    now = time.monotonic()
+    if now - _LAST_UPLEVEL_SELF_CHECK["at"] < UPLEVEL_SELF_CHECK_S:
+        return
+    _LAST_UPLEVEL_SELF_CHECK["at"] = now
+    if ST.get_integration_state("uplevel") == "unknown":
+        result = _run_uplevel_check()
+        log.info("saved UpLevel session tested on its own: %s", result.get("status"))
 
 
 @app.post("/revise", dependencies=[Depends(require_worker_auth)])

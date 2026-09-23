@@ -51,7 +51,13 @@ export async function findRecording(input: {
     { topic, instructor, class_date: classDate || null, class_type: classType },
     55_000,
   );
-  if (!reply.ok) return { status: "unreachable", message: reply.error, matches: [] };
+  if (!reply.ok) {
+    // Asleep (no answer) and broken (an error answer) are different problems; say which.
+    const message = reply.status
+      ? `The analysis service answered with an error (HTTP ${reply.status}), so the lookup could not run. Paste the link by hand; if it keeps happening, tell whoever maintains the tool.`
+      : "The analysis service did not answer; it may be waking up, which takes up to a minute. Search again in a moment.";
+    return { status: "unreachable", message, matches: [] };
+  }
   const data = reply.data;
   const allowed = ["ok", "none", "not_connected", "expired", "unreachable"] as const;
   const status = (allowed as readonly string[]).includes(data?.status) ? data.status : "unreachable";

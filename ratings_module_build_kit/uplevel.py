@@ -167,12 +167,19 @@ def score_match(video: Video, *, topic: str, instructor: str, class_date: Option
     elif video.class_date:
         reasons.append(f"recording dated {video.class_date:%d %b %Y} (our class has no date)")
 
-    if instructor and instructor_in(video.name, instructor):
+    sim = topic_similarity(topic, video.topic or video.name)
+    named = bool(instructor) and _norm(instructor) not in ("", "unspecified")
+    instructor_ok = named and instructor_in(video.name, instructor)
+    if named and not instructor_ok and sim < 0.6:
+        # Another instructor's class on the same day: neither the teacher nor the class name
+        # agrees, so it cannot be this class and is not offered at all.
+        return None
+
+    if instructor_ok:
         score += 0.3; reasons.append("instructor matches")
-    elif instructor and _norm(instructor) not in ("", "unspecified"):
+    elif named:
         score -= 0.1; reasons.append("instructor not found in the recording name")
 
-    sim = topic_similarity(topic, video.topic or video.name)
     if sim >= 0.6:
         score += 0.25; reasons.append(f"class name matches ({sim:.0%})")
     elif sim >= 0.35:

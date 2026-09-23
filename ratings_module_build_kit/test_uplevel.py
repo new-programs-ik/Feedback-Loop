@@ -75,6 +75,23 @@ class TestMatching(unittest.TestCase):
         self.assertLess(m.score, 0.8)
         self.assertTrue(any("category" in r for r in m.reasons))
 
+    def test_another_instructors_class_on_the_same_day_is_not_offered(self):
+        # Seen in production on 23 Sep: "Product Sense with Apoorv" scored 0.65 against
+        # "AI Product Architecture with Yadhu" because it shared the date. It cannot be the class.
+        other = {"name": "Product Sense Live Class with Apoorv Gupta, Apoorv, Saturday, September 19, 2026, 08:30 PM",
+                 "topic__name": "Product Sense", "vimeo_link": "https://vimeo.com/1228707645"}
+        self.assertIsNone(UP.score_match(UP.video_from_row(other), topic="AI Product Architecture",
+                                         instructor="Yadhu", class_date=dt.date(2026, 9, 19), kind="live_class"))
+
+    def test_a_different_spelling_of_the_instructor_still_matches_on_the_class_name(self):
+        m = UP.score_match(UP.video_from_row(ML_ARCH), topic="ML Architectures", instructor="Sarfaraz Ahmed Khan",
+                           class_date=dt.date(2026, 9, 13), kind="live_class")
+        self.assertIsNotNone(m)                              # "Sarfaraz" is in the name
+        m = UP.score_match(UP.video_from_row(ML_ARCH), topic="ML Architectures", instructor="S. Khan",
+                           class_date=dt.date(2026, 9, 13), kind="live_class")
+        self.assertIsNotNone(m)                              # no name part matches, but the class name does
+        self.assertIn("instructor not found in the recording name", m.reasons)
+
     def test_ranking_prefers_the_stronger_match_and_drops_wrong_days(self):
         other_day = dict(ML_ARCH); other_day["vimeo_link"] = "https://vimeo.com/999"
         other_day["name"] = other_day["name"].replace("September 13", "September 6")

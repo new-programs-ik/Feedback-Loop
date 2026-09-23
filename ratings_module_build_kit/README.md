@@ -98,5 +98,7 @@ Setup for the sheet: `docs/GOOGLE_SHEET_SYNC_SETUP.md` (service-account key + sh
 - **Robustness**: SDK retries + timeout; the model's JSON is validated against a schema and re-asked once if malformed.
 - **Cost/latency**: taken from real API usage and written to `run.json` / returned in `meta`.
 - **Secrets**: read from the environment (`.env` locally; Render env vars in production).
-- **Docker**: every module `service.py` imports (directly or through the sync) is listed in the
-  `Dockerfile` COPY line and must not appear in `.dockerignore`.
+- **Docker**: every module `service.py` imports (directly, through the sync, or inside a function)
+  is listed in the `Dockerfile` COPY line and must not appear in `.dockerignore`. `test_packaging.py`
+  walks the imports and fails when one is missing (23 Sep 2026: `uplevel.py` was left out and every
+  UpLevel lookup crashed on the server while every test passed).
