@@ -96,7 +96,15 @@ Setup for the sheet: `docs/GOOGLE_SHEET_SYNC_SETUP.md` (service-account key + sh
 ## Production notes
 - **Config** (engine.py): model, window size, retries, timeout, repair attempts, pricing for cost reporting.
 - **Robustness**: SDK retries + timeout; the model's JSON is validated against a schema and re-asked once if malformed.
-- **Cost/latency**: taken from real API usage and written to `run.json` / returned in `meta`.
+- **Cost/latency**: taken from real API usage and written to `run.json` / returned in `meta`
+  (`tokens_in` is everything the model read; `cache_read_tokens` / `cache_write_tokens` show the
+  cached share, priced at 0.1x / 1.25x input).
+- **Prompt caching**: every extraction window repeats the same block (the class context with the
+  whole-session map, the rubric, the severity bars); only the transcript slice differs. That block
+  is sent as a separate text block marked for caching (`build_extract_parts`), so windows 2 onward
+  read it at a tenth of the price. The prompt text is unchanged (a test compares it byte for byte).
+  Measured on a 3 h 46 min class, 25 Sep 2026: 9,397 tokens written once and read 7 times, about
+  $0.11 (11%) off the class.
 - **Secrets**: read from the environment (`.env` locally; Render env vars in production).
 - **Docker**: every module `service.py` imports (directly, through the sync, or inside a function)
   is listed in the `Dockerfile` COPY line and must not appear in `.dockerignore`. `test_packaging.py`

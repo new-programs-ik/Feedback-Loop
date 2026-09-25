@@ -723,7 +723,9 @@ about **$0.07–0.10** (40 frames). It was about $0.51 in August on the older en
 reasons: Claude Sonnet 5 reasons before it answers and that reasoning is billed as output (output
 went from about 12,000 to about 48,000 tokens on a 4-hour class), the September accuracy fixes made
 the session map read the whole class rather than its opening, and the August classes were shorter.
-Sonnet 5's per-token price is a third lower, which absorbed part of the rise. The queue shows the
+Sonnet 5's per-token price is a third lower, which absorbed part of the rise. Since 25 September
+the part of the prompt that repeats in every 30-minute window is cached, which takes about 11% off
+(about $0.11 on a 4-hour class) without changing a word of what the model reads. The queue shows the
 week's total before anyone starts. The website, the database and the worker run on the free
 tiers of Vercel, Supabase and Render today; the sheet is read through a free service account.
 

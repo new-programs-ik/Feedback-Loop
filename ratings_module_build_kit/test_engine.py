@@ -916,5 +916,109 @@ class TestTheContextTellsTheTruth(unittest.TestCase):
         self.assertNotIn("NOT PROVIDED", ctx)
 
 
+class TestTheRepeatedPromptIsCached(unittest.TestCase):
+    """25 Sep 2026: every extraction window re-sent the same class context, whole-session map,
+    rubric and severity bars at full price (8 windows on a 4-hour class). That block is now marked
+    for prompt caching: same words, same order, billed at 0.1x from the second window on."""
+
+    CTX = "Course: ML\n\nWHOLE-SESSION MAP (read this FIRST):\nthe map"
+
+    class _Msg:
+        stop_reason = "end_turn"
+
+        class usage:
+            input_tokens = 1_000
+            output_tokens = 500
+            cache_creation_input_tokens = 0
+            cache_read_input_tokens = 9_000
+        content = [type("B", (), {"type": "text", "text": '{"findings": []}'})()]
+
+    def _client(self):
+        outer = self
+
+        class Messages:
+            def __init__(self):
+                self.calls = []
+
+            def create(self, **kw):
+                self.calls.append(kw)
+                return outer._Msg()
+
+        class Client:
+            def __init__(self):
+                self.messages = Messages()
+        return Client()
+
+    def test_the_two_parts_read_as_the_same_prompt(self):
+        for ct in ("live_class", "ars"):
+            for vid in (False, True):
+                shared, window = E.build_extract_parts(self.CTX, "[00:00:01] hello", ct, vid)
+                self.assertEqual(shared + window, E.build_extract_user(self.CTX, "[00:00:01] hello", ct, vid))
+                self.assertNotIn("[00:00:01] hello", shared)
+                self.assertIn(E.SEVERITY_ANCHORS, shared)
+
+    def test_the_repeated_part_is_the_same_in_every_window(self):
+        a, _ = E.build_extract_parts(self.CTX, "[00:00:01] window one", "live_class")
+        b, _ = E.build_extract_parts(self.CTX, "[00:30:00] window two", "live_class")
+        self.assertEqual(a, b)                       # byte-identical, or the cache never hits
+
+    def test_only_the_prefix_is_marked(self):
+        self.assertEqual(E._user_content("just text", None), "just text")
+        blocks = E._user_content("the window", "the prefix")
+        self.assertEqual([b["text"] for b in blocks], ["the prefix", "the window"])
+        self.assertEqual(blocks[0]["cache_control"], {"type": "ephemeral"})
+        self.assertNotIn("cache_control", blocks[1])
+
+    def test_the_window_call_sends_the_marked_prefix_and_counts_the_cache(self):
+        c, u = self._client(), E.Usage()
+        E.extract_findings(c, [E.Cue(0, 1.0, 2.0, "hello")], self.CTX, u)
+        content = c.messages.calls[0]["messages"][0]["content"]
+        self.assertEqual(content[0]["cache_control"], {"type": "ephemeral"})
+        self.assertTrue(content[0]["text"].startswith("CLASS CONTEXT"))
+        self.assertIn("hello", content[1]["text"])
+        self.assertEqual((u.input_tokens, u.cache_read_tokens, u.total_input_tokens), (1_000, 9_000, 10_000))
+
+    def test_a_repair_keeps_the_cached_prefix(self):
+        c, u = self._client(), E.Usage()
+        replies = iter(["not json", '{"findings": []}'])
+
+        def create(**kw):
+            c.messages.calls.append(kw)
+            msg = self._Msg()
+            msg.content = [type("B", (), {"type": "text", "text": next(replies)})()]
+            return msg
+        c.messages.create = create
+        E._call_json(c, "sys", "window", 100, lambda o: [], u, prefix="shared")
+        self.assertEqual(len(c.messages.calls), 2)
+        for kw in c.messages.calls:
+            self.assertEqual(kw["messages"][0]["content"][0]["text"], "shared")
+
+    def test_cached_tokens_are_priced_at_their_own_rates(self):
+        u = E.Usage(input_tokens=1_000_000, output_tokens=0, cache_write_tokens=1_000_000,
+                    cache_read_tokens=1_000_000)
+        p = E.CFG.price_in_per_mtok
+        self.assertAlmostEqual(u.cost_usd(), p * (1 + E.CFG.cache_write_mult + E.CFG.cache_read_mult))
+        self.assertEqual(E.CFG.cache_write_mult, 1.25)
+        self.assertEqual(E.CFG.cache_read_mult, 0.1)
+
+    def test_a_reply_without_cache_fields_still_counts(self):
+        class Old:
+            stop_reason = "end_turn"
+
+            class usage:
+                input_tokens = 7
+                output_tokens = 3
+            content = [type("B", (), {"type": "text", "text": "x"})()]
+
+        class C:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    return Old()
+        u = E.Usage()
+        E._call(C(), "sys", "user", 10, u)
+        self.assertEqual((u.input_tokens, u.cache_read_tokens, u.cache_write_tokens), (7, 0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

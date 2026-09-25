@@ -61,6 +61,10 @@ class Config:
     review_enabled: bool = True          # kill-switch: False restores the un-verified pipeline exactly
     price_in_per_mtok: float = 2.0       # USD, for cost reporting only (Sonnet 5: $2 in / $10 out)
     price_out_per_mtok: float = 10.0
+    # Prompt caching, as a multiple of the input price (Anthropic pricing page, 5-minute TTL): a
+    # cached prefix is written once at 1.25x and read back at 0.1x.
+    cache_write_mult: float = 1.25
+    cache_read_mult: float = 0.1
 
 CFG = Config()
 
@@ -626,6 +630,15 @@ EXTRACT_SYS = (
 
 def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_class",
                        has_video: bool = False) -> str:
+    """The whole extraction prompt as one string (what the model reads)."""
+    return "".join(build_extract_parts(ctx, segment_text, class_type, has_video))
+
+
+def build_extract_parts(ctx: str, segment_text: str, class_type: str = "live_class",
+                        has_video: bool = False) -> tuple[str, str]:
+    """The extraction prompt in two pieces: what is identical in every window of a class (the
+    class context with the whole-session map, the rubric, the severity bars), and the window's own
+    transcript plus the closing instructions. The first piece is cached across the windows."""
     allowed = "|".join(sorted(flags_for(class_type)))
     rubric = RUBRICS[class_type].replace(
         "[[SECTION_C]]", SECTION_C_WITH_VIDEO if has_video else SECTION_C_TRANSCRIPT_ONLY)
@@ -636,8 +649,9 @@ def build_extract_user(ctx: str, segment_text: str, class_type: str = "live_clas
     rubric = rubric.replace(
         "[[SECTION_C_LIVE_ONLY_NOVIDEO]]",
         SECTION_C_LIVE_ONLY_NOVIDEO if "slides_mismatch" in legal else "")
-    return (
-        f"CLASS CONTEXT\n{ctx}\n\n{rubric}\n\n{SEVERITY_ANCHORS}\n\n"
+    shared = f"CLASS CONTEXT\n{ctx}\n\n{rubric}\n\n{SEVERITY_ANCHORS}"
+    return shared, (
+        "\n\n"
         f"TRANSCRIPT SEGMENT (timestamps [HH:MM:SS]; a leading 'Name:' marks the speaker when known — "
         f"lines with no name are usually the instructor, but confirm from content):\n{segment_text}\n\n"
         "WHICH LABEL YOU CHOOSE HAS A CONSEQUENCE. These flags, and only these, can lead to learners "
@@ -1140,12 +1154,24 @@ def validate_result(obj: Any, allowed: set | None = None) -> list[str]:
 # ──────────────────────────────────────────────────────────────────── LLM client
 @dataclass
 class Usage:
-    input_tokens: int = 0
-    output_tokens: int = 0
+    input_tokens: int = 0        # input billed at the full price (not served from the cache)
+    output_tokens: int = 0       # includes the model's thinking, which is billed as output
     calls: int = 0
     truncated: int = 0           # replies the model was still writing when it hit the cap
+    cache_write_tokens: int = 0  # prompt prefix written to the cache (billed at 1.25x input)
+    cache_read_tokens: int = 0   # prompt prefix served from the cache (billed at 0.1x input)
+
+    @property
+    def total_input_tokens(self) -> int:
+        """Everything the model read, however it was billed: comparable with runs before caching."""
+        return self.input_tokens + self.cache_write_tokens + self.cache_read_tokens
+
     def cost_usd(self) -> float:
-        return (self.input_tokens * CFG.price_in_per_mtok + self.output_tokens * CFG.price_out_per_mtok) / 1_000_000
+        p_in = CFG.price_in_per_mtok
+        return (self.input_tokens * p_in
+                + self.cache_write_tokens * p_in * CFG.cache_write_mult
+                + self.cache_read_tokens * p_in * CFG.cache_read_mult
+                + self.output_tokens * CFG.price_out_per_mtok) / 1_000_000
 
 def _client():
     import anthropic
@@ -1195,19 +1221,33 @@ class _Truncated(ValueError):
     not the same thing again."""
 
 
+def _user_content(user: str, prefix: str | None):
+    """The user turn. With a `prefix`, the turn is two text blocks - the prefix, marked for prompt
+    caching, then `user` - which read as exactly `prefix + user`: the same words in the same order.
+    Only the billing changes: calls that share the system prompt and the prefix read it back from
+    the cache at a tenth of the input price instead of paying for it again."""
+    if not prefix:
+        return user
+    return [{"type": "text", "text": prefix, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": user}]
+
+
 def _call(client, system: str, user: str, max_tokens: int, usage: Usage,
-          note_truncation: bool = False) -> str:
+          note_truncation: bool = False, prefix: str | None = None) -> str:
     t = time.time()
     # No sampling params: Sonnet 5 rejects non-default temperature/top_p/top_k with a 400.
     # No thinking param either - the model runs adaptive thinking by default; our text extractor
-    # below only reads "text" blocks, so thinking blocks pass through harmlessly.
+    # below only reads "text" blocks, so thinking blocks pass through harmlessly. The thinking and
+    # effort settings are the same on every call, which keeps the cached prefix valid.
     msg = _create_message(
         client,
         model=CFG.model, max_tokens=max_tokens,
-        system=system, messages=[{"role": "user", "content": user}],
+        system=system, messages=[{"role": "user", "content": _user_content(user, prefix)}],
     )
     usage.input_tokens += msg.usage.input_tokens
     usage.output_tokens += msg.usage.output_tokens
+    usage.cache_write_tokens += getattr(msg.usage, "cache_creation_input_tokens", 0) or 0
+    usage.cache_read_tokens += getattr(msg.usage, "cache_read_input_tokens", 0) or 0
     usage.calls += 1
     # A reply that hit the cap is a HALF answer, not a short one. Left undetected it looked like a
     # quiet window: findings the model was still writing were simply lost, and on the plain-text
@@ -1216,14 +1256,17 @@ def _call(client, system: str, user: str, max_tokens: int, usage: Usage,
     if was_cut:
         usage.truncated += 1
         log.warning("model reply hit the %d-token cap and was cut off mid-answer", max_tokens)
-    log.info("llm call ok  in=%d out=%d  %.1fs", msg.usage.input_tokens, msg.usage.output_tokens, time.time() - t)
+    log.info("llm call ok  in=%d cache_w=%d cache_r=%d out=%d  %.1fs", msg.usage.input_tokens,
+             getattr(msg.usage, "cache_creation_input_tokens", 0) or 0,
+             getattr(msg.usage, "cache_read_input_tokens", 0) or 0,
+             msg.usage.output_tokens, time.time() - t)
     text = "".join(b.text for b in msg.content if b.type == "text")
     if was_cut and note_truncation:
         raise _Truncated(text)
     return text
 
 def _call_json(client, system: str, user: str, max_tokens: int, validate: Callable[[Any], list[str]],
-               usage: Usage) -> dict:
+               usage: Usage, prefix: str | None = None) -> dict:
     """Call the model, parse + validate JSON, and re-ask if it is malformed, truncated or invalid.
 
     A reply that ran out of budget mid-sentence and a reply that is simply wrong both arrive as
@@ -1234,7 +1277,8 @@ def _call_json(client, system: str, user: str, max_tokens: int, validate: Callab
     """
     def ask(prompt: str) -> tuple[str, bool]:
         try:
-            return _call(client, system, prompt, max_tokens, usage, note_truncation=True), False
+            return _call(client, system, prompt, max_tokens, usage, note_truncation=True,
+                         prefix=prefix), False
         except _Truncated as cut:
             return str(cut), True
 
@@ -1266,9 +1310,9 @@ def _call_json(client, system: str, user: str, max_tokens: int, validate: Callab
 def extract_findings(client, seg: list[Cue], ctx: str, usage: Usage,
                      class_type: str = "live_class", has_video: bool = False) -> list[dict]:
     allowed = flags_for(class_type)
-    obj = _call_json(client, EXTRACT_SYS,
-                     build_extract_user(ctx, format_segment(seg), class_type, has_video),
-                     CFG.max_tokens_extract, lambda o: validate_findings(o, allowed), usage)
+    shared, window = build_extract_parts(ctx, format_segment(seg), class_type, has_video)
+    obj = _call_json(client, EXTRACT_SYS, window, CFG.max_tokens_extract,
+                     lambda o: validate_findings(o, allowed), usage, prefix=shared)
     return obj.get("findings", [])
 
 # The note the instructor RECEIVES carries no timestamps and stays short — timestamps and the full
@@ -1708,7 +1752,8 @@ def analyse_cues(cues: list[Cue], ctx: str, class_type: str = "live_class",
         "flags_dropped": dropped,
         "reclass_softened": reclass_softened,
         "review_heavy_drop": bool(n_candidates and dropped > n_candidates / 2),
-        "tokens_in": usage.input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
+        "tokens_in": usage.total_input_tokens, "tokens_out": usage.output_tokens, "llm_calls": usage.calls,
+        "cache_read_tokens": usage.cache_read_tokens, "cache_write_tokens": usage.cache_write_tokens,
         "cost_usd": round(usage.cost_usd(), 4), "seconds": round(time.time() - t0, 1),
     }
     log.info("done  cost=$%.4f  %.1fs  calls=%d", meta["cost_usd"], meta["seconds"], meta["llm_calls"])
