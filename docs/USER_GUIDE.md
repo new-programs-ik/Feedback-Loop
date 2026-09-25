@@ -98,9 +98,9 @@ Written for anyone on the team — no technical background needed. Each section 
    and in [UPLEVEL_VIDEO_LINK.md](UPLEVEL_VIDEO_LINK.md)). You can also upload a `.vtt` / `.srt`
    transcript file instead.
 3. Tick **🎬 Analyze the video too** when the band says video. It adds a few minutes and about
-   $0.20, and catches camera and screen problems that words never show.
-4. Click **Analyze class** and wait. The page refreshes itself: 3–4 minutes transcript-only, 6–8
-   with video. If it fails or looks stuck for more than 30 minutes, the page says so and offers
+   $0.10, and catches camera and screen problems that words never show.
+4. Click **Analyze class** and wait. The page refreshes itself: about 5 minutes for a short class
+   and 9 for a 4-hour one; video adds 2–3 minutes. If it fails or looks stuck for more than 30 minutes, the page says so and offers
    **Retry analysis**.
 5. Read the report. Check the badges first — **🎬 Video verified · N frames** or **Transcript
    only** (hover for why), and **✓ Self-checked**. **▶ Watch recording** opens the video so you can
@@ -295,7 +295,7 @@ study that chose the live settings is in `analysis/formula/` and the manager's r
 | I dismissed a class by mistake. | In the queue, set the **Status** filter to *Dismissed*, open the row and click **Escalate** — it re-opens as a video analysis. |
 | The instructor's name is spelled two ways. | Admin → Identity; see *To merge two spellings*. Until then both spellings show separately. |
 | A cohort is missing from the Cohorts page. | Its text in the sheet could not be parsed, or the class is unmapped. Admin → Sync shows unparsed cohorts per run; Settings → Cohorts lets you rename. |
-| What does one analysis cost? | About $0.51 transcript-only, about $0.70 with video. The queue shows the week's total; each analysis shows its exact cost. |
+| What does one analysis cost? | It grows with the length of the class: about $0.60 for a 1.5-hour class and about $1.00 for a 4-hour class, transcript only. Ticking video adds about $0.10. The queue shows the total before you start; each analysis shows its exact cost. |
 | A class says **Starting…** for a while. | The analysis service was asleep, or could not be reached for a moment. The class is queued and the service picks it up on its own within a couple of minutes; the page updates by itself. After ten minutes with no taker it says so and offers **Retry**. |
 | The analysis didn't finish. | The reason is on the page, in words, with what to do. **Retry** runs it again (transcript-only: materials and video are not stored). If the reason mentions the database, wait a minute first. |
 | "The Claude API credit is empty." | The Claude (Anthropic) account that runs the analyses has no credit. It is not a fault in the system. The notice appears only on the New analysis page, and only while the credit really is empty: it re-checks when the page opens and disappears by itself once the credit is recharged. Whoever holds the account recharges it at console.anthropic.com › Plans & Billing; then press **Retry** on the failed class, whose page by then says the credit is back. Nothing was charged for the failed run. |

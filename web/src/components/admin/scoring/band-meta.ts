@@ -3,6 +3,7 @@
  *  uses. Pure — safe in server and client code. */
 
 import { BAND_META, type Action, type Band } from "@/lib/sentiment";
+import { ANALYSIS_COST } from "@/lib/class-score";
 
 export type BandKey = Band | "no_data";
 export const BAND_KEYS: readonly BandKey[] = ["excellent", "good", "average", "bad", "no_data"] as const;
@@ -20,5 +21,7 @@ export function bandMeta(b: BandKey): { label: string; short: string; color: str
   return { label: m.label, short: m.short, color: m.color, soft: m.soft };
 }
 
-/** Per-analysis cost the study uses: video $0.70, transcript $0.51. */
-export const COST_PER_ANALYSIS: Record<Action, number> = { video: 0.7, transcript: 0.51, none: 0, watch: 0 };
+/** Per-analysis cost: the one measured figure the queue uses too (lib/class-score.ts). */
+export const COST_PER_ANALYSIS: Record<Action, number> = {
+  video: ANALYSIS_COST.video, transcript: ANALYSIS_COST.transcript, none: 0, watch: 0,
+};

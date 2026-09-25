@@ -118,8 +118,8 @@ database function.
 
 | Analysis | AI cost per class | Time to result |
 |---|---|---|
-| Transcript only | about **$0.51** | 3–4 minutes |
-| With video | about **$0.70** | 6–8 minutes |
+| Transcript only | about **$0.60** (1.5-hour class) to **$1.00** (4-hour class) | 5–9 minutes |
+| With video | add about **$0.10** | add 2–3 minutes |
 
 The queue shows the week's cost in dollars and PM hours before anyone starts. Hosting runs on the
 free tiers of Vercel, Supabase and Render today.

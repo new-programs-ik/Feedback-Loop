@@ -246,7 +246,7 @@ export function NewAnalysisForm({
               )}
               <p className="text-muted-foreground text-xs">
                 Samples ~1 frame every 2–3 minutes to <strong>see</strong> the class — camera on, screen
-                shared, slides vs the plan, real live coding. Adds ~$0.20–0.40 and ~5–10 min. Frames are
+                shared, slides vs the plan, real live coding. Adds about $0.10 and 2–3 minutes. Frames are
                 analyzed in memory and <strong>never stored</strong>; if the video can&apos;t be read, the
                 analysis continues transcript-only.
               </p>

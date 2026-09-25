@@ -384,8 +384,8 @@ per course), in three sections:
 
 Under every row, the reason in plain words — *"Rated 4.31 · 7 of 16 would have the instructor back
 (44%) → Bad → video analysis."* — and the flags. At the top, **the week's cost**:
-*"5 videos · 9 transcripts ≈ $8.09 · ~1.1 h"*, from $0.70 per video and $0.51 per transcript
-analysis, and about 7 and 3.5 minutes of a PM's time each. The filter bar (kept in the URL, so a
+*"5 videos · 9 transcripts ≈ $14.50 · ~1.1 h"*, from $1.10 per video and $1.00 per transcript
+analysis (a typical 3 to 4-hour class on the current engine; see *What it costs*), and about 7 and 3.5 minutes of a PM's time each. The filter bar (kept in the URL, so a
 filtered view is a shareable link) has the period (default the last 45 days), cohort, live vs
 review, instructor and status; the default status is *open* (new · handler pinged · confirmed).
 
@@ -621,7 +621,7 @@ materials is switched off on the form for now: the free worker does not have the
 large decks and notebooks reliably. The worker and the start action still accept materials, so
 bringing it back is a change to the form only.) The website hands the job to the worker, which runs it in the background and
 writes the finished analysis to the database; the page refreshes itself. Transcript-only takes
-3–4 minutes, with video 6–8.
+about 5 minutes on a short class and 9 on a 4-hour one; video adds 2–3 minutes.
 
 **When something breaks.** The worker restarts on every deploy and sleeps when idle, and the
 database is far away; none of that loses a class. If the website cannot hand the job over (the
@@ -716,9 +716,15 @@ silence to a false criticism, and anchors every point to a verbatim quote and a 
 Access is enforced by the database's row-level security, not just by the screens; since
 migration 0021 the ratings tables are readable by staff only.
 
-**What it costs.** Measured on real classes: about **$0.51** per transcript analysis and
-**$0.70** with video; a short review session costs less. The queue shows
-the week's total before anyone starts. The website, the database and the worker run on the free
+**What it costs.** Measured on real classes with the current engine (Claude Sonnet 5, September
+2026), the cost grows with the length of the class: about **$0.60** for a 1.5-hour class and
+**$1.00** for a 4-hour class (3 h 46 min measured at $1.01), transcript only. The video stage adds
+about **$0.07–0.10** (40 frames). It was about $0.51 in August on the older engine, for three
+reasons: Claude Sonnet 5 reasons before it answers and that reasoning is billed as output (output
+went from about 12,000 to about 48,000 tokens on a 4-hour class), the September accuracy fixes made
+the session map read the whole class rather than its opening, and the August classes were shorter.
+Sonnet 5's per-token price is a third lower, which absorbed part of the rise. The queue shows the
+week's total before anyone starts. The website, the database and the worker run on the free
 tiers of Vercel, Supabase and Render today; the sheet is read through a free service account.
 
 **Outside services.** Vercel (the website) · Supabase (Postgres, sign-in, the schedule via
