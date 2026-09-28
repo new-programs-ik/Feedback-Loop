@@ -283,7 +283,8 @@ class AnalyzeRequest(BaseModel):
         return self
 
     def context(self) -> str:
-        base = E.build_context(self.course, self.topic, self.instructor, self.rating, self.agenda)
+        base = E.build_context(self.course, self.topic, self.instructor, self.rating, self.agenda,
+                               str(self.num_ratings) if self.num_ratings else "")
         label = ("Assignment Review Session (ARS) — solutions to assigned problems are reviewed and doubts cleared"
                  if self.class_type == "ars" else "Live class (weekly teaching session)")
         return base + f"\nSession type: {label}"

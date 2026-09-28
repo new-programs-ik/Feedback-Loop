@@ -709,6 +709,13 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class TestTheModelIsToldHowManyRated(unittest.TestCase):
+    def test_the_count_reaches_the_context(self):
+        req = service.AnalyzeRequest(transcript=SRT, rating="4.04", num_ratings=11)
+        self.assertIn("Learners who rated: 11.", req.context())
+        self.assertNotIn("Learners who rated", service.AnalyzeRequest(transcript=SRT, rating="4.04").context())
+
+
 class TestTheCreditIsReportedOnlyWhileItIsEmpty(unittest.TestCase):
     """23 Sep 2026: the 'credit is empty' notice stayed up after a recharge, on every page, until
     someone paid for an analysis. The state now follows the credit both ways."""

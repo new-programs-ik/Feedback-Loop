@@ -390,8 +390,8 @@ WHAT THIS TRANSCRIPT IS (read carefully):
   in CONTEXT — check the transcript against them for coverage, agenda_balance and correctness.
 - Use the [HH:MM:SS] timestamps to estimate how long was spent on each thing.
 
-The class is ALREADY known to be low-rated. Your job is to diagnose WHY and find specific moments —
-not to re-score whether it was good or bad.
+This class was picked for review, usually because learners rated it lower than usual. Your job is to
+find the specific moments that explain what went wrong - not to re-score the class.
 
 ASSESS THESE FLAGS. Raise a flag ONLY when there is concrete evidence (a timestamped quote).
 If a dimension is fine, raise nothing for it.
@@ -455,8 +455,8 @@ WHAT AN ARS IS (read carefully):
   check the transcript against them for problem_coverage and correctness.
 - Use the [HH:MM:SS] timestamps to estimate how long was spent on each problem.
 
-The session is ALREADY known to be low-rated. Your job is to diagnose WHY and find specific moments —
-not to re-score whether it was good or bad.
+This session was picked for review, usually because learners rated it lower than usual. Your job is
+to find the specific moments that explain what went wrong - not to re-score the session.
 
 ASSESS THESE FLAGS. Raise a flag ONLY when there is concrete evidence (a timestamped quote).
 If a dimension is fine, raise nothing for it.
@@ -758,7 +758,7 @@ def build_synth_user(ctx: str, findings_json: str, class_type: str = "live_class
         '     - "maybe" : genuinely borderline — say what the PM should check.\n'
         "   Give a 1-2 sentence reason for the PM, citing the deciding flags/timestamps. The PM makes the final call.\n\n"
         'Return JSON ONLY:\n'
-        '{"overall":"2-3 sentence summary of what likely drove the low rating",'
+        '{"overall":"2-3 sentence summary of what most likely went wrong in this class",'
         '"flags":[{"flag":"...","severity":"minor|moderate|major","confidence":"low|medium|high",'
         '"evidence":[{"timestamp":"HH:MM:SS","quote":"..."}]}],'
         '"feedback":"the DETAILED coaching message (internal), referencing timestamps",'
@@ -1809,23 +1809,22 @@ def read_agenda(value: str) -> str:
             return fh.read().strip()
     return value or "(not provided)"
 
-RATING_LINE = 4.55          # the rating at or under which a class is treated as low-rated
 
 
 def build_context(course: str, topic: str, instructor: str, rating: str, agenda: str,
                   num_ratings: str = "") -> str:
-    """The facts the model is given about the class.
+    """The facts the model is given about the class, and nothing else.
 
-    This used to assert "below the 4.55 line -> this class was flagged" for EVERY class, including
-    ones rated 4.87 that a PM was merely spot-checking. Every later pass then reasoned from a false
-    premise. It also claimed an agenda was present when the caller had passed "(not provided)",
-    which invited the model to invent a plan and mark the instructor against it.
+    The rating as recorded and how many learners gave it; the agenda when there is one. No threshold
+    and no claim about why the class was picked: whether a class is reviewed is decided by its band
+    (the Class Sentiment Score, which the engine is not told). Until 28 Sep 2026 this said "below the
+    4.55 line, which is why it was flagged" - a rule the team had since retired, and a false premise
+    for any class picked for another reason (low approval, a spot-check). Claiming an agenda when none
+    was given invited the model to invent a plan and mark the instructor against it.
     """
     try:
-        val = float(str(rating).strip())
-        note = ("below the 4.55 line, which is why it was flagged" if val < RATING_LINE
-                else "at or above the 4.55 line; this class was NOT flagged for a low rating")
-        rating_line = f"Learner rating: {rating}/5 ({note})."
+        float(str(rating).strip())
+        rating_line = f"Learner rating: {str(rating).strip()}/5."
     except (TypeError, ValueError):
         rating_line = ("Learner rating: not known. Do not assume the class was rated badly or well.")
     if num_ratings:

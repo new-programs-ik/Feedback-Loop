@@ -893,13 +893,20 @@ class TestPromptsOnlyAskForFlagsTheClassCanReturn(unittest.TestCase):
 
 class TestTheContextTellsTheTruth(unittest.TestCase):
 
-    def test_a_well_rated_class_is_not_called_low_rated(self):
-        ctx = E.build_context("C", "T", "I", "4.87", "(not provided)")
-        self.assertIn("NOT flagged", ctx)
-        self.assertNotIn("below the 4.55 line, which is why", ctx)
+    def test_the_rating_is_stated_as_a_fact_with_no_retired_line(self):
+        # "below the 4.55 line, which is why it was flagged" was a retired rule and a false premise
+        # for classes picked for low approval or a spot-check.
+        for rating in ("4.87", "3.30"):
+            ctx = E.build_context("C", "T", "I", rating, "(not provided)", "11")
+            self.assertIn(f"Learner rating: {rating}/5.", ctx)
+            self.assertIn("Learners who rated: 11.", ctx)
+            self.assertNotIn("4.55", ctx)
+            self.assertNotIn("flagged", ctx)
 
-    def test_a_low_rated_class_still_says_so(self):
-        self.assertIn("below the 4.55 line", E.build_context("C", "T", "I", "3.30", "(not provided)"))
+    def test_the_rubrics_do_not_assume_a_low_rating(self):
+        for r in (E.RUBRIC_LIVE, E.RUBRIC_ARS):
+            self.assertNotIn("ALREADY known to be low-rated", r)
+            self.assertIn("picked for review", r)
 
     def test_an_unknown_rating_makes_no_claim(self):
         ctx = E.build_context("C", "T", "I", "(unspecified)", "(not provided)")
