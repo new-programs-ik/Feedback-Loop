@@ -40,52 +40,52 @@ class TestPrompts(unittest.TestCase):
     def test_extract_uses_right_rubric(self):
         live = E.build_extract_user("ctx", "seg", "live_class")
         ars = E.build_extract_user("ctx", "seg", "ars")
-        self.assertIn("LIVE CLASS", live)
-        self.assertIn("ASSIGNMENT REVIEW SESSION", ars)
+        self.assertIn("live class transcript", live)
+        self.assertIn("assignment review session", ars)
         self.assertIn("problem_coverage", ars)
         self.assertNotIn("problem_coverage", live)
 
     def test_synth_style_rules(self):
         s = E.build_synth_user("ctx", "[]", "live_class")
         self.assertIn("150-250 words", s)
-        self.assertIn("NEVER harsh", s)
+        self.assertIn("never harsh", s)
         a = E.build_synth_user("ctx", "[]", "ars")
-        self.assertIn("PROBLEMS reviewed", a)
+        self.assertIn("problems reviewed", a)
         self.assertIn("canonical", a)
 
     def test_synth_produces_instructor_summary(self):
         # the crisp, bulleted send-to-instructor note (separate from the detailed internal feedback)
         s = E.build_synth_user("ctx", "[]", "live_class")
         self.assertIn("instructor_summary", s)
-        self.assertIn("BULLETS", s)                       # bullet format, not prose
-        self.assertIn("4 bullets, 5 at the very", s)      # capped — the note stays scannable
-        self.assertIn("KEEP ONLY THE MOST IMPORTANT", s)  # trim, never cram them all in
+        self.assertIn("then bullets", s)                  # bullet format, not prose
+        self.assertIn("five at most", s)                  # capped — the note stays scannable
+        self.assertIn("keep only the most important", s)  # trim, never cram them all in
         self.assertIn("Fix:", s)                          # every bullet carries the remedy
         self.assertIn("state the class", s)               # the rating still appears
 
     def test_timestamps_stay_out_of_the_instructor_note(self):
         """Timestamps belong to the internal feedback only — the instructor note reads like prose."""
         s = E.build_synth_user("ctx", "[]", "live_class")
-        self.assertIn("NEVER put timestamps", s)
-        self.assertIn("belong ONLY in the detailed internal feedback", s)
+        self.assertIn("No timestamps, [HH:MM:SS] markers", s)
+        self.assertIn("belong only\n     in the detailed internal feedback", s)
         # the DETAILED feedback still demands them
-        self.assertIn("Every improvement point MUST cite at least one timestamp", s)
-        self.assertIn("FOR THE INTERNAL TEAM", s)
-        self.assertIn("NEVER include timestamps", E.REVISE_SUMMARY_SYS)
+        self.assertIn("Every improvement point cites at least one timestamp", s)
+        self.assertIn("for the internal team", s)
+        self.assertIn("contains no timestamps", E.REVISE_SUMMARY_SYS)
 
     def test_summary_is_crisp_not_a_walkthrough(self):
         s = E.build_synth_user("ctx", "[]", "live_class")
-        self.assertIn("DO NOT walk through the whole class", s)
+        self.assertIn("Do not walk through the class", s)
         self.assertIn("no closing pep-talk", s)
 
     def test_revise_summary_keeps_the_bullet_format(self):
         r = E.REVISE_SUMMARY_SYS
-        self.assertIn("KEEP THE FORMAT", r)
+        self.assertIn("Keep the format", r)
         self.assertIn("Fix:", r)
         self.assertIn("never turn it back into flowing paragraphs", r)
 
     def test_ars_complexity_conditional(self):
-        self.assertIn("If the session involves no code, do NOT raise this", E.RUBRIC_ARS)
+        self.assertIn("If the session involves no code, do not raise this", E.RUBRIC_ARS)
 
 
 class TestMultiSpeaker(unittest.TestCase):
@@ -95,7 +95,7 @@ class TestMultiSpeaker(unittest.TestCase):
     def test_rubrics_are_multispeaker_and_attribute(self):
         for r in (E.RUBRIC_LIVE, E.RUBRIC_ARS):
             self.assertIn("LEARNER", r.upper())            # learners are acknowledged
-            self.assertIn("INSTRUCTOR ONLY", r)            # but only the instructor is judged
+            self.assertIn("evaluate the instructor only", r)  # but only the instructor is judged
             self.assertIn("WHOLE-SESSION MAP", r)          # judge in full-session context
 
     def test_no_instructor_only_premise(self):
@@ -107,18 +107,52 @@ class TestMultiSpeaker(unittest.TestCase):
     def test_conversation_map_pass_exists(self):
         self.assertTrue(hasattr(E, "map_conversation"))
         self.assertIn("map", E.CONV_MAP_SYS.lower())
-        self.assertIn("INSTRUCTOR", E.CONV_MAP_SYS)
-        self.assertIn("LEARNER", E.CONV_MAP_SYS)
+        self.assertIn("instructor", E.CONV_MAP_SYS)
+        self.assertIn("learner", E.CONV_MAP_SYS)
 
     def test_extract_prompt_asks_for_attribution(self):
         u = E.build_extract_user("ctx", "[00:00:00] hello", "live_class")
         self.assertIn("attribute", u.lower())
-        self.assertIn("ONLY the instructor", u)
+        self.assertIn("Judge only the", u)
 
     def test_synth_drops_learner_and_resolved(self):
         s = E.build_synth_user("ctx", "[]", "live_class")
-        self.assertIn("LEARNER speaking", s)
-        self.assertIn("RESOLVED", s)
+        self.assertIn("learner speaking", s)
+        self.assertIn("resolved or addressed later", s)
+
+
+class TestPromptsAtNormalVolume(unittest.TestCase):
+    """Sonnet 5 follows instructions literally; capitals and MUST/NEVER make it over-apply a rule
+    and think longer about it. Labels the prompts point at (WHOLE-SESSION MAP, VISUAL TRACK, flag
+    names) stay; shouted instructions do not. The severity bars are a tested fix and are exempt."""
+
+    SHOUTS = ("MUST", "NEVER", "ONLY", "DO NOT", "Do NOT", "do NOT", "JSON ONLY", "read carefully",
+              "ALREADY known")
+
+    def test_no_shouting(self):
+        prompts = {
+            "live": E.build_extract_user("ctx", "seg", "live_class"),
+            "live+video": E.build_extract_user("ctx", "seg", "live_class", has_video=True),
+            "ars": E.build_extract_user("ctx", "seg", "ars"),
+            "synth": E.build_synth_user("ctx", "[]", "ars", has_video=True),
+            "skeptic": E.build_skeptic_user("ctx", "[]", "", reclass_framing=True),
+        }
+        for name, p in prompts.items():
+            p = p.replace(E.SEVERITY_ANCHORS, "")
+            for word in self.SHOUTS:
+                self.assertNotIn(word, p, f"{name}: {word!r}")
+        for sys_prompt in (E.EXTRACT_SYS, E.SYNTH_SYS, E.SKEPTIC_SYS, E.CONV_MAP_SYS,
+                           E.REVISE_SUMMARY_SYS, E.RECONCILE_SYS):
+            for word in self.SHOUTS:
+                self.assertNotIn(word, sys_prompt, word)
+
+    def test_reconcile_asks_for_the_three_fields_it_is_checked_for(self):
+        # the system prompt named two fields while the request and the checker wanted three
+        self.assertIn('"reclass_reason"', E.RECONCILE_SYS)
+
+    def test_synth_system_prompt_does_not_contradict_the_bullet_note(self):
+        # it said "6-7 sentences" while the request asks for one line plus at most five bullets
+        self.assertNotIn("sentences", E.SYNTH_SYS)
 
 
 class TestSeverityAnchors(unittest.TestCase):
@@ -149,8 +183,8 @@ class TestSeverityAnchors(unittest.TestCase):
 class TestSkepticPrompt(unittest.TestCase):
     def test_skeptic_hygiene(self):
         s = E.SKEPTIC_SYS
-        self.assertIn("REFUTE", s)
-        self.assertIn("NEVER invent new problems", s)
+        self.assertIn("refute each finding", s)
+        self.assertIn("never invent new problems", s)
         self.assertIn("raise a severity", s)             # forbidden
         self.assertIn("downgrade instead", s)            # unsure → downgrade, not drop
         self.assertIn("anchor", s.lower())               # must cite the anchor rule
@@ -159,8 +193,8 @@ class TestSkepticPrompt(unittest.TestCase):
     def test_reclass_framing_only_when_asked(self):
         base = E.build_skeptic_user("ctx", "[]", "")
         framed = E.build_skeptic_user("ctx", "[]", "", reclass_framing=True)
-        self.assertNotIn("RE-ATTEND", base)
-        self.assertIn("RE-ATTEND", framed)
+        self.assertNotIn("re-attend", base)
+        self.assertIn("re-attend", framed)
 
     def test_precision_creed_intact(self):
         for r in (E.RUBRIC_LIVE, E.RUBRIC_ARS):
