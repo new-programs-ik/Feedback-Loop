@@ -4,8 +4,13 @@ away the given formula and find the real one, written the way a PM would explain
 Same house style as build_sentiment_simple_doc.py. Every number comes from the study's own output
 (analysis/out/formula_results.json, formula_trust.json) or from Formula-One-Pager.pdf.
 
-    python analysis/build_formula_simple_doc.py
+    python analysis/reports/build_formula_simple_doc.py
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import os
 
 from docx import Document
@@ -14,7 +19,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 OUT = os.environ.get("FORMULA_DOC_OUT") or os.path.join(ROOT, "The Formula Search - The Simple Version.docx")
 

@@ -7,8 +7,13 @@ No invented vocabulary: the number 4.6 is written as 4.6, "approval" is "how man
 instructor again", and nothing is called a rule, a parameter or a property unless it really is one.
 Every class and count is computed from the live database at build time.
 
-    python analysis/build_case_docs.py
+    python analysis/reports/build_case_docs.py
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import collections
 import copy
 import csv
@@ -22,7 +27,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))

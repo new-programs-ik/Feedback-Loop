@@ -1,9 +1,14 @@
 """One week of class ratings - how many went well, how many didn't, by category and by course.
 
 Reusable: run it for any week.
-    python analysis/weekly_report.py --from 2026-08-24 --to 2026-08-30
+    python analysis/reports/weekly_report.py --from 2026-08-24 --to 2026-08-30
 Writes a local HTML report (and prints the same numbers to the terminal). Local only.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import datetime as dt
 import os
@@ -11,7 +16,7 @@ import statistics as st
 import sys
 from collections import Counter, defaultdict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from ratings_data import GOOD, load  # noqa: E402
 

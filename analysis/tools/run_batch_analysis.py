@@ -6,14 +6,19 @@ class's recording link into the last column of either table; rows without a link
 Output: Formula-Test-Results.csv, one row per class, with the re-class call, the reason as the PM
 would read it, and every finding that survived verification.
 
-    python analysis/run_batch_analysis.py                  # transcript only
-    python analysis/run_batch_analysis.py --video          # also sample the recording's frames
-    python analysis/run_batch_analysis.py --only A         # just one test group
-    python analysis/run_batch_analysis.py --limit 3        # a few first, to check cost
+    python analysis/tools/run_batch_analysis.py                  # transcript only
+    python analysis/tools/run_batch_analysis.py --video          # also sample the recording's frames
+    python analysis/tools/run_batch_analysis.py --only A         # just one test group
+    python analysis/tools/run_batch_analysis.py --limit 3        # a few first, to check cost
 
 Nothing is written to the database: this is a measurement run, not production work. Results are
 saved after every class, so a stop or a failure never loses what was already analysed.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import csv
 import datetime as dt
@@ -22,7 +27,7 @@ import os
 import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402

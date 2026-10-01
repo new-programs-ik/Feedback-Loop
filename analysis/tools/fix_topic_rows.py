@@ -6,12 +6,17 @@ already exists the kind-code duplicate is removed instead.
 
 Run once after migration 0017 and before the first workbook re-sync. Safe to re-run.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import datetime as dt
 import os
 import sys
 from collections import defaultdict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))

@@ -10,12 +10,17 @@ What it does, in the order the plan allows:
 3. Spellings the study could not settle become low-confidence suggestions against each candidate.
 4. Every other spelling still unresolved gets its own record too - it is nobody's duplicate.
 
-    python analysis/seed_identity.py --dry-run
-    python analysis/seed_identity.py --apply
+    python analysis/tools/seed_identity.py --dry-run
+    python analysis/tools/seed_identity.py --apply
 
 Safe to re-run: records are matched by normalised name, suggestions upsert on
 (raw_norm, candidate). Local use; the study files carry instructor names and stay gitignored.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import csv
 import json
@@ -24,7 +29,7 @@ import re
 import sys
 from collections import Counter
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402

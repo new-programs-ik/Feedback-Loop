@@ -6,12 +6,17 @@ with a column for what the analysis said and space for the verdict.
 
 Writes Formula-Test-Tracker.xlsx-style CSV plus a short document.
 
-    python analysis/build_test_tracker.py
+    python analysis/reports/build_test_tracker.py
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import csv
 import os
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 IN = os.path.join(ROOT, "Disputed-Classes.csv")
 OUT = os.environ.get("TRACKER_CSV") or os.path.join(ROOT, "Formula-Test-Tracker.csv")

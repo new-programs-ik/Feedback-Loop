@@ -4,12 +4,17 @@ Every number is computed from the same rows as the full study so the two never d
 the story and the four kinds of class. Page 2: the rule and what it changes. Page 3: a 5-minute
 talk track and the questions to expect. Local only - never committed or published.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import os
 import statistics as st
 import sys
 from collections import Counter
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from approval_weights import compute, LINE, APPROVAL_BAR, REACH_BAR, VOICES, R_FLOOR, A_FLOOR  # noqa: E402
 from approval_rule import W, URGENT, BORDERLINE, health, band, verdict_v1, verdict_v2  # noqa: E402

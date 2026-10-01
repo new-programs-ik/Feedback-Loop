@@ -6,8 +6,13 @@ queue grew, and the before/after scoreboard. Every number is read from the study
 (analysis/out/formula_signal.json, formula_trust.json, formula_features.csv) so the document
 cannot drift from the research.
 
-    python analysis/build_formula_visual_doc.py
+    python analysis/reports/build_formula_visual_doc.py
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import collections
 import csv
 import json
@@ -25,7 +30,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 OUTDIR = os.path.join(HERE, "out")
 FIGS = os.path.join(OUTDIR, "figs")

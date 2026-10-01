@@ -8,14 +8,19 @@ fuller name, carries the higher confidence across (the lower one when either sid
 same-day warning - two different classes on one day may mean two people), and drops the mirror.
 Scores above 1.0 (a bonus stacked on a high rule) are capped at 0.99.
 
-    python analysis/tidy_suggestions.py --dry-run
-    python analysis/tidy_suggestions.py --apply
+    python analysis/tools/tidy_suggestions.py --dry-run
+    python analysis/tools/tidy_suggestions.py --apply
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402

@@ -4,12 +4,17 @@
 and the weights for the combined Class Health Score. Local only: the workbook is confidential, so
 nothing here is committed or published. Charts are inline SVG so the PDF renders offline.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import os
 import statistics as st
 import sys
 from collections import Counter, defaultdict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from approval_weights import (compute, LINE, APPROVAL_BAR, REACH_BAR, VOICES,  # noqa: E402
                               R_FLOOR, A_FLOOR, T_FLOOR, T_MIN_CLASSES)

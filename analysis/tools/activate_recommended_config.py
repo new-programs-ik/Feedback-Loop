@@ -1,20 +1,25 @@
 """Store the validation study's recommended scoring settings as a new version and activate it.
 
-    python analysis/activate_recommended_config.py --dry-run   # what would change; writes nothing
-    python analysis/activate_recommended_config.py --apply     # store the version (once) and activate it
+    python analysis/tools/activate_recommended_config.py --dry-run   # what would change; writes nothing
+    python analysis/tools/activate_recommended_config.py --apply     # store the version (once) and activate it
 
 Reads analysis/out/recommended_config.json (written by analysis/sentiment_decide.py). Activation
 runs apply_scoring_config in the database: every class is re-scored in one statement, the score
 history and the audit row are written by the function itself. Rollback = activate the previous
 version on Admin > Scoring (one click) - nothing here is destructive.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import datetime as dt
 import json
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402

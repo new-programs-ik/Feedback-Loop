@@ -26,6 +26,8 @@ web/.vercel/
 *.xlsx
 *.xls
 *.csv
+# the confidential sheets and samples live here; the whole folder stays out of git
+data/
 
 # ──────────────────────────────── OS / editors ────────────────────────────
 .DS_Store

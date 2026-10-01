@@ -55,9 +55,10 @@ Roles: **admin** (everything), **pm** (any IK staff sign-in: every course, the q
 | Folder | What it is |
 |---|---|
 | [`web/`](web/) | The website: Next.js 16, React 19, Tailwind 4, TypeScript. Deployed on Vercel. |
-| [`ratings_module_build_kit/`](ratings_module_build_kit/) | The worker: Python, FastAPI. The sheet sync, the AI engine, the reports. Deployed on Render as a Docker container. |
+| [`ratings_module_build_kit/`](ratings_module_build_kit/) | The worker: Python, FastAPI, deployed on Render as a Docker container. Inside: `feedback/` (the AI analysis), `recordings/` (Vimeo, UpLevel), `ratings/` (the sheet sync), `reporting/` (Slack, reports), `tests/`. |
 | [`supabase/`](supabase/) | The database: migrations 0001 to 0032, the scoring function, the shared scoring fixtures, the SQL contract test. |
-| [`analysis/`](analysis/) | The reference scorer (`sentiment_score.py`), the fixture builder, the formula study and the report builders. |
+| [`analysis/`](analysis/) | Local scripts, not deployed: the reference scorer (`sentiment_score.py`) and its study, `reports/` (one-off report builders), `tools/` (maintenance that writes to the database), `formula/`. See [its README](analysis/README.md). |
+| `data/`, `local-reports/`, `_archive/` | On your machine only, never in git: the confidential sheets, the generated reports, old backups. |
 | [`docs/`](docs/) | The guides listed below. |
 
 Everything is on one Supabase project (Postgres, sign-in, row-level security, the schedule).

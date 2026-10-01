@@ -8,11 +8,16 @@ record from their EARLIER rows in the table, so on a fresh table the order is wh
 record exist. The Yes/No vote flows through as yes_votes/no_votes; the store turns it into
 approval_pct and the rule v2 read-out (health_score, health_band, flag_reasons).
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import datetime as dt
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))

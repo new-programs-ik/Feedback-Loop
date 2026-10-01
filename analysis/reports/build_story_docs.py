@@ -7,8 +7,13 @@ Every number is computed here from the live database and Missed-Classes.csv, so 
 can drift from the data. Both carry instructor names, so both are gitignored.
 
     python analysis/missed_classes.py      (first - writes Missed-Classes.csv)
-    python analysis/build_story_docs.py
+    python analysis/reports/build_story_docs.py
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import collections
 import csv
 import json
@@ -27,7 +32,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 FIGS = os.path.join(HERE, "out", "figs")
 os.makedirs(FIGS, exist_ok=True)

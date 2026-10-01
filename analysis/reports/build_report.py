@@ -3,13 +3,18 @@
 Local only - the underlying workbook is confidential, so nothing here is committed or published.
 Charts are inline SVG (no CDN) so the PDF renders identically offline.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import datetime as dt
 import os
 import statistics as st
 import sys
 from collections import Counter, defaultdict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 from ratings_data import load  # noqa: E402
 

@@ -8,10 +8,12 @@ import os
 
 import openpyxl
 
-# The workbook lives in the project root, one level above this file - resolve it absolutely so the
-# reports run from any working directory.
-BOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "the rating sheet .xlsx")
+# The workbook lives in data/ at the project root (it lay loose in the root until 1 Oct 2026, and a
+# copy left there is still found). Resolved absolutely so the reports run from any working directory.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BOOK = next((p for p in (os.path.join(_ROOT, "data", "the rating sheet .xlsx"),
+                         os.path.join(_ROOT, "the rating sheet .xlsx")) if os.path.exists(p)),
+            os.path.join(_ROOT, "data", "the rating sheet .xlsx"))
 SHEETS = ["MLSU_Live_Class_Poll", "Agentic_AI_Live_Class_Poll"]
 GOOD = 4.55         # at or above this, the class is fine (team decision, Sep 2026; was 4.5)
 

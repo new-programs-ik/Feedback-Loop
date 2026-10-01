@@ -3,13 +3,18 @@ the same tab parser, cohort parsing, instructor and topic resolution, and the sc
 the database - so the app carries cohorts, aliases, duplicate-name suggestions and scores without
 waiting for the Google service-account key.
 
-    python analysis/resync_from_workbook.py --check     # compare workbook vs database; writes nothing
-    python analysis/resync_from_workbook.py --run       # full backup first, then the sync
+    python analysis/tools/resync_from_workbook.py --check     # compare workbook vs database; writes nothing
+    python analysis/tools/resync_from_workbook.py --run       # full backup first, then the sync
 
 The run never posts to Slack (the token is stripped from the run's environment and the per-run cap
 is 0) and pings the LOCAL site's revalidate endpoint, not production. Local use only: the workbook
 is confidential and never committed.
 """
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/tools/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import argparse
 import datetime as dt
 import json
@@ -17,7 +22,7 @@ import logging
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(HERE)
 KIT = os.path.join(ROOT, "ratings_module_build_kit")
 sys.path.insert(0, KIT)

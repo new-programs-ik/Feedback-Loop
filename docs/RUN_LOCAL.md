@@ -86,8 +86,8 @@ parser, cohort parsing, instructor resolution and scoring; Slack switched off; a
 first):
 ```bash
 # from the repo root, with the worker's Python
-./ratings_module_build_kit/.venv/Scripts/python analysis/resync_from_workbook.py --check   # compare, write nothing
-./ratings_module_build_kit/.venv/Scripts/python analysis/resync_from_workbook.py --run     # backup, then sync
+./ratings_module_build_kit/.venv/Scripts/python analysis/tools/resync_from_workbook.py --check   # compare, write nothing
+./ratings_module_build_kit/.venv/Scripts/python analysis/tools/resync_from_workbook.py --run     # backup, then sync
 ```
 The workbook is confidential; it lives in the project root and is never committed. `--ui-url`
 changes which site gets the "fresh data" ping (default `http://localhost:3000`); `--tabs` narrows

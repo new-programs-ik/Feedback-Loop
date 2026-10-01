@@ -216,7 +216,7 @@ Slack channel, so a drifting sheet is noticed the same hour.
 snapshot) so the two rules can be compared side by side. Nothing else reads them.
 
 **Without the Google key** (a laptop that has the workbook but not the robot account), the same
-path runs from the local workbook copy: `analysis/resync_from_workbook.py --check` compares,
+path runs from the local workbook copy: `analysis/tools/resync_from_workbook.py --check` compares,
 `--run` backs the database up and syncs, with Slack switched off.
 
 ## 6. The Class Sentiment Score

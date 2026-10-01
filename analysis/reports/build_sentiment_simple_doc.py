@@ -1,5 +1,10 @@
 """Builds 'Class Sentiment Score - The Simple Version.docx' - the manager's methodology, restated
 in plain words with tables, for presenting to the VP. No maths beyond 'add them up'."""
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+# This script sits one folder down, in analysis/reports/; the shared modules it imports
+# (the scoring reference, the workbook loader) live in analysis/.
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import os
 
 from docx import Document
@@ -9,7 +14,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor, Cm
 
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                    "Class Sentiment Score - The Simple Version.docx")
 
 INK = RGBColor(0x16, 0x16, 0x1A)

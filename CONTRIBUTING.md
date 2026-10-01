@@ -80,8 +80,8 @@ No stored code or enum value is ever shown to a person: map it in `web/src/lib/l
 - No secrets in the repository, in commit messages, in documents or in chat. Keys live in Render,
   Vercel and a local `.env` that git ignores. A key that has been pasted anywhere is rotated.
 - Confidential files (`.xlsx`, `.csv`, `.docx`, `.pdf`, `.env`, the Google key) are ignored by git;
-  keep them out of the repository and, ideally, out of the project folder root
-  (`local-reports/` is the place for reports).
+  keep them out of the repository and out of the project folder root: `data/` is the place for
+  the sheets and samples, `local-reports/` for reports, `_archive/` for old backups.
 
 ## Definition of done
 
