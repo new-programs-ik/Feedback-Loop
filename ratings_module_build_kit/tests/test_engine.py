@@ -1,10 +1,10 @@
 """
 test_engine.py — tests for the parts that run without the API (parsing, chunking, validation).
-Run:  python -m unittest test_engine -v
+Run:  python -m pytest tests/test_engine.py
 The LLM stages are covered by the eval harness (needs ANTHROPIC_API_KEY + labelled classes).
 """
 import json, os, tempfile, unittest
-import engine as E
+from feedback import engine as E
 
 SAMPLE_SRT = """1
 00:43:39,000 --> 00:43:41,000

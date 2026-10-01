@@ -11,7 +11,7 @@ from unittest import mock
 
 import httpx
 
-import reports as R
+from reporting import reports as R
 
 
 def row(**over):

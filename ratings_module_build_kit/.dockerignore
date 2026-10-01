@@ -1,10 +1,14 @@
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
 .env
 .env.*
 outputs/
+tests/
 test_*.py
+conftest.py
+pytest.ini
 README.md
 *-sa.json
 google-sa*.json

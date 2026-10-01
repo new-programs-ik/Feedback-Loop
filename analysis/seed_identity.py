@@ -30,8 +30,8 @@ sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 
 config.load_env()
-import instructor_match as IM  # noqa: E402
-import ratings_store as ST  # noqa: E402
+from ratings import instructor_match as IM  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
 
 ALIASES = os.path.join(HERE, "out", "instructor_aliases.csv")
 REVIEW = os.path.join(HERE, "out", "instructor_needs_review.csv")

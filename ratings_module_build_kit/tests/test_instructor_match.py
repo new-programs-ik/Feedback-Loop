@@ -1,10 +1,10 @@
 """test_instructor_match.py - name normalisation and the duplicate-name suggester. Offline.
-Run: python -m unittest test_instructor_match -v
+Run: python -m pytest tests/test_instructor_match.py
 """
 import datetime as dt
 import unittest
 
-import instructor_match as IM
+from ratings import instructor_match as IM
 
 D = dt.date
 

@@ -5,7 +5,7 @@ by hand against UpLevel on 22 September 2026 (the links are public Vimeo ids, no
 import datetime as dt
 import unittest
 
-import uplevel as UP
+from recordings import uplevel as UP
 
 # The two rows verified by hand: name string, clean topic, the known Vimeo link.
 ML_ARCH = {

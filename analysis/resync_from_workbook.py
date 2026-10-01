@@ -26,10 +26,10 @@ import config  # noqa: E402
 
 config.load_env()
 import openpyxl  # noqa: E402
-import ratings_store as ST  # noqa: E402
-import ratings_sync  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
+from ratings import ratings_sync  # noqa: E402
 from ratings_data import BOOK  # noqa: E402
-from sheet_source import DEFAULT_TABS, SheetRatingsSource  # noqa: E402
+from ratings.sheet_source import DEFAULT_TABS, SheetRatingsSource  # noqa: E402
 
 KIND_CODES = ("live class", "test review session", "review session")
 

@@ -33,9 +33,9 @@ from typing import Optional
 import psycopg2
 import psycopg2.errors
 
-import cohort_parse as CP
-import decision as D
-import instructor_match as IM
+from ratings import cohort_parse as CP
+from ratings import decision as D
+from ratings import instructor_match as IM
 
 log = logging.getLogger("ratings_store")
 

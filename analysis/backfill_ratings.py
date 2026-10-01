@@ -21,7 +21,7 @@ import config  # noqa: E402  (ratings_module_build_kit/config.py - loads .env fo
 
 config.load_env(os.path.join(ROOT, "ratings_module_build_kit", ".env"))
 
-import ratings_store as ST  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
 from ratings_data import load  # noqa: E402
 
 rows = load(dt.datetime(2026, 1, 1), dt.datetime(2026, 8, 31, 23, 59, 59))

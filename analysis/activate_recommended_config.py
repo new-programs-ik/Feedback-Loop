@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 
 config.load_env()
-import ratings_store as ST  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
 
 RECOMMENDED = os.path.join(HERE, "out", "recommended_config.json")
 KEY = "validated-2026-08"

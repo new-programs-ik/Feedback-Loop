@@ -1,13 +1,13 @@
 """
 test_vimeo.py — unit tests for the Vimeo transcript module (no network; httpx MockTransport).
-Run:  python -m unittest test_vimeo -v
+Run:  python -m pytest tests/test_vimeo.py
 """
 import unittest
 from unittest.mock import patch
 
 import httpx
 
-import vimeo as V
+from recordings import vimeo as V
 
 TRACKS = {
     "data": [
@@ -142,7 +142,7 @@ class TestFetch(unittest.TestCase):
         with self.assertRaises(V.VimeoError):
             make_client(lambda req: httpx.Response(404)).fetch_transcript("https://vimeo.com/1")
 
-    @patch("vimeo.time.sleep", lambda *_a: None)
+    @patch("recordings.vimeo.time.sleep", lambda *_a: None)
     def test_retry_then_success(self):
         calls = {"n": 0}
 

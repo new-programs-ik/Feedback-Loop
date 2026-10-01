@@ -14,22 +14,34 @@ Two jobs in one Python service:
    classes get a Slack card to the course's people.
 
 ## Files
-| File | What it is |
+
+Three files at the top, four folders of modules, and the tests. A module imports another by its
+folder: `from feedback import engine as E`, `from ratings import ratings_store`.
+
+| Where | What it is |
 |---|---|
-| `engine.py` | The core engine (parse, chunk, extract, synthesise, validate, report) + CLI |
-| `video.py`, `vimeo.py`, `materials_fetch.py` | Video-frames stage, Vimeo captions, materials-by-link |
-| `store.py` | Async write-back of an analysis to the `classes` / `analyses` tables |
-| `service.py` | FastAPI HTTP wrapper: `/analyze*`, `/transcript`, `/revise`, `/dry-run`, `/sync-ratings`, `/health` |
-| `ratings_source.py` | The "where do ratings come from" seam (canonical row contract) |
-| `sheet_source.py` | Reads the ratings sheet |
-| `course_rules.py` | Cohort text → course label, session kind, region (mirrors `analysis/ratings_data.py`) |
-| `cohort_parse.py` | Cohort labels → course / region / intake window / ordinal / cohort no. / audience (pure) |
-| `instructor_match.py` | Name normalisation (twin of SQL `normalize_person_name`) + duplicate-name suggestions (pure) |
-| `ratings_store.py` | psycopg2 persistence: cohorts, topics, the scored upsert, notifications, sync-run metrics |
-| `ratings_sync.py` | One sync run start to finish |
-| `notify.py` | Slack cards (plain httpx, no slack-sdk) |
-| `decision.py` | LEGACY rule v1/v2 — kept for one release so the old read-out can sit beside the score |
-| `test_*.py` | Offline tests (no API key, no database, no network) |
+| `service.py` | The web endpoints (FastAPI): `/analyze*`, `/transcript`, `/revise`, `/dry-run`, `/sync-ratings`, `/uplevel/*`, `/health`. The server starts it as `uvicorn service:app`. |
+| `config.py` | Loads `.env` |
+| `store.py` | The analysis rows in the database: claim a class, save the result, mark a failure, saved integration status and sessions |
+| **`feedback/`** | **The AI analysis of a class** |
+| `feedback/engine.py` | The engine: prompts, the pipeline (map, windows, synthesis, self-check), validation, cost. Also a CLI. |
+| `feedback/video.py` | The video check: a screenshot every two minutes, described one at a time |
+| `feedback/materials_fetch.py` | Class materials from a link (switched off on the form for now) |
+| **`recordings/`** | **Where a recording and its captions come from** |
+| `recordings/vimeo.py` | Vimeo captions and the video file |
+| `recordings/uplevel.py` | Finds the class's Vimeo link on UpLevel |
+| **`ratings/`** | **The ratings sync** |
+| `ratings/ratings_sync.py` | One sync run start to finish |
+| `ratings/ratings_source.py`, `ratings/sheet_source.py` | Where ratings come from (the seam, and the Google Sheet reader) |
+| `ratings/course_rules.py` | Cohort text → course label, session kind, region (mirrors `analysis/ratings_data.py`) |
+| `ratings/cohort_parse.py` | Cohort labels → course / region / intake window / ordinal / cohort no. / audience (pure) |
+| `ratings/instructor_match.py` | Name normalisation (twin of SQL `normalize_person_name`) + duplicate-name suggestions (pure) |
+| `ratings/ratings_store.py` | Database writes for the sync: cohorts, topics, the scored upsert, notifications, sync-run metrics |
+| `ratings/decision.py` | LEGACY rule v1/v2 — kept for one release so the old read-out can sit beside the score |
+| **`reporting/`** | **What the worker sends out** |
+| `reporting/notify.py` | Slack cards (plain httpx, no slack-sdk) |
+| `reporting/reports.py` | The weekly and monthly reports |
+| **`tests/`** | Offline tests (no API key, no database, no network). `conftest.py` beside this README cuts every test run off from the real services. |
 | `.env.example` | All config/secrets — copy to `.env`, never commit |
 | `requirements.txt` | Dependencies (upper-bounded on purpose — see the file header) |
 
@@ -44,8 +56,8 @@ export ANTHROPIC_API_KEY=sk-ant-...        # or set it in .env — never hardcod
 
 ## Run — CLI
 ```bash
-python engine.py --dry-run transcript.srt                      # parse + chunk only, no API
-python engine.py transcript.srt --course "Python for ML" \
+python -m feedback.engine --dry-run transcript.srt             # parse + chunk only, no API
+python -m feedback.engine transcript.srt --course "Python for ML" \
     --topic "pandas indexing" --instructor "Justin" \
     --rating 4.47 --agenda agenda.txt
 ```
@@ -89,8 +101,8 @@ Setup for the sheet: `docs/GOOGLE_SHEET_SYNC_SETUP.md` (service-account key + sh
 
 ## Tests
 ```bash
-.venv/Scripts/python -m unittest            # everything, fully offline
-.venv/Scripts/python -m unittest test_cohort_parse test_instructor_match test_ratings_sync -v
+.venv/Scripts/python -m pytest -q                             # everything, fully offline
+.venv/Scripts/python -m pytest -q tests/test_video.py         # one file
 ```
 
 ## Production notes
@@ -106,7 +118,9 @@ Setup for the sheet: `docs/GOOGLE_SHEET_SYNC_SETUP.md` (service-account key + sh
   Measured on a 3 h 46 min class, 25 Sep 2026: 9,397 tokens written once and read 7 times, about
   $0.11 (11%) off the class.
 - **Secrets**: read from the environment (`.env` locally; Render env vars in production).
-- **Docker**: every module `service.py` imports (directly, through the sync, or inside a function)
-  is listed in the `Dockerfile` COPY line and must not appear in `.dockerignore`. `test_packaging.py`
-  walks the imports and fails when one is missing (23 Sep 2026: `uplevel.py` was left out and every
-  UpLevel lookup crashed on the server while every test passed).
+- **Docker**: the image copies `service.py`, `config.py`, `store.py` and the four folders
+  (`feedback/`, `recordings/`, `ratings/`, `reporting/`). A new module goes inside one of those
+  folders and is then in the image; a new folder needs its own `COPY` line. `tests/test_packaging.py`
+  walks every import, and also builds the image's exact layout in a temporary folder and imports
+  every module there (23 Sep 2026: `uplevel.py` was left out and every UpLevel lookup crashed on the
+  server while every test passed).

@@ -1,7 +1,7 @@
 """test_ratings_sync.py - the ratings platform, fully offline.
 Sheet parsing via httpx.MockTransport; sync orchestration with a fake store; the store's SQL
 against scripted cursors (what it sends, what it reads back); Slack payloads.
-Run: python -m unittest test_ratings_sync -v
+Run: python -m pytest tests/test_ratings_sync.py
 """
 import datetime as dt
 import json
@@ -12,11 +12,11 @@ from unittest import mock
 import httpx
 import psycopg2.errors
 
-import cohort_parse as CP
-import instructor_match as IM
-import notify as N
-import ratings_store as ST
-import sheet_source as SS
+from ratings import cohort_parse as CP
+from ratings import instructor_match as IM
+from reporting import notify as N
+from ratings import ratings_store as ST
+from ratings import sheet_source as SS
 
 TAB1 = "MLSU_Live_Class_Poll"
 TAB2 = "Agentic_AI_Live_Class_Poll"
@@ -204,7 +204,7 @@ class TestSyncOrchestration(unittest.TestCase):
 
     def _run(self, rows, aliases, pending=None, record_returns=True, known=None, config=None,
              env=None, state=None, full=False):
-        import ratings_sync as RSY
+        from ratings import ratings_sync as RSY
         calls = {"upserts": [], "rows": [], "cohorts": [], "suggestions": [], "finish": None,
                  "cached_members": [], "cached_handlers": []}
 
@@ -442,7 +442,7 @@ class TestSyncOrchestration(unittest.TestCase):
         self.assertEqual(summary["notifications_sent"], 1)
 
     def test_notification_window_and_cap_come_from_env(self):
-        import ratings_sync as RSY
+        from ratings import ratings_sync as RSY
         pending = [self._pending([])]
         _, _, _ = self._run([self._row()], {"Applied Agentic AI": "c1"}, pending=pending,
                             env={"NOTIFY_MAX_AGE_DAYS": "3", "NOTIFY_MAX_PER_RUN": "7"})
@@ -454,7 +454,7 @@ class TestSyncOrchestration(unittest.TestCase):
         self.assertEqual(RSY._int_env({"NOTIFY_MAX_AGE_DAYS": "x"}, "NOTIFY_MAX_AGE_DAYS", 10), 10)
 
     def test_source_failure_marks_run_failed_and_alerts(self):
-        import ratings_sync as RSY
+        from ratings import ratings_sync as RSY
 
         class BoomSource:
             name = "sheet"
@@ -478,7 +478,7 @@ class TestSyncOrchestration(unittest.TestCase):
 
 class TestRevalidatePing(unittest.TestCase):
     def test_posts_with_bearer_and_ignores_failures(self):
-        import ratings_sync as RSY
+        from ratings import ratings_sync as RSY
         seen = {}
 
         def handler(request):
@@ -649,7 +649,7 @@ class TestCohortUpsert(unittest.TestCase):
     COURSES = {"course-1": {"id": "course-1", "name": "Applied Agentic AI", "slug": "applied-agentic-ai"}}
 
     def _parsed(self, text="Applied Agentic AI for SWEs - 2nd Mid-March 2026"):
-        import course_rules as CR
+        from ratings import course_rules as CR
         return CP.parse_cohorts(text, CR.course_of)
 
     def test_keys_use_the_db_slug_and_names_the_db_course_name(self):
@@ -1143,7 +1143,7 @@ class TestTheSheetsDatesAreUnderstood(unittest.TestCase):
     classes were dropped without a word."""
 
     def test_every_month_in_the_sheets_own_format(self):
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         for month, n in (("January", 1), ("February", 2), ("March", 3), ("April", 4), ("May", 5),
                          ("June", 6), ("July", 7), ("August", 8), ("September", 9),
                          ("October", 10), ("November", 11), ("December", 12)):
@@ -1152,25 +1152,25 @@ class TestTheSheetsDatesAreUnderstood(unittest.TestCase):
             self.assertEqual((got.year, got.month, got.day), (2026, n, 2))
 
     def test_the_other_shapes_still_work(self):
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         import datetime as dt
         for text in ("2026-01-02", "02/01/2026", "Jan 2, 2026", "2 January 2026", "2-Jan-2026",
                      "2026-01-02T10:30:00", "Friday, January 2, 2026"):
             self.assertIsNotNone(SS._parse_date(text), f"{text!r} did not parse")
 
     def test_a_spreadsheet_serial_number_is_a_date(self):
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         import datetime as dt
         self.assertEqual(SS._parse_date(46024), dt.date(2026, 1, 2))
 
     def test_nonsense_is_not_a_date(self):
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         for junk in ("", None, "No Ratings", "banana", 4.6, 27, True):
             self.assertIsNone(SS._parse_date(junk), f"{junk!r} should not parse as a date")
 
     def test_losing_most_of_a_tab_is_reported_as_an_error(self):
         import logging
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         src = SS.SheetRatingsSource(env={"RATINGS_SHEET_ID": "x"})
         header = ["Session Date", "Type", "Cohorts", "Class", "Instructor",
                   "Overall Average", "Responses", "# Students Attended"]

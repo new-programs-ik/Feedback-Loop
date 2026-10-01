@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 
 config.load_env()
-import ratings_store as ST  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
 from sentiment_score import score  # noqa: E402
 
 OUT = os.environ.get("REPORT_OUT") or os.path.join(ROOT, "Report - Why We Are Changing the Class Score.docx")

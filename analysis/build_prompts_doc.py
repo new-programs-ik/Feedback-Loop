@@ -15,7 +15,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
-import engine as E  # noqa: E402
+from feedback import engine as E  # noqa: E402
 
 OUT = os.path.join(ROOT, "docs", "THE_AI_ANALYSIS_PROMPTS.md")
 
@@ -199,8 +199,8 @@ w("---")
 w("")
 w("## 12. Suggesting a change")
 w("")
-w("Prompt changes are code changes: edit the constant in `ratings_module_build_kit/engine.py`, run")
-w("`python -m unittest` in that folder, and regenerate this file. If you want a different tone or a")
+w("Prompt changes are code changes: edit the constant in `ratings_module_build_kit/feedback/engine.py`, run")
+w("`python -m pytest` in that folder, and regenerate this file. If you want a different tone or a")
 w("new thing checked, open an issue describing the behaviour you want and the class that made you")
 w("want it.")
 w("")

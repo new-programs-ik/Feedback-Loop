@@ -1,7 +1,7 @@
 """
 test_service.py — endpoint tests for the analysis worker (FastAPI TestClient).
 The engine + Vimeo are mocked, so no API key or network is needed.
-Run:  python -m unittest test_service -v
+Run:  python -m pytest tests/test_service.py
 """
 import base64
 import json
@@ -370,7 +370,7 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
     def test_a_fresh_token_starts_the_sync(self):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
              patch.object(service.ST, "consume_sync_token", return_value=True) as consume, \
-             patch("ratings_sync.run_sync") as run:
+             patch("ratings.ratings_sync.run_sync") as run:
             token = "ab" * 32                                   # the shape the scheduler mints
             r = client.post("/sync-ratings/cron", json={"token": token, "trigger": "cron"})
             self.assertEqual(r.status_code, 200)
@@ -381,7 +381,7 @@ class TestTheScheduledSyncNeedsAFreshToken(unittest.TestCase):
     def test_a_used_unknown_or_old_token_is_refused(self):
         with patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}), \
              patch.object(service.ST, "consume_sync_token", return_value=False), \
-             patch("ratings_sync.run_sync") as run:
+             patch("ratings.ratings_sync.run_sync") as run:
             r = client.post("/sync-ratings/cron", json={"token": "cd" * 32})
             self.assertEqual(r.status_code, 401)
             run.assert_not_called()
@@ -811,7 +811,7 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
 
     def _match(self, vid="1226433411", score=1.0):
         import datetime as dt
-        import uplevel as UP
+        from recordings import uplevel as UP
         v = UP.Video(vimeo_id=vid, vimeo_link=f"https://vimeo.com/{vid}", topic="ML Architectures",
                      category="live_class", class_date=dt.date(2026, 9, 13),
                      name="ML Architectures Live Class with Sarfaraz, Sunday, September 13, 2026",
@@ -825,7 +825,7 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
         return s
 
     def test_a_match_comes_back_with_the_link_and_the_reasons(self):
-        import uplevel as UP
+        from recordings import uplevel as UP
         with patch.object(UP, "_session", return_value=self._session()), \
              patch.object(UP, "find_recording", return_value=[self._match()]) as find, \
              patch.object(service.ST, "set_integration_status") as status:
@@ -840,13 +840,13 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
         status.assert_called_once_with("uplevel", "ok")
 
     def test_nothing_found_is_none_not_an_error(self):
-        import uplevel as UP
+        from recordings import uplevel as UP
         with patch.object(UP, "_session", return_value=self._session()), \
              patch.object(UP, "find_recording", return_value=[]):
             self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "none")
 
     def test_not_connected_expired_and_unreachable_are_told_apart(self):
-        import uplevel as UP
+        from recordings import uplevel as UP
         with patch.object(UP, "_session", side_effect=UP.UplevelNotConnected("nobody connected it")):
             self.assertEqual(client.post("/uplevel/find", json=self.BODY).json()["status"], "not_connected")
         with patch.object(UP, "_session", return_value=self._session()), \
@@ -863,7 +863,7 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
 
     def test_a_refreshed_session_cookie_is_kept(self):
-        import uplevel as UP
+        from recordings import uplevel as UP
         s = self._session()
 
         def find(**kw):
@@ -876,7 +876,7 @@ class TestTheFormFindsTheRecording(unittest.TestCase):
         save.assert_called_once_with("uplevel", "sessionid=new-one")
 
     def test_the_connection_check_reports_ok_or_expired(self):
-        import uplevel as UP
+        from recordings import uplevel as UP
         with patch.object(UP, "_session", return_value=self._session()), \
              patch.object(UP, "search_rows", return_value=[{"id": 1}]):
             self.assertEqual(client.post("/uplevel/check").json()["status"], "ok")

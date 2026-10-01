@@ -29,7 +29,7 @@ from typing import Callable, Optional
 
 import httpx
 
-import course_rules as CR
+from ratings import course_rules as CR
 
 log = logging.getLogger("sheet_source")
 
@@ -77,14 +77,15 @@ def _default_token_provider(env: dict) -> str:
 
 
 def _key_search_paths(sa_file: str) -> list[str]:
-    """Where a relative key path could reasonably live: as given, next to this module, and next to
-    the project it sits in. A relative path used to depend entirely on the working directory."""
+    """Where a relative key path could reasonably live: as given, in the worker folder (this file
+    sits one level down, in ratings/), and next to the project the worker sits in. A relative
+    path used to depend entirely on the working directory."""
     if os.path.isabs(sa_file):
         return [sa_file]
-    here = os.path.dirname(os.path.abspath(__file__))
+    worker = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return [os.path.abspath(sa_file),
-            os.path.join(here, sa_file),
-            os.path.join(os.path.dirname(here), sa_file)]
+            os.path.join(worker, sa_file),
+            os.path.join(os.path.dirname(worker), sa_file)]
 
 
 def _resolve_key_file(sa_file: str) -> Optional[str]:

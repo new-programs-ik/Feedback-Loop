@@ -21,13 +21,13 @@ from collections import Counter, defaultdict
 
 import httpx
 
-import cohort_parse as CP
-import course_rules as CR
-import decision as D
-import instructor_match as IM
-import notify as N
-import ratings_source as RS
-import ratings_store as ST
+from ratings import cohort_parse as CP
+from ratings import course_rules as CR
+from ratings import decision as D
+from ratings import instructor_match as IM
+from reporting import notify as N
+from ratings import ratings_source as RS
+from ratings import ratings_store as ST
 
 log = logging.getLogger("ratings_sync")
 

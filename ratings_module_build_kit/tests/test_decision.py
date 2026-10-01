@@ -1,9 +1,9 @@
-"""test_decision.py - locks the team rule's exact boundaries. Run: python -m unittest test_decision"""
+"""test_decision.py - locks the team rule's exact boundaries. Run: python -m pytest tests/test_decision.py"""
 import unittest
 from unittest import mock
 
-import course_rules as CR
-import decision as D
+from ratings import course_rules as CR
+from ratings import decision as D
 
 
 class TestDecisionRule(unittest.TestCase):

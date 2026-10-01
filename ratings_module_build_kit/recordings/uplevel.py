@@ -37,7 +37,9 @@ BASE = "https://uplevel.interviewkickstart.com"
 GET_VIDEOS = "/get_videos/"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/128.0 Safari/537.36")
-HERE = os.path.dirname(os.path.abspath(__file__))
+# The worker folder (this file sits one level down, in recordings/): where the optional local
+# cookie file lives.
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COOKIE_FILE = os.path.join(HERE, "uplevel-cookies.txt")
 
 # The categories a class name can carry, mapped to our own class kinds. Our sheet marks a class

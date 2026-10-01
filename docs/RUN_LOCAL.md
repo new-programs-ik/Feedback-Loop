@@ -101,7 +101,7 @@ A sync needs an active scoring version. If the worker says *no active scoring co
 ## 🧪 Tests and checks
 
 ```bash
-cd ratings_module_build_kit && ./.venv/Scripts/python -m unittest            # 285 tests, fully offline
+cd ratings_module_build_kit && ./.venv/Scripts/python -m pytest -q           # 497 tests, fully offline
 cd web && npm test                                                           # 107 tests: the score mirror against supabase/fixtures/scoring_cases.json, and the report window
 cd web && npx tsc --noEmit                                                   # type-check
 ./ratings_module_build_kit/.venv/Scripts/python supabase/test_scoring_sql.py # the database's scoring function against the same fixtures (needs DATABASE_URL)

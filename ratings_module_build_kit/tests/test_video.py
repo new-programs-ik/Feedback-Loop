@@ -1,7 +1,7 @@
 """
 test_video.py — the video-analysis stage, fully offline (no network, no ffmpeg, no API key).
 The subprocess seam (_run_ffmpeg), httpx (MockTransport), and the anthropic client are all mocked.
-Run:  python -m unittest test_video -v
+Run:  python -m pytest tests/test_video.py
 """
 import json
 import subprocess
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import httpx
 
-import video as VD
+from feedback import video as VD
 
 
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 100   # minimal fake JPEG bytes
@@ -57,19 +57,19 @@ class TestSourceResolution(unittest.TestCase):
         self.assertEqual(src.url, "https://cdn.example.com/class.mp4")
 
     def test_vimeo_probe_used_first(self):
-        with patch("vimeo.get_progressive_source",
+        with patch("recordings.vimeo.get_progressive_source",
                    return_value={"link": "https://cdn/v.mp4", "duration": 500}):
             src = VD.resolve_video_source("https://vimeo.com/9", "https://other/x.mp4", 100)
         self.assertEqual(src.kind, "vimeo_progressive")
         self.assertEqual(src.duration_s, 500)
 
     def test_vimeo_none_falls_to_video_url(self):
-        with patch("vimeo.get_progressive_source", return_value=None):
+        with patch("recordings.vimeo.get_progressive_source", return_value=None):
             src = VD.resolve_video_source("https://vimeo.com/9", "https://other/x.mp4", 100)
         self.assertEqual(src.kind, "direct")
 
     def test_nothing_gives_none(self):
-        with patch("vimeo.get_progressive_source", return_value=None):
+        with patch("recordings.vimeo.get_progressive_source", return_value=None):
             self.assertIsNone(VD.resolve_video_source("https://vimeo.com/9", None, 100))
         self.assertIsNone(VD.resolve_video_source(None, "", 100))
 
@@ -175,13 +175,13 @@ class TestObserveFrames(unittest.TestCase):
     def test_batches_parsed(self):
         frames = [(10.0, JPEG), (20.0, JPEG)]
         reply = json.dumps({"frames": [_obs("00:00:10"), _obs("00:00:20")]})
-        out = VD.observe_frames(_FakeClient([reply]), frames, "topic", __import__("engine").Usage())
+        out = VD.observe_frames(_FakeClient([reply]), frames, "topic", VD.E.Usage())
         self.assertEqual(len(out), 2)
 
     def test_malformed_batch_repaired_then_dropped(self):
         frames = [(10.0, JPEG)]
         out = VD.observe_frames(_FakeClient(["not json", "still not json"]), frames, "t",
-                                __import__("engine").Usage())
+                                VD.E.Usage())
         self.assertEqual(out, [])                              # dropped after one repair try
 
 
@@ -210,7 +210,7 @@ class TestNeverRaise(unittest.TestCase):
     """analyze_video's contract: any failure → ('', meta with video_error). It must never raise."""
 
     def test_no_source(self):
-        with patch("vimeo.get_progressive_source", return_value=None):
+        with patch("recordings.vimeo.get_progressive_source", return_value=None):
             track, meta = VD.analyze_video("https://vimeo.com/9", None, 1000)
         self.assertEqual(track, "")
         self.assertFalse(meta["video_used"])
@@ -242,7 +242,7 @@ class TestTheTrackOnlyClaimsWhatWasSeen(unittest.TestCase):
         """The model is not asked for a timestamp at all; the code stamps the real frame time."""
         frames = [(150.0, JPEG), (300.0, JPEG)]
         reply = json.dumps({"frames": [_obs(None), _obs(None)]})
-        out = VD.observe_frames(_FakeClient([reply]), frames, "t", __import__("engine").Usage())
+        out = VD.observe_frames(_FakeClient([reply]), frames, "t", VD.E.Usage())
         self.assertEqual([o["at"] for o in out], [150.0, 300.0])
 
     def test_a_gap_where_a_batch_was_dropped_is_shown_not_bridged(self):
@@ -379,7 +379,7 @@ class TestOneScreenshotAMinute(unittest.TestCase):
         a, b = _jpeg(b"a"), _jpeg(b"b")
         frames = [(0.0, a), (60.0, a), (120.0, b), (180.0, b), (240.0, b)]
         client = _CountingClient()
-        obs, reused = VD.observe_once_each(client, frames, "t", __import__("engine").Usage())
+        obs, reused = VD.observe_once_each(client, frames, "t", VD.E.Usage())
         self.assertEqual(sum(c["images"] for c in client.calls), 2)
         self.assertEqual(reused, 3)
         self.assertEqual([o["at"] for o in obs], [0.0, 60.0, 120.0, 180.0, 240.0])
@@ -387,7 +387,7 @@ class TestOneScreenshotAMinute(unittest.TestCase):
     def test_every_frame_is_numbered_and_a_description_on_the_wrong_frame_is_refused(self):
         client = _CountingClient()
         VD.observe_frames(client, [(0.0, _jpeg(b"a")), (60.0, _jpeg(b"b"))], "t",
-                          __import__("engine").Usage())
+                          VD.E.Usage())
         self.assertTrue(any(lab.startswith("FRAME 1 at") for lab in client.calls[0]["labels"]))
         self.assertTrue(any(lab.startswith("FRAME 2 at") for lab in client.calls[0]["labels"]))
         ok = {"frames": [{"n": 1, "camera_on": True}, {"n": 2, "camera_on": False}]}
@@ -400,7 +400,7 @@ class TestOneScreenshotAMinute(unittest.TestCase):
         """Shown several at once, the model put the right description on the wrong picture."""
         frames = [(i * 120.0, _jpeg(bytes([65 + i]))) for i in range(9)]
         client = _CountingClient()
-        usage = __import__("engine").Usage()
+        usage = VD.E.Usage()
         obs, _ = VD.observe_once_each(client, frames, "t", usage)
         self.assertEqual([c["images"] for c in client.calls], [1] * 9)
         self.assertEqual([o["at"] for o in obs], [i * 120.0 for i in range(9)])   # back in order
@@ -414,29 +414,29 @@ class TestOneScreenshotAMinute(unittest.TestCase):
                 if "FRAME 1 at [00:04:00]" in json.dumps(kw["messages"]):
                     raise RuntimeError("overloaded")
                 return super().create(**kw)
-        obs, _ = VD.observe_once_each(Flaky(), frames, "t", __import__("engine").Usage())
+        obs, _ = VD.observe_once_each(Flaky(), frames, "t", VD.E.Usage())
         self.assertEqual([o["at"] for o in obs], [0.0, 120.0, 360.0])
 
     def test_the_instructions_are_cached_and_the_cache_is_priced(self):
         client = _CountingClient()
-        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage())
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", VD.E.Usage())
         system = client.calls[0]["kw"]["system"]
         self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
-        u = __import__("engine").Usage()
+        u = VD.E.Usage()
         u.cache_write_tokens, u.cache_read_tokens = 1_000_000, 1_000_000
         self.assertAlmostEqual(VD.cost_usd(u, "claude-sonnet-5"), 2.0 * 1.25 + 2.0 * 0.1)
 
     def test_looking_is_not_reasoning(self):
         client = _CountingClient()
-        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage())
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", VD.E.Usage())
         self.assertEqual(client.calls[0]["kw"]["thinking"], {"type": "disabled"})
-        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage(),
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", VD.E.Usage(),
                           model="claude-haiku-4-5")
         self.assertNotIn("thinking", client.calls[1]["kw"])
         self.assertEqual(client.calls[1]["kw"]["model"], "claude-haiku-4-5")
 
     def test_another_model_is_priced_at_its_own_rate(self):
-        u = __import__("engine").Usage()
+        u = VD.E.Usage()
         u.input_tokens, u.output_tokens = 1_000_000, 100_000
         self.assertAlmostEqual(VD.cost_usd(u, "claude-haiku-4-5"), 1.5)
         self.assertAlmostEqual(VD.cost_usd(u, "claude-sonnet-5"), 3.0)

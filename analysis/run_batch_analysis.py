@@ -28,8 +28,8 @@ sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 
 config.load_env()
-import engine as E  # noqa: E402
-import vimeo as V  # noqa: E402
+from feedback import engine as E  # noqa: E402
+from recordings import vimeo as V  # noqa: E402
 
 IN = os.environ.get("REPORT_DOCX") or os.path.join(ROOT, "Class Sentiment Score - What We Changed.docx")
 OUT = os.environ.get("RESULTS_CSV") or os.path.join(ROOT, "Formula-Test-Results.csv")

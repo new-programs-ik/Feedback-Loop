@@ -45,5 +45,5 @@ def build_source(env: dict | None = None) -> "RatingsSource":
     kind = (env.get("RATINGS_SOURCE") or "sheet").strip().lower()
     if kind != "sheet":
         raise ValueError(f"unknown RATINGS_SOURCE {kind!r}: only 'sheet' exists")
-    from sheet_source import SheetRatingsSource
+    from ratings.sheet_source import SheetRatingsSource
     return SheetRatingsSource(env)

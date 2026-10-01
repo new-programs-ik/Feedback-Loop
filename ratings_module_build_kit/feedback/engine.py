@@ -16,9 +16,9 @@ Model:     Claude Sonnet 5 (pinned in Config). Set ANTHROPIC_API_KEY in the envi
 
 Run:
   # plumbing check, no API key needed:
-  python engine.py --dry-run transcript.srt
+  python -m feedback.engine --dry-run transcript.srt
   # full run:
-  python engine.py transcript.srt --course "Python for ML" --topic "pandas indexing" \
+  python -m feedback.engine transcript.srt --course "Python for ML" --topic "pandas indexing" \
       --instructor "Justin" --rating 4.47 --agenda agenda.txt
 Outputs land in  ./outputs/<run_id>/  as result.json, feedback.md and run.json.
 

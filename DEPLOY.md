@@ -198,8 +198,9 @@ The worker ships as a Docker image (`ratings_module_build_kit/Dockerfile`), whic
 **ffmpeg** for the video-frames stage. It holds nothing between requests and stores no files:
 transcripts, materials and frames are used for one analysis and discarded. It does write to the
 database — the sync writes class rows and the background analysis writes its result — which is
-why `DATABASE_URL` is required. Every module the service imports is listed in the Dockerfile's
-`COPY` line and must not appear in `.dockerignore` (a mismatch crashes the container at start).
+why `DATABASE_URL` is required. The Dockerfile copies `service.py`, `config.py`, `store.py` and the
+four folders of modules, and none of them may appear in `.dockerignore` (a mismatch crashes the
+container at start; `tests/test_packaging.py` builds that layout and imports every module in it).
 
 Runs on any container platform: Render today; AWS App Runner / ECS, Google Cloud Run, Azure
 Container Apps, Fly.io, Railway, or internal Kubernetes would all work.

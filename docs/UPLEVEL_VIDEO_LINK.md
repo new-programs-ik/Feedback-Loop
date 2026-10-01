@@ -50,7 +50,7 @@ is looked up on UpLevel by itself. What you see in the Recording box:
 It never overwrites a link you typed yourself, and a live class is never matched to an assignment
 review. If UpLevel cannot be reached it says so, never "no recording".
 
-**How it matches.** The worker (`ratings_module_build_kit/uplevel.py`) reads UpLevel's Videos
+**How it matches.** The worker (`ratings_module_build_kit/recordings/uplevel.py`) reads UpLevel's Videos
 table (`GET /get_videos/`, the same list the Videos page shows), searching by the instructor's
 name and a word of the class name. Each row carries the Vimeo link, the clean class name
 (`topic__name`), the length, and a `name` string with the instructor, the type and the date
@@ -64,7 +64,7 @@ both exact. A sweep of 30 recent classes matched all 30 on date, instructor and 
 Some classes really have two recordings on the same day (MLOps – Model Training / Lakshaya /
 13 Sep has two): the form lists both, with their lengths, and the PM picks. Another instructor's
 class on the same day is never offered unless its class name matches.
-`test_uplevel.py` locks the parsing and matching offline.
+`tests/test_uplevel.py` locks the parsing and matching offline.
 
 ---
 

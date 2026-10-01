@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 
 config.load_env()
-import ratings_store as ST  # noqa: E402
+from ratings import ratings_store as ST  # noqa: E402
 from sentiment_score import score  # noqa: E402
 
 CSV_OUT = os.environ.get("MISSED_CSV") or os.path.join(ROOT, "Missed-Classes.csv")

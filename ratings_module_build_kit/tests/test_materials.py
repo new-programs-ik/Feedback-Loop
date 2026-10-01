@@ -1,11 +1,11 @@
 """
 test_materials.py — the materials-by-link agent (URL parsing, link splitting, sniffing, and the
-service wiring). Network is never touched — fetch is mocked. Run: python -m unittest test_materials -v
+service wiring). Network is never touched — fetch is mocked. Run: python -m pytest tests/test_materials.py
 """
 import unittest
 from unittest.mock import patch
 
-import materials_fetch as MF
+from feedback import materials_fetch as MF
 import service
 
 

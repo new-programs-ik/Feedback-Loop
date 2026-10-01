@@ -14,12 +14,15 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# All modules the worker imports at runtime. Every local import in service.py (and what those
-# import) must be listed here, or the container crashes on startup with "No module named '<x>'"
-# (store.py = async DB write-back; materials_fetch.py = fetch materials from a link; video.py = the
-# video-frames stage; cohort_parse.py / instructor_match.py = the sync).
-# Keep this list and .dockerignore consistent: a module listed here must not be ignored there.
-COPY engine.py service.py vimeo.py config.py store.py materials_fetch.py video.py      course_rules.py decision.py ratings_source.py sheet_source.py ratings_store.py notify.py      ratings_sync.py cohort_parse.py instructor_match.py reports.py uplevel.py ./
+# Everything the worker imports at runtime: three files at the top and four folders. A module the
+# worker imports that is not under one of these crashes the container on startup with "No module
+# named '<x>'"; tests/test_packaging.py builds this exact layout and imports every module in it.
+# Keep these lines and .dockerignore consistent: nothing copied here may be ignored there.
+COPY service.py config.py store.py ./
+COPY feedback/ feedback/
+COPY recordings/ recordings/
+COPY ratings/ ratings/
+COPY reporting/ reporting/
 
 ENV PORT=8000
 EXPOSE 8000

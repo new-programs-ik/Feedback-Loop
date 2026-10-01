@@ -26,7 +26,7 @@ Which document, by what changed:
 ## Before every push, all green
 
 ```
-ratings_module_build_kit/.venv/Scripts/python.exe -m pytest -q                    # the worker
+cd ratings_module_build_kit && .venv/Scripts/python.exe -m pytest -q && cd ..     # the worker
 cd web && npx tsc --noEmit && npx next build && npm test                          # the website
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_scoring_sql.py    # the database scorer
 ratings_module_build_kit/.venv/Scripts/python.exe supabase/test_worker_sql.py     # the worker's SQL, run for real and rolled back
@@ -40,9 +40,11 @@ the database URL and every credential before any test imports the worker, so the
 in `.env` are never loaded during a test run. A test that needs a database, the Claude API, Vimeo,
 Slack or UpLevel fakes it. (Until 23 September 2026 one test ran a real, paid analysis.)
 
-**A new worker file goes in the Dockerfile.** The container copies the worker's files from an
-explicit list. `test_packaging.py` fails if a module the worker imports is not on it, so the
-worker suite catches it before the server does.
+**A new worker file goes in one of the four folders.** The container copies `service.py`,
+`config.py`, `store.py` and the folders `feedback/`, `recordings/`, `ratings/` and `reporting/`.
+`tests/test_packaging.py` fails if a module the worker imports is outside them, and it builds the
+container's exact layout and imports every module there, so the worker suite catches a missing
+file before the server does.
 
 ## The database
 

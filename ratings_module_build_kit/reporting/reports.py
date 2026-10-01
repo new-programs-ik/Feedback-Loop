@@ -17,8 +17,8 @@ to Google Drive and announced in Slack. Nothing is stored in the database beyond
 database is on the free tier and the PDFs do not belong there.
 
 Command line, for a look before anything is scheduled:
-    python reports.py --month 2026-08 --out ./out        # both PDFs for August 2026
-    python reports.py --year 2026 --out ./out            # the yearly edition
+    python -m reporting.reports --month 2026-08 --out ./out        # both PDFs for August 2026
+    python -m reporting.reports --year 2026 --out ./out            # the yearly edition
 """
 from __future__ import annotations
 
@@ -766,7 +766,7 @@ def drive_token(env: dict) -> Optional[str]:
     try:
         from google.oauth2 import service_account
         import google.auth.transport.requests
-        import sheet_source as SS
+        from ratings import sheet_source as SS
         sa_file = (env.get("GOOGLE_SA_JSON_FILE") or "").strip()
         found = SS._resolve_key_file(sa_file) if sa_file else None
         scopes = ["https://www.googleapis.com/auth/drive.file"]
@@ -811,7 +811,7 @@ def upload_to_drive(pdf: bytes, name: str, env: dict, transport=None) -> Optiona
 
 
 def post_report_to_slack(channel: str, title: str, link: Optional[str], lines: list[str], env: dict, transport=None) -> bool:
-    import notify as N
+    from reporting import notify as N
     if not channel or not N.slack_configured(env):
         return False
     text = f"*{title}*" + (f"\n<{link}|Open the PDF on Drive>" if link else "\n(the PDF could not be uploaded to Drive; see the worker log)")
@@ -828,7 +828,7 @@ def post_report_to_slack(channel: str, title: str, link: Optional[str], lines: l
 def run_reports(kind: str = "monthly", env: Optional[dict] = None, today: Optional[dt.date] = None,
                 out_dir: Optional[str] = None, deliver: bool = True) -> dict:
     """Generate both reports for the previous month (or year), deliver them, record one audit row."""
-    import ratings_store as ST
+    from ratings import ratings_store as ST
     env = env if env is not None else dict(os.environ)
     period = previous_year(today) if kind == "yearly" else previous_month(today)
     conn = ST.connect()

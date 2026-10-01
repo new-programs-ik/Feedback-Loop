@@ -26,7 +26,7 @@ config.load_env(os.path.join(ROOT, "ratings_module_build_kit", ".env"))
 
 import psycopg2  # noqa: E402
 
-import ratings_store as RST  # noqa: E402
+from ratings import ratings_store as RST  # noqa: E402
 import store as ST  # noqa: E402
 
 

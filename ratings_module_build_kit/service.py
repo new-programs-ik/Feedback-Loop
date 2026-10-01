@@ -44,12 +44,12 @@ import config
 
 config.load_env()
 
-import engine as E  # noqa: E402  (after load_env so config is present)
-import materials_fetch as MF  # noqa: E402
-import ratings_store as RST  # noqa: E402  (the scoring version for /health; the sync's store)
+from feedback import engine as E  # noqa: E402  (after load_env so config is present)
+from feedback import materials_fetch as MF  # noqa: E402
+from ratings import ratings_store as RST  # noqa: E402  (the scoring version for /health; the sync's store)
 import store as ST  # noqa: E402
-import video as VD  # noqa: E402
-import vimeo as V  # noqa: E402
+from feedback import video as VD  # noqa: E402
+from recordings import vimeo as V  # noqa: E402
 
 log = logging.getLogger("service")
 
@@ -682,7 +682,7 @@ def sync_ratings(background: BackgroundTasks, body: Optional[dict] = None) -> di
         raise HTTPException(status_code=500, detail="worker has no DATABASE_URL configured")
     trigger = str((body or {}).get("trigger") or "manual")
     full = bool((body or {}).get("full"))            # every row, not only the changed ones
-    import ratings_sync as RSY
+    from ratings import ratings_sync as RSY
     background.add_task(RSY.run_sync, trigger, full=full)
     return {"status": "accepted", "trigger": trigger, "full": full}
 
@@ -720,7 +720,7 @@ def sync_ratings_cron(background: BackgroundTasks, body: Optional[dict] = None) 
         raise HTTPException(status_code=401, detail="no fresh scheduler token")
     trigger = str((body or {}).get("trigger") or "cron")
     full = bool((body or {}).get("full"))
-    import ratings_sync as RSY
+    from ratings import ratings_sync as RSY
     background.add_task(RSY.run_sync, trigger, full=full)
     return {"status": "accepted", "trigger": trigger}
 
@@ -752,7 +752,7 @@ def _match_json(m) -> dict:
 
 def _keep_refreshed_uplevel_cookie(session, before: str) -> None:
     """If UpLevel handed back a new session cookie while we used it, keep the new one."""
-    import uplevel as UP
+    from recordings import uplevel as UP
     after = UP.cookie_header_of(session)
     if after and before and after != before and "sessionid=" in after:
         ST.save_integration_secret("uplevel", after)
@@ -760,7 +760,7 @@ def _keep_refreshed_uplevel_cookie(session, before: str) -> None:
 
 def _uplevel_session():
     """(session, the cookie it started with) or a dict answer for the caller to return as-is."""
-    import uplevel as UP
+    from recordings import uplevel as UP
     try:
         s = UP._session()
     except UP.UplevelNotConnected as e:
@@ -777,7 +777,7 @@ def uplevel_find(req: UplevelFindRequest) -> dict:
     Always answers with a status the website can put in a sentence; never a 500 for a login
     problem. 'none' means we looked and found nothing; 'unreachable' means we could not look."""
     import datetime as _dt
-    import uplevel as UP
+    from recordings import uplevel as UP
     date = None
     if req.class_date:
         try:
@@ -803,7 +803,7 @@ def uplevel_find(req: UplevelFindRequest) -> dict:
 
 def _run_uplevel_check() -> dict:
     """One small search with the saved session, and the result recorded (ok / expired)."""
-    import uplevel as UP
+    from recordings import uplevel as UP
     session, before = _uplevel_session()
     if session is None:
         return {"status": before["status"], "message": before["message"]}

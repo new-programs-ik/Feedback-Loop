@@ -16,7 +16,7 @@ from typing import Optional, Union
 
 import httpx
 
-import decision as D
+from ratings import decision as D
 
 log = logging.getLogger("notify")
 

@@ -2,13 +2,13 @@
 
 FIXTURES are the 100 most common cohort strings in the Jan-Aug 2026 workbook (1,825 of 2,784
 rows), pulled read-only through analysis/ratings_data's loader constants and frozen here as
-literals so the test never touches the workbook. Run: python -m unittest test_cohort_parse -v
+literals so the test never touches the workbook. Run: python -m pytest tests/test_cohort_parse.py
 """
 import datetime as dt
 import unittest
 
-import cohort_parse as CP
-import course_rules as CR
+from ratings import cohort_parse as CP
+from ratings import course_rules as CR
 
 FIXTURES = [  # (cohort text, dominant class type, rows Jan-Aug 2026): the 100 most common strings
     ('Advanced Machine Learning Program - Early-October 2025', 'ML Switchup Live Class', 52),

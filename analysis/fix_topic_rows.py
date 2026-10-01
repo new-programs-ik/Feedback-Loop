@@ -17,7 +17,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "ratings_module_build_kit"))
 import config  # noqa: E402
 config.load_env()
-import ratings_store  # noqa: E402
+from ratings import ratings_store  # noqa: E402
 from ratings_data import load, KIND_CODES  # noqa: E402
 
 LO, HI = dt.datetime(2026, 1, 1), dt.datetime(2026, 12, 31, 23, 59, 59)

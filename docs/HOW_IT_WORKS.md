@@ -748,7 +748,7 @@ token, one channel) · Vimeo (recordings and captions) · Anthropic (Claude) · 
 Designed in the v3 plan and left for the next release. None of these exist in the app today:
 
 - **The two automatic reports.** A leadership report (all courses) and a team report (one
-  chapter per course) are built (`ratings_module_build_kit/reports.py`) and run from the command
+  chapter per course) are built (`ratings_module_build_kit/reporting/reports.py`) and run from the command
   line; scheduling them monthly and yearly to Google Drive and Slack waits on a Drive folder and
   a Slack bot.
 - **Class materials on the New-analysis form, again.** Switched off on 23 September 2026 because

@@ -24,7 +24,7 @@ analysis, and are never written to disk or the database. Nothing is logged excep
 ffmpeg: bundled via the `imageio-ffmpeg` wheel (verified to include https/tls support), or a system
 ffmpeg on PATH. `VIDEO_DISABLED=1` is the kill-switch.
 
-CLI (local testing):  python video.py <url-or-file> [--duration N] [--probe] [--frames-only]
+CLI (local testing):  python -m feedback.video <url-or-file> [--duration N] [--probe] [--frames-only]
 """
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-import engine as E
-import materials_fetch as MF
+from feedback import engine as E
+from feedback import materials_fetch as MF
 
 log = logging.getLogger("video")
 
@@ -150,7 +150,7 @@ def resolve_video_source(vimeo_url: Optional[str], video_url: Optional[str],
     """Priority: Vimeo progressive (capability-probed) → explicit link (Drive rewritten) → None."""
     if vimeo_url and vimeo_url.strip():
         try:
-            import vimeo as V
+            from recordings import vimeo as V
             src = V.get_progressive_source(vimeo_url)
         except Exception:
             src = None

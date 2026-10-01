@@ -1,10 +1,10 @@
 """
 test_rubrics.py — class-type-aware rubrics (live_class vs ARS) + the revise validator paths.
-No API key needed. Run:  python -m unittest test_rubrics -v
+No API key needed. Run:  python -m pytest tests/test_rubrics.py
 """
 import unittest
 
-import engine as E
+from feedback import engine as E
 
 
 class TestFlagSets(unittest.TestCase):
