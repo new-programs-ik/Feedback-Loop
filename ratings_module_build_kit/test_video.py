@@ -192,10 +192,12 @@ class TestVisualTrack(unittest.TestCase):
             _seen(300, cam=True, scr=True, ct="slides"),
             _seen(450, cam=False, scr=True, ct="notebook", anomalies=["error_on_screen"]),
             _seen(600, cam=False, scr=True, ct="notebook", title="Decision Trees"),   # dup title
+            _seen(750, cam=False, scr=True, ct="notebook"),
+            _seen(900, cam=False, scr=True, ct="notebook"),
         ]
-        track = VD.compress_to_visual_track(obs, 4, 150)
+        track = VD.compress_to_visual_track(obs, 6, 150)
         self.assertIn("[00:02:30-00:05:00] camera ON | screen shared | slides", track)
-        self.assertIn("[00:07:30-00:10:00] camera OFF | screen shared | notebook", track)
+        self.assertIn("[00:07:30-00:15:00] camera OFF | screen shared | notebook", track)
         self.assertEqual(track.count("Decision Trees"), 1)     # deduped
         self.assertIn("error_on_screen", track)
         self.assertIn("interpolated", track)                   # honesty line
@@ -292,6 +294,264 @@ class TestTheTrackOnlyClaimsWhatWasSeen(unittest.TestCase):
                 VD.extract_frames(src, [1.0], time.monotonic() + 60)
         self.assertIn("too short to sample usefully", str(cm.exception))
         self.assertIn("the recording itself is fine", str(cm.exception))
+
+
+def _jpeg(tag: bytes) -> bytes:
+    """A stand-in image: starts and ends the way a JPEG does, different bytes per tag."""
+    return b"\xff\xd8\xff\xe0" + tag * 40 + b"\xff\xd9"
+
+
+class _CountingClient:
+    """Answers each vision call with one numbered description per image it was shown."""
+
+    def __init__(self, camera=True):
+        self.messages = self
+        self.calls: list[dict] = []
+        self.camera = camera
+
+    def create(self, **kw):
+        blocks = kw["messages"][0]["content"]
+        n = sum(1 for b in blocks if b.get("type") == "image")
+        self.calls.append({"images": n, "kw": kw,
+                           "labels": [b["text"] for b in blocks if b.get("type") == "text"]})
+        return _FakeMsg(json.dumps({"frames": [
+            {"n": i + 1, "camera_on": self.camera, "screen_shared": True, "content_type": "slides"}
+            for i in range(n)]}))
+
+
+class TestOneScreenshotAMinute(unittest.TestCase):
+    """Until 1 Oct 2026 a class got 40 screenshots however long it ran, and nothing after the
+    fourth hour was looked at: one every six minutes on a four-hour class. A camera off for an
+    hour could show as two screenshots, or none."""
+
+    def test_the_spoken_class_is_covered_end_to_end(self):
+        interval, n = VD.plan_scan(4338.0, 20656.0)             # a real class: 01:12:18 to 05:44:16
+        self.assertEqual(interval, 120.0)                       # one every two minutes by default
+        self.assertEqual(n, 136)
+        minute = VD.VideoConfig.from_env({"VIDEO_DENSE_INTERVAL_S": "60"})
+        self.assertEqual(VD.plan_scan(4338.0, 20656.0, minute), (60.0, 272))
+
+    def test_a_very_long_class_is_spaced_wider_never_cut_short(self):
+        interval, n = VD.plan_scan(0, 20 * 3600)
+        self.assertEqual(interval, 150.0)                       # 480 screenshots over twenty hours
+        self.assertGreaterEqual(n * interval, 20 * 3600)        # ...and they reach the end
+
+    def test_nothing_to_look_at_plans_nothing(self):
+        self.assertEqual(VD.plan_scan(100, 100)[1], 0)
+
+    def test_images_come_off_the_pipe_one_at_a_time(self):
+        a, b, c = _jpeg(b"a"), _jpeg(b"b"), _jpeg(b"c")
+        buf = bytearray(a + b + c[:20])
+        self.assertEqual(VD.take_jpegs(buf), [a, b])
+        self.assertEqual(bytes(buf), c[:20])                    # the unfinished one waits for more
+
+    def _scan(self, images, code=0):
+        src = VD.VideoSource(kind="direct", url="https://x/y.mp4", duration_s=9000)
+        seen = {}
+
+        def fake(args, timeout_s, on_chunk):
+            seen["args"] = args
+            blob = b"".join(images)
+            for i in range(0, len(blob), 37):                   # arrives in arbitrary pieces
+                on_chunk(blob[i:i + 37])
+            return code, "boom" if code else ""
+        with patch.object(VD, "ffmpeg_path", return_value="ffmpeg"), \
+             patch.object(VD, "_stream_ffmpeg", side_effect=fake):
+            frames, interval = VD.scan_frames(src, 600.0, 780.0, time.monotonic() + 60)
+        return frames, interval, seen["args"]
+
+    def test_the_recording_is_read_once_and_only_its_key_frames(self):
+        frames, interval, args = self._scan([_jpeg(b"a"), _jpeg(b"b"), _jpeg(b"c"), _jpeg(b"d")])
+        self.assertEqual([t for t, _ in frames], [600.0, 720.0])   # real times, two minutes apart
+        self.assertEqual(args.count("-i"), 1)
+        self.assertIn("nokey", args)
+        self.assertIn("600.0", args)                            # starts where the class starts
+
+    def test_what_was_read_before_a_failure_is_kept(self):
+        frames, _, _ = self._scan([_jpeg(b"a"), _jpeg(b"b")], code=1)
+        self.assertEqual(len(frames), 2)
+
+    def test_a_read_that_gives_nothing_says_so(self):
+        with self.assertRaises(VD.VideoStageError):
+            self._scan([], code=1)
+
+    def test_the_same_picture_is_not_paid_for_twice(self):
+        a, b = _jpeg(b"a"), _jpeg(b"b")
+        frames = [(0.0, a), (60.0, a), (120.0, b), (180.0, b), (240.0, b)]
+        client = _CountingClient()
+        obs, reused = VD.observe_once_each(client, frames, "t", __import__("engine").Usage())
+        self.assertEqual(sum(c["images"] for c in client.calls), 2)
+        self.assertEqual(reused, 3)
+        self.assertEqual([o["at"] for o in obs], [0.0, 60.0, 120.0, 180.0, 240.0])
+
+    def test_every_frame_is_numbered_and_a_description_on_the_wrong_frame_is_refused(self):
+        client = _CountingClient()
+        VD.observe_frames(client, [(0.0, _jpeg(b"a")), (60.0, _jpeg(b"b"))], "t",
+                          __import__("engine").Usage())
+        self.assertTrue(any(lab.startswith("FRAME 1 at") for lab in client.calls[0]["labels"]))
+        self.assertTrue(any(lab.startswith("FRAME 2 at") for lab in client.calls[0]["labels"]))
+        ok = {"frames": [{"n": 1, "camera_on": True}, {"n": 2, "camera_on": False}]}
+        swapped = {"frames": [{"n": 2, "camera_on": False}, {"n": 1, "camera_on": True}]}
+        self.assertEqual(VD._validate_observations(ok, 2), [])
+        self.assertTrue(VD._validate_observations(swapped, 2))
+        self.assertEqual(VD._validate_observations({"frames": [{}, {}]}, 2), [])   # no number: accepted
+
+    def test_each_screenshot_gets_a_call_of_its_own(self):
+        """Shown several at once, the model put the right description on the wrong picture."""
+        frames = [(i * 120.0, _jpeg(bytes([65 + i]))) for i in range(9)]
+        client = _CountingClient()
+        usage = __import__("engine").Usage()
+        obs, _ = VD.observe_once_each(client, frames, "t", usage)
+        self.assertEqual([c["images"] for c in client.calls], [1] * 9)
+        self.assertEqual([o["at"] for o in obs], [i * 120.0 for i in range(9)])   # back in order
+        self.assertEqual(usage.calls, 9)                                          # all counted
+
+    def test_one_failed_call_costs_one_screenshot(self):
+        frames = [(i * 120.0, _jpeg(bytes([65 + i]))) for i in range(4)]
+
+        class Flaky(_CountingClient):
+            def create(self, **kw):
+                if "FRAME 1 at [00:04:00]" in json.dumps(kw["messages"]):
+                    raise RuntimeError("overloaded")
+                return super().create(**kw)
+        obs, _ = VD.observe_once_each(Flaky(), frames, "t", __import__("engine").Usage())
+        self.assertEqual([o["at"] for o in obs], [0.0, 120.0, 360.0])
+
+    def test_the_instructions_are_cached_and_the_cache_is_priced(self):
+        client = _CountingClient()
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage())
+        system = client.calls[0]["kw"]["system"]
+        self.assertEqual(system[0]["cache_control"], {"type": "ephemeral"})
+        u = __import__("engine").Usage()
+        u.cache_write_tokens, u.cache_read_tokens = 1_000_000, 1_000_000
+        self.assertAlmostEqual(VD.cost_usd(u, "claude-sonnet-5"), 2.0 * 1.25 + 2.0 * 0.1)
+
+    def test_looking_is_not_reasoning(self):
+        client = _CountingClient()
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage())
+        self.assertEqual(client.calls[0]["kw"]["thinking"], {"type": "disabled"})
+        VD.observe_frames(client, [(0.0, _jpeg(b"a"))], "t", __import__("engine").Usage(),
+                          model="claude-haiku-4-5")
+        self.assertNotIn("thinking", client.calls[1]["kw"])
+        self.assertEqual(client.calls[1]["kw"]["model"], "claude-haiku-4-5")
+
+    def test_another_model_is_priced_at_its_own_rate(self):
+        u = __import__("engine").Usage()
+        u.input_tokens, u.output_tokens = 1_000_000, 100_000
+        self.assertAlmostEqual(VD.cost_usd(u, "claude-haiku-4-5"), 1.5)
+        self.assertAlmostEqual(VD.cost_usd(u, "claude-sonnet-5"), 3.0)
+
+    def test_an_old_frame_cap_on_the_server_does_not_thin_the_every_minute_pass(self):
+        cfg = VD.VideoConfig.from_env({"VIDEO_MAX_FRAMES": "40"})
+        self.assertEqual(cfg.max_frames, 40)                    # the fallback sampler only
+        self.assertEqual(VD.plan_scan(0, 4 * 3600, cfg)[1], 121)
+
+
+class TestTheTrackSaysHowLong(unittest.TestCase):
+    def test_a_camera_off_for_an_hour_is_stated_as_an_hour(self):
+        obs = [_seen(i * 60.0, cam=not (30 <= i < 90)) for i in range(240)]     # off 00:30-01:29
+        track = VD.compress_to_visual_track(obs, 240, 60)
+        self.assertIn("CAMERA: a camera picture was on screen in 180 of 240 screenshots (75%).", track)
+        self.assertIn("NO camera picture in ANY screenshot for 10 minutes or more: "
+                      "[00:30:00-01:29:00] about 60 min.", track)
+        self.assertIn("[00:30:00-01:29:00] camera OFF | screen shared | slides", track)
+        self.assertIn("SCREEN: something was being shared in 240 of 240", track)
+
+    def test_a_stretch_nobody_saw_does_not_join_two_off_stretches(self):
+        obs = ([_seen(i * 60.0, cam=False) for i in range(12)] + [_seen(720.0)]
+               + [_seen(2400 + i * 60.0, cam=False) for i in range(11)])
+        track = VD.compress_to_visual_track(obs, 60, 60)
+        self.assertIn("[00:00:00-00:11:00] about 12 min; [00:40:00-00:50:00] about 11 min.", track)
+
+    def test_a_class_that_keeps_switching_content_still_gets_a_readable_track(self):
+        obs = [_seen(i * 60.0, ct="slides" if i % 2 else "notebook") for i in range(200)]
+        track = VD.compress_to_visual_track(obs, 200, 60)
+        self.assertIn("VISUAL STATES (camera | screen):", track)
+        self.assertLess(track.count("\n"), 30)
+        self.assertIn("ON SCREEN: notebook 50%, slides 50%.", track)
+
+    def test_repeats_are_declared(self):
+        obs = [_seen(i * 60.0) for i in range(6)]
+        self.assertIn("3 of them showed exactly the picture before them",
+                      VD.compress_to_visual_track(obs, 6, 60, reused=3))
+
+
+class TestOneScreenshotWithoutTheCameraProvesNothing(unittest.TestCase):
+    """A recording shows the instructor's tile only while they are speaking. On a real class it
+    came and went 34 times in twenty minutes and was in 78% of screenshots with the camera on
+    throughout - so the old 40-screenshot track reported "camera OFF" for a fifth of any class."""
+
+    def _flicker(self, n=120):
+        return [_seen(i * 120.0, cam=(i % 5 != 0)) for i in range(n)]      # gone in one of five
+
+    def test_a_tile_that_comes_and_goes_is_a_camera_that_is_on(self):
+        track = VD.compress_to_visual_track(self._flicker(), 120, 120)
+        self.assertNotIn("camera OFF", track)
+        self.assertIn("[00:00:00-03:58:00] camera ON | screen shared | slides", track)
+        self.assertIn("a camera picture was on screen in 96 of 120 screenshots (80%)", track)
+        self.assertIn("There was no stretch of 10 minutes or more without a camera picture.", track)
+
+    def test_ten_minutes_without_it_in_every_screenshot_is_reported(self):
+        obs = self._flicker()
+        for o in obs[40:46]:                                               # 01:20 to 01:30, all six
+            o["camera_on"] = False
+        track = VD.compress_to_visual_track(obs, 120, 120)
+        self.assertIn("NO camera picture in ANY screenshot for 10 minutes or more: "
+                      "[01:20:00-01:30:00] about 12 min.", track)
+        self.assertIn("[01:20:00-01:30:00] camera OFF | screen shared | slides", track)
+
+    def test_eight_minutes_is_not_called_a_stretch(self):
+        obs = [_seen(i * 120.0, cam=not (40 <= i < 44)) for i in range(120)]
+        track = VD.compress_to_visual_track(obs, 120, 120)
+        self.assertNotIn("camera OFF", track)
+
+    def test_a_recording_with_no_tile_at_all_cannot_say_the_camera_was_off(self):
+        """Some recordings are made of the shared screen alone. Three hours of "camera off" from
+        one of those would be a finding about the recording settings, not about the instructor."""
+        obs = [_seen(i * 120.0, cam=False) for i in range(90)]
+        track = VD.compress_to_visual_track(obs, 90, 120)
+        self.assertIn("CANNOT show whether the instructor's camera was on", track)
+        self.assertNotIn("camera OFF", track)
+        self.assertIn("camera ? | screen shared", track)
+
+    def test_a_camera_never_seen_with_nothing_shared_is_off(self):
+        obs = [_seen(i * 120.0, cam=False, scr=False, ct="other") for i in range(30)]
+        track = VD.compress_to_visual_track(obs, 30, 120)
+        self.assertIn("camera OFF | no screen", track)
+        self.assertIn("[00:00:00-00:58:00] about 60 min.", track)
+
+
+class TestTheStageLooksAtTheClassNotTheWaitingRoom(unittest.TestCase):
+    def _run(self, scan):
+        src = VD.VideoSource(kind="direct", url="https://x/y.mp4", duration_s=25704.0)   # 7.14 h
+        frames = [(4338.0 + i * 60.0, _jpeg(bytes([65 + i % 20]))) for i in range(40)]
+        with patch.object(VD, "ffmpeg_path", return_value="ffmpeg"), \
+             patch.object(VD, "resolve_video_source", return_value=src), \
+             patch.object(VD, "probe_source", return_value={"ranges": True, "looks_like_media": True}), \
+             patch.object(VD, "scan_frames", side_effect=scan(frames)) as sc, \
+             patch.object(VD, "extract_frames", return_value=frames[:10]) as ex, \
+             patch.object(VD.E, "_client", return_value=_CountingClient()):
+            track, meta = VD.analyze_video(None, "https://x/y.mp4", 20596.0, "t", start_hint_s=4398.0)
+        return track, meta, sc, ex
+
+    def test_only_the_spoken_stretch_is_read(self):
+        track, meta, sc, ex = self._run(lambda frames: lambda *a, **k: (frames, 60.0))
+        self.assertEqual(sc.call_args.args[1:3], (4338.0, 20656.0))    # a minute either side
+        self.assertEqual(meta["video_mode"], "every_minute")
+        self.assertEqual(meta["frames_sampled"], 136)
+        self.assertEqual(meta["video_interval_s"], 60)
+        ex.assert_not_called()
+
+    def test_a_file_that_cannot_be_read_in_one_pass_falls_back_to_seeking(self):
+        def scan(frames):
+            def boom(*a, **k):
+                raise VD.VideoStageError("exit 1")
+            return boom
+        track, meta, sc, ex = self._run(scan)
+        self.assertEqual(meta["video_mode"], "seek")
+        ex.assert_called_once()
+        self.assertGreaterEqual(ex.call_args.args[1][0], 4338.0)        # still inside the class
+        self.assertLessEqual(ex.call_args.args[1][-1], 20656.0)
 
 
 if __name__ == "__main__":

@@ -484,7 +484,10 @@ def _run_video_stage(req: AnalyzeRequest, cues) -> tuple[str, dict]:
     if not req.analyze_video:
         return "", {"video_used": False}
     duration = cues[-1].end if cues else None
-    return VD.analyze_video(req.vimeo_url, req.video_url, duration, class_hint=req.topic)
+    # First and last caption: the recording usually runs well past both, and that dead time is
+    # neither looked at nor counted against the instructor.
+    return VD.analyze_video(req.vimeo_url, req.video_url, duration, class_hint=req.topic,
+                            start_hint_s=cues[0].start if cues else None)
 
 
 def _merge_video_meta(result: dict, meta: dict, video_meta: dict) -> None:

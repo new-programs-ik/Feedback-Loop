@@ -80,7 +80,8 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
    | `SLACK_BOT_TOKEN` | the Slack bot token (starts with `xoxb-`) | For the Slack cards and the "sync failed" alerts. |
    | `SLACK_PM_CHANNEL_ID` | the channel id (starts with `C`) | Same — the channel the cards go to. |
    | `VIMEO_ACCESS_TOKEN` | your Vimeo token | Yes, if you analyze **Vimeo links**. |
-   | `VIDEO_MAX_FRAMES` | `40` | Recommended on Render's free tier — caps the video frames per class. |
+   | `VIDEO_DENSE_INTERVAL_S` | `120` | Optional. Seconds between screenshots in a video analysis: 120 (the default) is one every two minutes, about $0.20 for a 4.5-hour class; 60 doubles the detail and the cost. |
+   | `VIDEO_MAX_FRAMES` | `40` | Only limits the fallback sampler now (used when a recording cannot be read in one pass); an old `40` here does no harm. |
    | `VIDEO_DISABLED` | `1` | Optional kill-switch: video analysis off on this deployment. |
    | `RESUME_SCHEDULED` | `0` | Optional: stops the worker picking up queued classes on its own (it does by default, a minute after it starts and every 90 seconds). |
    | `UPLEVEL_COOKIE` | a signed-in UpLevel cookie header | Optional fallback only. UpLevel is connected in the app, on **Admin › UpLevel**, which wins over this; nothing to set here ([UPLEVEL_VIDEO_LINK.md](UPLEVEL_VIDEO_LINK.md)). |
@@ -89,7 +90,7 @@ postgresql://postgres.<project-ref>:<your-database-password>@<host>.pooler.supab
    | `GOOGLE_ACCESS_TOKEN` | a Google token | Only for **private** Google Drive materials (optional). |
 
    > 🎬 **About video analysis on the free tier:** it works, but the free worker is slow and can spin
-   > down mid-job, so keep `VIDEO_MAX_FRAMES=40`. If video jobs get stuck, set `VIDEO_DISABLED=1`
+   > down mid-job. The recording is read once (a few minutes for a long class). If video jobs get stuck, set `VIDEO_DISABLED=1`
    > (analyses continue transcript-only) or upgrade the worker to Render's Starter plan (about
    > $7/month; its real benefit is no spin-down). Enabling video for plain Vimeo links is a separate
    > one-time step: [VIMEO_VIDEO_ACCESS.md](VIMEO_VIDEO_ACCESS.md).

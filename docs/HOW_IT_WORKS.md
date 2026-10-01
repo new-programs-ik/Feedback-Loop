@@ -384,7 +384,7 @@ per course), in three sections:
 
 Under every row, the reason in plain words — *"Rated 4.31 · 7 of 16 would have the instructor back
 (44%) → Bad → video analysis."* — and the flags. At the top, **the week's cost**:
-*"5 videos · 9 transcripts ≈ $14.50 · ~1.1 h"*, from $1.10 per video and $1.00 per transcript
+*"5 videos · 9 transcripts ≈ $15.00 · ~1.1 h"*, from $1.20 per video and $1.00 per transcript
 analysis (a typical 3 to 4-hour class on the current engine; see *What it costs*), and about 7 and 3.5 minutes of a PM's time each. The filter bar (kept in the URL, so a
 filtered view is a shareable link) has the period (default the last 45 days), cohort, live vs
 review, instructor and status; the default status is *open* (new · handler pinged · confirmed).
@@ -676,7 +676,7 @@ taught, complexity and edge cases, common mistakes, doubts cleared).
 at most four or five bullets, each one specific error and its **Fix**, no timestamps, no
 transcript quotes; and the **detailed, timestamped analysis for the internal team**, kept in-house
 for coaching. On the review page the note is marked *Send this*; the badges say how the class was
-analysed (*Video verified · N frames* or *Transcript only*, and *Self-checked*), and *Watch
+analysed (*Video checked · N screenshots* or *Transcript only*, and *Self-checked*), and *Watch
 recording* jumps into the video to check any flag yourself.
 
 **Review, approve, send.** Edit the text directly, or tell the AI what to change ("warmer",
@@ -719,7 +719,16 @@ migration 0021 the ratings tables are readable by staff only.
 **What it costs.** Measured on real classes with the current engine (Claude Sonnet 5, September
 2026), the cost grows with the length of the class: about **$0.60** for a 1.5-hour class and
 **$1.00** for a 4-hour class (3 h 46 min measured at $1.01), transcript only. The video stage adds
-about **$0.07–0.10** (40 frames). It was about $0.51 in August on the older engine, for three
+about **$0.20** to that: one screenshot every two minutes across the spoken part of the recording
+(first caption to last, so a waiting room before the class and a recording left running after it
+are neither paid for nor counted), each screenshot described in a call of its own. Measured on
+1 October 2026: 136 screenshots of a 4.5-hour class for $0.197 in 2.3 minutes, the camera and the
+screen read correctly in 135 of 136. A recording shows the instructor's camera tile only while
+they are the one speaking (on that class it came and went 34 times in twenty minutes), so the
+camera is reported off only when no camera picture appears in any screenshot for ten minutes or
+more; a recording made of the shared screen alone is recognised and says nothing about the camera.
+Before that date the stage took at most 40 screenshots however long the class was, none after the
+fourth hour, for $0.07. It was about $0.51 in August on the older engine, for three
 reasons: Claude Sonnet 5 reasons before it answers and that reasoning is billed as output (output
 went from about 12,000 to about 48,000 tokens on a 4-hour class), the September accuracy fixes made
 the session map read the whole class rather than its opening, and the August classes were shorter.

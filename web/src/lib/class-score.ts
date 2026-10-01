@@ -127,8 +127,9 @@ export function byUrgency(a: { row: ClassRating; scored: Scored }, b: { row: Cla
 /** What an analysis costs the team, per class, and the minutes a PM spends on it. The AI cost is
  *  measured on the current engine (Claude Sonnet 5, 21-25 Sep 2026): five real classes ran from
  *  $0.61 (about 1.5 hours) to $1.72 (about 6.5 hours), $1.01 for a 3 h 46 min class; the video
- *  stage adds about $0.07-0.10. The August figures ($0.51 / $0.70) were the older engine. */
-export const ANALYSIS_COST = { video: 1.1, transcript: 1.0 } as const;
+ *  stage adds about $0.20 since 1 Oct 2026 (a screenshot every two minutes across the class; it
+ *  was $0.07 for 40 screenshots). The August figures ($0.51 / $0.70) were the older engine. */
+export const ANALYSIS_COST = { video: 1.2, transcript: 1.0 } as const;
 export const ANALYSIS_MINUTES = { video: 7, transcript: 3.5 } as const;
 
 export function queueCost(videos: number, transcripts: number) {

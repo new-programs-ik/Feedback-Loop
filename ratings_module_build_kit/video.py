@@ -1,11 +1,18 @@
 """
 video.py — the video-analysis stage: SEE the class, not just read it.
 
-Given a class recording, this samples ~1 frame every 2-3 minutes (streaming each frame straight
-from the video URL with ffmpeg — the multi-GB file is NEVER downloaded), has Claude describe each
-frame as a neutral visual observer (camera on? screen shared? slides/code/notebook visible? what
-slide title?), and compresses the observations into a timestamped VISUAL TRACK that the engine
-merges into its context — so camera/screen/slides findings become evidence-based.
+Given a class recording, this takes ONE SCREENSHOT A MINUTE across the part of the recording where
+the class is actually being spoken (first caption to last), in a single ffmpeg read of the file
+that decodes key frames only and keeps nothing on disk. Screenshots identical to the one before
+are not paid for twice. Claude describes each one as a neutral visual observer (camera on? screen
+shared? slides/code/notebook visible? what slide title?), and the observations are compressed into
+a timestamped VISUAL TRACK the engine merges into its context - so camera/screen/slides findings
+rest on what was on screen minute by minute.
+
+Until 1 Oct 2026 this took at most 40 screenshots however long the class was, by seeking to each
+one separately, and looked at nothing after the fourth hour: on a four-hour class that is one
+screenshot every six minutes, so a camera off for an hour could show as two frames or as none.
+That sampler is kept only as the fallback when the single read cannot be done.
 
 Source priority:  1) Vimeo progressive URL (self-activates when the token gains the `video_files`
 scope — see docs/VIMEO_VIDEO_ACCESS.md);  2) an explicit direct link (mp4 or Google Drive);
@@ -24,12 +31,15 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import os
 import re
 import shutil
 import subprocess
+import threading
 import time
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -56,6 +66,18 @@ class VideoConfig:
     min_frames: int = 4              # fewer than this → the track would mislead; abort stage
     batch_size: int = 10             # frames per vision call
     max_tokens_observe: int = 6000   # ten frame objects plus the thinking that shares this budget
+    # The every-minute pass (one read of the file). VIDEO_MAX_FRAMES above now only limits the
+    # fallback sampler, so an old "40" on the server does not thin this out.
+    dense_interval_s: int = 120      # a screenshot every two minutes (env VIDEO_DENSE_INTERVAL_S)
+    dense_max_frames: int = 480      # past this many the screenshots are spaced wider, never cut short
+    dense_width: int = 640           # the instructor's camera tile is clearly readable at this size
+    # ONE screenshot per call. Measured on a real class against an exact answer key (1 Oct 2026):
+    # 20 a call got the camera right on 84% of screenshots, 5 a call 95%, 1 a call 100% - shown
+    # several at once the model gives the right description to the wrong picture.
+    dense_batch_size: int = 1
+    dense_parallel: int = 6          # calls in flight at once
+    scan_timeout_s: int = 600        # the single read of the recording
+    observe_model: str = ""          # env VIDEO_OBSERVE_MODEL; empty = the engine's own model
 
     @classmethod
     def from_env(cls, env: Optional[dict] = None) -> "VideoConfig":
@@ -69,6 +91,9 @@ class VideoConfig:
             max_frames=_i("VIDEO_MAX_FRAMES", cls.max_frames),
             target_interval_s=_i("VIDEO_TARGET_INTERVAL_S", cls.target_interval_s),
             stage_timeout_s=_i("VIDEO_STAGE_TIMEOUT_S", cls.stage_timeout_s),
+            dense_interval_s=max(10, _i("VIDEO_DENSE_INTERVAL_S", cls.dense_interval_s)),
+            dense_max_frames=max(1, _i("VIDEO_DENSE_MAX_FRAMES", cls.dense_max_frames)),
+            observe_model=(env.get("VIDEO_OBSERVE_MODEL") or "").strip(),
         )
 
 
@@ -268,15 +293,138 @@ def extract_frames(source: VideoSource, times: list[float], deadline: float,
     return frames
 
 
+# ── one screenshot a minute, in a single read of the file ───────────────────────
+def plan_scan(start_s: float, end_s: float, cfg: VideoConfig = VCFG) -> tuple[float, int]:
+    """(seconds between screenshots, how many to expect) for the stretch start..end. One a minute,
+    spaced wider only when the stretch is longer than dense_max_frames minutes."""
+    span = max(0.0, float(end_s) - float(start_s))
+    if span <= 0:
+        return float(cfg.dense_interval_s), 0
+    interval = float(cfg.dense_interval_s)
+    if span / interval > cfg.dense_max_frames:
+        interval = span / cfg.dense_max_frames
+    return interval, int(span // interval) + 1
+
+
+_JPEG_JOIN = b"\xff\xd9\xff\xd8"      # end of one image, start of the next
+
+
+def take_jpegs(buf: bytearray) -> list[bytes]:
+    """Every COMPLETE image at the front of `buf`, removed from it. ffmpeg writes the screenshots
+    one after another on one pipe; an image is complete once the next one has begun."""
+    out: list[bytes] = []
+    while True:
+        cut = buf.find(_JPEG_JOIN)
+        if cut < 0:
+            return out
+        out.append(bytes(buf[:cut + 2]))
+        del buf[:cut + 2]
+
+
+def _stream_ffmpeg(args: list[str], timeout_s: float, on_chunk) -> tuple[int, str]:
+    """The streaming subprocess seam (tests monkeypatch THIS). Feeds stdout to `on_chunk` as it
+    arrives and returns (exit code, redacted tail of stderr). Killed at `timeout_s`: a stalled
+    download must not hold the analysis."""
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    killer = threading.Timer(max(1.0, timeout_s), proc.kill)
+    killer.daemon = True
+    killer.start()
+    err: list[bytes] = []
+    drain = threading.Thread(target=lambda: err.append(proc.stderr.read()[-4000:]), daemon=True)
+    drain.start()
+    try:
+        while True:
+            chunk = proc.stdout.read(65536)
+            if not chunk:
+                break
+            on_chunk(chunk)
+    finally:
+        proc.wait()
+        killer.cancel()
+        drain.join(timeout=5)
+    return proc.returncode, redact(b"".join(err).decode("utf-8", "ignore"))[-300:]
+
+
+def scan_frames(source: VideoSource, start_s: float, end_s: float, deadline: float,
+                cfg: VideoConfig = VCFG) -> tuple[list[tuple[float, bytes]], float]:
+    """A screenshot every `interval` seconds between start_s and end_s, from ONE read of the file.
+
+    Only key frames are decoded, so a seven-hour recording is read in a few minutes and nothing
+    is written to disk. Seeking to each screenshot separately (the old way) re-opens the file and
+    re-reads its index every time: about four seconds a screenshot, half an hour for this many.
+    Returns (frames with their real times, the interval used). Whatever was read before a failure
+    or the deadline is kept; the caller reports how far it got.
+    """
+    exe = ffmpeg_path()
+    if not exe:
+        raise VideoStageError("ffmpeg not available")
+    interval, expected = plan_scan(start_s, end_s, cfg)
+    if not expected:
+        raise VideoStageError("nothing to sample (no class time to look at)")
+    args = [exe, "-hide_banner", "-loglevel", "error", "-nostdin"]
+    if urlparse(source.url).scheme in ("http", "https"):
+        args += ["-reconnect", "1", "-reconnect_streamed", "1"]
+    args += ["-skip_frame", "nokey", "-ss", f"{start_s:.1f}", "-t", f"{end_s - start_s:.1f}",
+             "-protocol_whitelist", "file,http,https,tcp,tls,crypto", "-i", source.url, "-an",
+             "-vf", f"fps=1/{interval:.3f},scale={cfg.dense_width}:-2", "-q:v", str(cfg.jpeg_q + 1),
+             "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"]
+    buf = bytearray()
+    images: list[bytes] = []
+
+    def on_chunk(chunk: bytes) -> None:
+        buf.extend(chunk)
+        images.extend(take_jpegs(buf))
+
+    budget = min(float(cfg.scan_timeout_s), max(1.0, deadline - time.monotonic()))
+    code, err = _stream_ffmpeg(args, budget, on_chunk)
+    if bytes(buf[:2]) == b"\xff\xd8" and bytes(buf).rstrip().endswith(b"\xff\xd9"):
+        images.append(bytes(buf))                       # the last image has no successor
+    if code != 0:
+        log.warning("the single read of the recording stopped early (exit %s) with %d of %d "
+                    "screenshots: %s", code, len(images), expected, err[:160])
+        if not images:
+            raise VideoStageError(f"could not read the recording in one pass (exit {code}): {err}")
+    frames = [(round(start_s + i * interval, 1), data) for i, data in enumerate(images[:expected])]
+    return frames, interval
+
+
+def mark_repeats(frames: list[tuple[float, bytes]]) -> list[bool]:
+    """True where a screenshot is byte for byte the one before it: a still slide with the camera
+    off, a waiting screen. The same picture gets the same description, so it is not sent again."""
+    return [i > 0 and data == frames[i - 1][1] for i, (_t, data) in enumerate(frames)]
+
+
+# What a model other than the engine's costs, in USD per million tokens (input, output). Anything
+# not listed is priced as the engine's model.
+MODEL_PRICES = {"claude-haiku-4-5": (1.0, 5.0)}
+
+
+def observe_model(cfg: VideoConfig = VCFG) -> str:
+    return cfg.observe_model or E.CFG.model
+
+
+def cost_usd(usage: "E.Usage", model: str) -> float:
+    p_in, p_out = MODEL_PRICES.get(model, (E.CFG.price_in_per_mtok, E.CFG.price_out_per_mtok))
+    return (usage.input_tokens * p_in
+            + usage.cache_write_tokens * p_in * E.CFG.cache_write_mult
+            + usage.cache_read_tokens * p_in * E.CFG.cache_read_mult
+            + usage.output_tokens * p_out) / 1_000_000
+
+
 # ── vision pass ────────────────────────────────────────────────────────────────
 FRAME_OBSERVER_SYS = (
-    "You are a neutral visual observer describing sampled frames from a class recording. You "
-    "describe only what is visibly present. You never evaluate, praise or criticise, and you never "
-    "guess: null is the right answer whenever a frame does not show you something.\n"
+    "You are a neutral visual observer describing sampled frames from a recording of an online "
+    "class. You describe only what is visibly present. You never evaluate, praise or criticise, "
+    "and you never guess: null is the right answer whenever a frame does not show you something.\n"
     "Return ONE object per frame, in the SAME ORDER the frames were given. Do not include a "
     "timestamp - the times are already known and yours would only conflict with them.\n"
+    "Look at each frame on its own: frames that sit next to each other often differ in one small "
+    "thing, such as a webcam tile that is there in one and gone in the next.\n"
+    "\n"
     "Each object has:\n"
-    "  camera_on        bool|null  - is a live webcam feed of the instructor visible\n"
+    "  n                int        - the number on that frame's label (FRAME 1, FRAME 2, ...)\n"
+    "  camera_on        bool|null  - is a live webcam picture of a person visible anywhere in the "
+    "frame\n"
     "  screen_shared    bool|null  - is a screen or window being presented\n"
     "  content_type     one of slides|code|notebook|terminal|browser|whiteboard|document|video|"
     "face_only|other, or null\n"
@@ -289,8 +437,51 @@ FRAME_OBSERVER_SYS = (
     "  anomalies        array, empty if none, from exactly: blank (nothing on screen), low_light "
     "(the camera image is too dark to make out), error_on_screen (a visible error message, "
     "traceback or failed cell).\n"
+    "\n"
+    "How to read a class recording:\n"
+    "- The webcam picture is a photograph of a real person, usually head and shoulders. While a "
+    "screen is being presented it is normally a small tile in a corner or along one edge, often "
+    "with the person's name under it; when nothing is presented it can fill the whole frame. "
+    "Either way camera_on is true. Check the corners and edges before deciding there is no tile: "
+    "the tile is small and the presented screen takes up most of the frame.\n"
+    "- A dark or plain frame showing only a name or initials is a participant whose camera is "
+    "switched off: camera_on is false, screen_shared is false, content_type is other.\n"
+    "- A small round profile picture in a browser or application toolbar is an account icon, not "
+    "a camera. A photograph or illustration inside a slide or a web page is content, not a "
+    "camera.\n"
+    "- An empty band beside the presented screen, where a tile would sit, means no camera is "
+    "showing in this frame: camera_on is false.\n"
+    "- screen_shared is true when a slide, document, code, notebook, whiteboard, browser page or "
+    "application window fills most of the frame. It is false when the frame shows only camera "
+    "pictures or only a name on a plain background.\n"
+    "\n"
+    "content_type, by what fills the presented area:\n"
+    "- slides: a designed slide - a title, bullet points, diagrams - from a presentation tool, "
+    "including a slide deck shown inside an online whiteboard.\n"
+    "- whiteboard: handwriting or drawing on a blank or ruled canvas (a note-taking app, a digital "
+    "whiteboard) with no designed slide behind it.\n"
+    "- notebook: a notebook with cells of code and output (Jupyter, Colab).\n"
+    "- code: a code editor or IDE that is not a notebook.\n"
+    "- terminal: a command line.\n"
+    "- browser: a web page that is none of the above.\n"
+    "- document: a text document, PDF or spreadsheet.\n"
+    "- video: a video being played.\n"
+    "- face_only: only camera pictures of people, nothing presented.\n"
+    "- other: anything else, including a name on a plain background.\n"
+    "\n"
+    "heading_or_slide_title is the title of the slide, or the main heading of the page or "
+    "document on screen. For a notebook or code, use the file or notebook name only if it is "
+    "clearly readable. Do not use the name under a webcam tile, a browser tab label or a menu "
+    "item.\n"
+    "learner_count comes only from a participant list, a gallery of tiles or an attendee number "
+    "on screen. One webcam tile is not a count.\n"
+    "anomalies: use blank only when the whole frame is empty, low_light only for a camera picture "
+    "too dark to make out a person, and error_on_screen only for an error message that is "
+    "visible in the presented content.\n"
+    "\n"
+    "To keep the reply short, leave out any field whose value would be null or an empty array.\n"
     "Output JSON only - no prose, no code fences: "
-    '{"frames":[{"camera_on":true, "screen_shared":true, ...}]}'
+    '{"frames":[{"n":1, "camera_on":true, "screen_shared":true, ...}]}'
 )
 
 
@@ -336,19 +527,43 @@ def _validate_observations(obj, expect_n: int) -> list[str]:
         return ["top level must be an object with a 'frames' list"]
     if len(obj["frames"]) != expect_n:
         return [f"expected {expect_n} frame objects, got {len(obj['frames'])}"]
-    return [f"frames[{i}] must be an object" for i, f in enumerate(obj["frames"])
+    errs = [f"frames[{i}] must be an object" for i, f in enumerate(obj["frames"])
             if not isinstance(f, dict)]
+    if errs:
+        return errs
+    # Each description says which frame it is about. Shown twenty frames at once, the model gave
+    # the right descriptions to the wrong frames: a camera plainly on was reported off for the
+    # frame next to it, and nothing noticed. A description whose number is not its position is
+    # one of those.
+    return [f"frames[{i}] says it describes frame {f['n']}, but it is in position {i + 1}"
+            for i, f in enumerate(obj["frames"])
+            if isinstance(f.get("n"), int) and not isinstance(f.get("n"), bool) and f["n"] != i + 1]
 
 
-def _call_vision(client, system: str, blocks: list[dict], max_tokens: int, usage: "E.Usage") -> str:
-    """Multimodal twin of engine._call: same model and usage accounting, image blocks."""
+def _call_vision(client, system: str, blocks: list[dict], max_tokens: int, usage: "E.Usage",
+                 model: str | None = None) -> str:
+    """Multimodal twin of engine._call: same usage accounting, image blocks.
+
+    Describing a screenshot is looking, not reasoning, so thinking is switched off where the model
+    lets us: it was most of what the 40-frame version paid for. (Haiku does not think unless asked.)
+    The instructions are the same in every call of a class, so they are marked for caching: after
+    the first call they are read back at a tenth of the price. (A model whose minimum cacheable
+    length they do not reach simply ignores the mark.)
+    """
     t = time.time()
+    model = model or E.CFG.model
+    extra = {} if model.startswith("claude-haiku") else {"thinking": {"type": "disabled"}}
     msg = E._create_message(          # shared SDK-drift guard (see engine._create_message)
         client,
-        model=E.CFG.model, max_tokens=max_tokens,
-        system=system, messages=[{"role": "user", "content": blocks}],
+        model=model, max_tokens=max_tokens,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": blocks}], **extra,
     )
+    wrote = getattr(msg.usage, "cache_creation_input_tokens", 0) or 0
+    read = getattr(msg.usage, "cache_read_input_tokens", 0) or 0
     usage.input_tokens += msg.usage.input_tokens
+    usage.cache_write_tokens += wrote if isinstance(wrote, int) else 0
+    usage.cache_read_tokens += read if isinstance(read, int) else 0
     usage.output_tokens += msg.usage.output_tokens
     usage.calls += 1
     log.info("vision call ok  in=%d out=%d  %.1fs", msg.usage.input_tokens, msg.usage.output_tokens,
@@ -358,28 +573,31 @@ def _call_vision(client, system: str, blocks: list[dict], max_tokens: int, usage
 
 def observe_frames(client, frames: list[tuple[float, bytes]], class_hint: str,
                    usage: "E.Usage", cfg: VideoConfig = VCFG,
-                   deadline: float | None = None) -> list[dict]:
+                   deadline: float | None = None, batch_size: int | None = None,
+                   model: str | None = None) -> list[dict]:
     """Describe frames in batches, returning one record per frame with the frame's REAL time on it.
 
     A batch that cannot be read is dropped and the gap is recorded, rather than taking the class
     with it: an API error in the middle used to discard every batch already paid for.
     """
     out: list[dict] = []
-    for start in range(0, len(frames), cfg.batch_size):
+    size = batch_size or cfg.batch_size
+    for start in range(0, len(frames), size):
         if deadline is not None and time.monotonic() > deadline:
             log.warning("video stage deadline hit; describing %d of %d frames", len(out), len(frames))
             break
-        batch = frames[start:start + cfg.batch_size]
+        batch = frames[start:start + size]
         blocks: list[dict] = [{"type": "text", "text":
                                f"Class: {class_hint or '(unknown)'} — describe these "
                                f"{len(batch)} sampled frames."}]
-        for t, data in batch:
-            blocks.append({"type": "text", "text": f"FRAME at [{E._seconds_to_ts(t)}]"})
+        for i, (t, data) in enumerate(batch, 1):
+            blocks.append({"type": "text", "text": f"FRAME {i} at [{E._seconds_to_ts(t)}]"})
             blocks.append({"type": "image", "source": {
                 "type": "base64", "media_type": "image/jpeg",
                 "data": base64.b64encode(data).decode()}})
         try:
-            text = _call_vision(client, FRAME_OBSERVER_SYS, blocks, cfg.max_tokens_observe, usage)
+            text = _call_vision(client, FRAME_OBSERVER_SYS, blocks, cfg.max_tokens_observe, usage,
+                                model)
         except Exception as e:  # noqa: BLE001  one bad batch must not cost the ones already paid for
             log.warning("vision call failed for the batch at %s: %s",
                         E._seconds_to_ts(batch[0][0]), redact(e)[:160])
@@ -403,7 +621,8 @@ def observe_frames(client, frames: list[tuple[float, bytes]], class_hint: str,
                         f"an object with a 'frames' list of exactly {len(batch)} objects, in the "
                         f"order the frames were given. No prose, no code fences."}]
                 try:
-                    text = _call_vision(client, FRAME_OBSERVER_SYS, fix, cfg.max_tokens_observe, usage)
+                    text = _call_vision(client, FRAME_OBSERVER_SYS, fix, cfg.max_tokens_observe,
+                                        usage, model)
                 except Exception as e:  # noqa: BLE001
                     log.warning("vision repair failed: %s", redact(e)[:160])
                     break
@@ -420,6 +639,70 @@ def observe_frames(client, frames: list[tuple[float, bytes]], class_hint: str,
                         E._seconds_to_ts(batch[0][0]), E._seconds_to_ts(batch[-1][0]),
                         "; ".join(errs[:3]))
     return out
+
+
+def _add_usage(total: "E.Usage", part: "E.Usage") -> None:
+    for f in ("input_tokens", "output_tokens", "calls", "truncated", "cache_write_tokens",
+              "cache_read_tokens"):
+        setattr(total, f, getattr(total, f) + getattr(part, f))
+
+
+def observe_one_per_call(client, frames: list[tuple[float, bytes]], class_hint: str,
+                         usage: "E.Usage", cfg: VideoConfig = VCFG, deadline: float | None = None,
+                         model: str | None = None) -> list[dict]:
+    """Each screenshot in a call of its own, `dense_parallel` calls at a time.
+
+    The first goes alone so that it writes the cached instructions; the rest then read them. A
+    call that fails costs its own screenshot only, and shows as a gap in the track."""
+    if not frames:
+        return []
+    lock = threading.Lock()
+
+    def one(frame: tuple[float, bytes]) -> list[dict]:
+        if deadline is not None and time.monotonic() > deadline:
+            return []
+        mine = E.Usage()
+        try:
+            return observe_frames(client, [frame], class_hint, mine, cfg, deadline,
+                                  batch_size=1, model=model)
+        finally:
+            with lock:
+                _add_usage(usage, mine)
+
+    out = list(one(frames[0]))
+    rest = frames[1:]
+    if rest:
+        with ThreadPoolExecutor(max_workers=max(1, cfg.dense_parallel)) as pool:
+            for got in pool.map(one, rest):
+                out.extend(got)
+    return sorted(out, key=lambda o: o["at"])
+
+
+def observe_once_each(client, frames: list[tuple[float, bytes]], class_hint: str,
+                      usage: "E.Usage", cfg: VideoConfig = VCFG, deadline: float | None = None,
+                      model: str | None = None) -> tuple[list[dict], int]:
+    """Describe every DIFFERENT screenshot once and give each repeat the description of the one it
+    repeats. Returns (one record per screenshot that could be described, how many were repeats)."""
+    repeats = mark_repeats(frames)
+    fresh = [f for f, same in zip(frames, repeats) if not same]
+    if cfg.dense_batch_size <= 1:
+        described = observe_one_per_call(client, fresh, class_hint, usage, cfg, deadline, model)
+    else:
+        described = observe_frames(client, fresh, class_hint, usage, cfg, deadline,
+                                   batch_size=cfg.dense_batch_size, model=model)
+    seen = {o["at"]: o for o in described}
+    out: list[dict] = []
+    last: dict | None = None
+    reused = 0
+    for (t, _data), same in zip(frames, repeats):
+        if not same:
+            last = seen.get(t)
+            if last is not None:
+                out.append(last)
+        elif last is not None:
+            out.append({**last, "at": t})
+            reused += 1
+    return out, reused
 
 
 # ── visual track (pure python — deterministic, free) ───────────────────────────
@@ -447,40 +730,169 @@ def track_is_informative(observations: list[dict], planned: int) -> bool:
     return known >= 0.6 * len(observations) and len(observations) >= 0.5 * planned
 
 
-def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_s: float,
-                            duration_s: float | None = None,
-                            last_sampled_s: float | None = None) -> str:
-    """Merge consecutive same-state observations into timestamped spans; list legible slide titles
-    in order; list anomalies. Ends with an honesty line about sampling gaps."""
-    if not observations:
-        return ""
-    obs = sorted((o for o in observations if isinstance(o, dict)),
-                 key=lambda o: o.get("at") if isinstance(o.get("at"), (int, float)) else 0.0)
-    lines: list[str] = ["VISUAL STATES (camera | screen | content):"]
+MAX_SPAN_LINES = 60     # past this the per-content detail is dropped so the track stays readable
 
-    def fmt_state(o: dict) -> str:
-        cam = {True: "camera ON", False: "camera OFF"}.get(o.get("camera_on"), "camera ?")
-        scr = {True: "screen shared", False: "no screen"}.get(o.get("screen_shared"), "screen ?")
-        return f"{cam} | {scr} | {o.get('content_type') or '?'}"
 
-    # A gap wider than two sampling intervals means a batch of frames was never described. Merging
-    # straight across it used to produce one long span asserting a state for minutes nobody saw.
-    gap_s = max(interval_s * 2.5, 60)
+def _span_lines(obs: list[dict], state_of, fmt, gap_s: float) -> list[str]:
+    """Consecutive same-state observations merged into timestamped spans. A gap wider than `gap_s`
+    means frames were never described: merging straight across it used to produce one long span
+    asserting a state for minutes nobody saw."""
+    lines: list[str] = []
     span_start = prev = obs[0]
     for o in list(obs[1:]) + [None]:
-        broke = o is None or _state_of(o) != _state_of(prev)
+        broke = o is None or state_of(o) != state_of(prev)
         hole = (o is not None
                 and isinstance(o.get("at"), (int, float)) and isinstance(prev.get("at"), (int, float))
                 and o["at"] - prev["at"] > gap_s)
         if not broke and not hole:
             prev = o
             continue
-        lines.append(f"  [{_ts(span_start.get('at', 0))}-{_ts(prev.get('at', 0))}] {fmt_state(prev)}")
+        lines.append(f"  [{_ts(span_start.get('at', 0))}-{_ts(prev.get('at', 0))}] {fmt(prev)}")
         if hole and o is not None:
             lines.append(f"  [{_ts(prev.get('at', 0))}-{_ts(o.get('at', 0))}] NOT OBSERVED - these "
                          f"frames could not be described; nothing is known about this stretch")
         if o is not None:
             span_start = prev = o
+    return lines
+
+
+def _share_line(obs: list[dict], key: str, label: str, without: str,
+                interval_s: float, gap_s: float) -> str | None:
+    """"<label> in X of N screenshots (P%)", plus the longest unbroken stretch without it."""
+    known = [o for o in obs if isinstance(o.get(key), bool)]
+    if len(known) < 5:
+        return None
+    on = sum(1 for o in known if o[key])
+    best: list[dict] = []
+    run: list[dict] = []
+    for o in obs:
+        if o.get(key) is False and isinstance(o.get("at"), (int, float)):
+            if run and o["at"] - run[-1]["at"] > gap_s:
+                run = []
+            run.append(o)
+            if len(run) > len(best):
+                best = list(run)
+        else:
+            run = []
+    line = f"{label} in {on} of {len(known)} screenshots ({round(100 * on / len(known))}%)."
+    if len(best) >= 3:
+        minutes = round((best[-1]["at"] - best[0]["at"] + interval_s) / 60)
+        line += (f" Longest stretch {without}: [{_ts(best[0]['at'])}-{_ts(best[-1]['at'])}], "
+                 f"about {minutes} min.")
+    return line
+
+
+# A recording shows the instructor's camera tile only while they are the one speaking, in the
+# layout most classes are recorded in: measured on a real class (1 Oct 2026) the tile came and
+# went 34 times in twenty minutes and was in 78% of screenshots although the camera never went
+# off. So one screenshot without it says nothing, and the old sampler - 40 screenshots, each
+# "interpolated" to its neighbours - would report the camera off for a fifth of any class.
+# What does mean something is the tile missing from EVERY screenshot for this long.
+CAMERA_OFF_STRETCH_S = 600
+CAMERA_OFF_MIN_SCREENSHOTS = 3
+SCREEN_ONLY_MIN_SCREENSHOTS = 10
+
+
+def camera_off_stretches(obs: list[dict], interval_s: float, gap_s: float) -> list[list[dict]]:
+    """Unbroken runs of screenshots with no camera picture that last at least ten minutes (and
+    at least three screenshots). A screenshot that shows the camera, one whose camera state is
+    unknown, or a stretch nobody saw ends a run."""
+    need = max(CAMERA_OFF_MIN_SCREENSHOTS, math.ceil(CAMERA_OFF_STRETCH_S / max(interval_s, 1.0)))
+    runs: list[list[dict]] = []
+    run: list[dict] = []
+
+    def close() -> None:
+        if len(run) >= need:
+            runs.append(list(run))
+        run.clear()
+
+    for o in obs:
+        if o.get("camera_on") is False and isinstance(o.get("at"), (int, float)):
+            if run and o["at"] - run[-1]["at"] > gap_s:
+                close()
+            run.append(o)
+        else:
+            close()
+    close()
+    return runs
+
+
+def is_screen_only(obs: list[dict]) -> bool:
+    """True when a screen is shared in many screenshots and a camera picture is beside it in none:
+    the recording was made without the speaker's tile, so it cannot say whether the camera was on."""
+    shared = [o for o in obs if o.get("screen_shared") is True]
+    return len(shared) >= SCREEN_ONLY_MIN_SCREENSHOTS and not any(o.get("camera_on") for o in shared)
+
+
+def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_s: float,
+                            duration_s: float | None = None,
+                            last_sampled_s: float | None = None, reused: int = 0) -> str:
+    """Merge consecutive same-state observations into timestamped spans; say when the camera
+    picture was missing for a real stretch and how much of the class a screen was shared; list
+    legible slide titles in order; list anomalies. Ends with an honesty line about sampling gaps."""
+    if not observations:
+        return ""
+    obs = sorted((o for o in observations if isinstance(o, dict)),
+                 key=lambda o: o.get("at") if isinstance(o.get("at"), (int, float)) else 0.0)
+    gap_s = max(interval_s * 2.5, 60)
+
+    screen_only = is_screen_only(obs)
+    stretches = [] if screen_only else camera_off_stretches(obs, interval_s, gap_s)
+    truly_off = {id(o) for run in stretches for o in run}
+    seen_at_all = any(o.get("camera_on") is True for o in obs)
+
+    def camera(o: dict):
+        """The camera state of the STRETCH this screenshot sits in, not of the one screenshot."""
+        c = o.get("camera_on")
+        if screen_only and o.get("screen_shared") is True:
+            return None                                   # this recording cannot tell us
+        if c is False and id(o) not in truly_off and seen_at_all:
+            return True                                   # the tile comes and goes with who speaks
+        return c
+
+    def cam_scr(o: dict) -> str:
+        cam = {True: "camera ON", False: "camera OFF"}.get(camera(o), "camera ?")
+        scr = {True: "screen shared", False: "no screen"}.get(o.get("screen_shared"), "screen ?")
+        return f"{cam} | {scr}"
+
+    spans = _span_lines(obs, lambda o: (camera(o), o.get("screen_shared"), o.get("content_type")),
+                        lambda o: f"{cam_scr(o)} | {o.get('content_type') or '?'}", gap_s)
+    if len(spans) > MAX_SPAN_LINES:
+        # A class that flips between slides and a notebook every few minutes: keep the camera and
+        # the screen, which is what the checks turn on, and give the content as shares below.
+        spans = _span_lines(obs, lambda o: (camera(o), o.get("screen_shared")), cam_scr, gap_s)
+        lines: list[str] = ["VISUAL STATES (camera | screen):"]
+    else:
+        lines = ["VISUAL STATES (camera | screen | content):"]
+    lines.extend(spans)
+
+    known = [o for o in obs if isinstance(o.get("camera_on"), bool)]
+    if screen_only:
+        lines.append("CAMERA: no camera picture appears beside the shared screen in any screenshot. "
+                     "This recording was made without the speaker's tile, so it CANNOT show whether "
+                     "the instructor's camera was on - raise nothing about the camera from it.")
+    elif len(known) >= 5:
+        on = sum(1 for o in known if o["camera_on"])
+        line = (f"CAMERA: a camera picture was on screen in {on} of {len(known)} screenshots "
+                f"({round(100 * on / len(known))}%). A recording shows the tile only while that "
+                f"person is speaking, so one screenshot without it means nothing; camera ON above "
+                f"means it kept appearing through that stretch. ")
+        if stretches:
+            parts = [f"[{_ts(r[0]['at'])}-{_ts(r[-1]['at'])}] about "
+                     f"{round((r[-1]['at'] - r[0]['at'] + interval_s) / 60)} min" for r in stretches]
+            line += ("NO camera picture in ANY screenshot for 10 minutes or more: "
+                     + "; ".join(parts[:8]) + ".")
+        else:
+            line += "There was no stretch of 10 minutes or more without a camera picture."
+        lines.append(line)
+    share = _share_line(obs, "screen_shared", "SCREEN: something was being shared",
+                        "with nothing shared", interval_s, gap_s)
+    if share:
+        lines.append(share)
+    kinds = [o.get("content_type") for o in obs if o.get("content_type")]
+    if len(kinds) >= 5:
+        top = sorted(((kinds.count(k), k) for k in set(kinds)), key=lambda x: (-x[0], x[1]))[:5]
+        lines.append("ON SCREEN: " + ", ".join(f"{k} {round(100 * n / len(kinds))}%" for n, k in top) + ".")
 
     counts = [o.get("learner_count") for o in obs if isinstance(o.get("learner_count"), int)]
     if len(counts) >= 3:
@@ -510,27 +922,37 @@ def compress_to_visual_track(observations: list[dict], n_sampled: int, interval_
         if len(anomalies) > 15:
             lines.append(f"  ...and {len(anomalies) - 15} more not listed.")
     covered = ""
-    if duration_s and last_sampled_s is not None and duration_s - last_sampled_s > 120:
+    if duration_s and last_sampled_s is not None and duration_s - last_sampled_s > max(120, interval_s * 2):
         covered = (f" SAMPLING STOPPED AT {_ts(last_sampled_s)} of a {_ts(duration_s)} recording — "
                    f"NOTHING after that point was looked at, so do not treat the visual track as "
                    f"evidence about it.")
+    same = (f" {reused} of them showed exactly the picture before them and carry its description."
+            if reused else "")
     lines.append(f"SAMPLED: {len(observations)}/{n_sampled} frames at ~{int(interval_s)}s intervals — "
                  "states between samples are interpolated; short events can fall between frames."
-                 + covered)
+                 + same + covered)
     return "\n".join(lines)
 
 
 # ── the orchestrator (the ONLY function the service calls) ─────────────────────
 def analyze_video(vimeo_url: Optional[str], video_url: Optional[str],
-                  duration_hint_s: Optional[float], class_hint: str = "") -> tuple[str, dict]:
+                  duration_hint_s: Optional[float], class_hint: str = "",
+                  start_hint_s: Optional[float] = None) -> tuple[str, dict]:
     """Run the whole video stage. NEVER raises: on any failure returns ('', meta-with-video_error)
-    and the analysis continues transcript-only."""
+    and the analysis continues transcript-only.
+
+    `start_hint_s` / `duration_hint_s` are the first and last caption times. A recording often
+    runs long before the class starts and after it ends (one was 7.1 h for a 5.7 h class): that
+    dead time is not looked at, so a waiting screen is neither paid for nor counted as "camera off".
+    """
     t0 = time.time()
+    model = observe_model()
     meta: dict = {"video_used": False, "video_source": None, "frames_sampled": 0,
-                  "frames_extracted": 0, "frames_analyzed": 0,
+                  "frames_extracted": 0, "frames_analyzed": 0, "frames_reused": 0,
                   "video_tokens_in": 0, "video_tokens_out": 0,
                   "video_cost_usd": 0.0, "video_seconds": 0.0, "video_error": None,
-                  "video_covered_to": None}
+                  "video_covered_to": None, "video_interval_s": None, "video_mode": None,
+                  "video_model": model}
     # Created here, not inside the try, so that a failure halfway still reports what it spent.
     # Every failure path used to report $0 for calls that had already been billed.
     usage = E.Usage()
@@ -540,7 +962,7 @@ def analyze_video(vimeo_url: Optional[str], video_url: Optional[str],
         meta["video_seconds"] = round(time.time() - t0, 1)
         meta["video_tokens_in"] = usage.input_tokens
         meta["video_tokens_out"] = usage.output_tokens
-        meta["video_cost_usd"] = round(usage.cost_usd(), 4)
+        meta["video_cost_usd"] = round(cost_usd(usage, model), 4)
         log.warning("video stage skipped after $%.4f: %s", meta["video_cost_usd"], redact(msg)[:200])
         return "", meta
 
@@ -566,40 +988,62 @@ def analyze_video(vimeo_url: Optional[str], video_url: Optional[str],
         duration = source.duration_s or duration_hint_s
         if not duration or duration <= 0:
             return fail("video duration unknown — cannot plan frame sampling")
-        times = sample_times(float(duration))
-        if not times:
-            return fail("nothing to sample (video too short?)")
-        meta["frames_sampled"] = len(times)
+        # The stretch to look at: a minute either side of the spoken class, inside the recording.
+        start = max(0.0, float(start_hint_s) - 60) if start_hint_s and start_hint_s > 0 else 0.0
+        end = float(duration)
+        if duration_hint_s and duration_hint_s > 0:
+            end = min(end, float(duration_hint_s) + 60)
+        if end - start < 60:
+            start, end = 0.0, float(duration)
         deadline = time.monotonic() + VCFG.stage_timeout_s
-        log.info("video stage: %s, %.0fs, sampling %d frames", source.kind, duration, len(times))
-        frames = extract_frames(source, times, deadline)
+        try:
+            interval, planned = plan_scan(start, end)
+            log.info("video stage: %s, looking at %s-%s, one screenshot every %.0fs (%d planned)",
+                     source.kind, _ts(start), _ts(end), interval, planned)
+            frames, interval = scan_frames(source, start, end, deadline)
+            if len(frames) < VCFG.min_frames:
+                raise VideoStageError(f"the single read gave {len(frames)} screenshot(s)")
+            meta["video_mode"] = "every_minute"
+        except (VideoStageError, OSError, subprocess.SubprocessError) as e:
+            # The old sampler: far fewer screenshots, each fetched by seeking. Better than nothing
+            # when a host will not serve the file in one read.
+            log.warning("single read failed (%s) - falling back to seeking", redact(e)[:160])
+            wide = replace(VCFG, max_duration_s=max(VCFG.max_duration_s, int(end - start) + 1))
+            times = [round(start + t, 1) for t in sample_times(end - start, wide)]
+            if not times:
+                return fail("nothing to sample (video too short?)")
+            planned = len(times)
+            frames = extract_frames(source, times, deadline)
+            interval = times[1] - times[0] if len(times) > 1 else end - start
+            meta["video_mode"] = "seek"
+        meta["frames_sampled"] = planned
         meta["frames_extracted"] = len(frames)
+        meta["video_interval_s"] = round(interval)
         client = E._client()
-        observations = observe_frames(client, frames, class_hint, usage, deadline=deadline)
+        observations, reused = observe_once_each(client, frames, class_hint, usage,
+                                                 deadline=deadline, model=model)
         if not observations:
             return fail("frame descriptions failed — no usable visual observations")
-        if not track_is_informative(observations, len(times)):
+        if not track_is_informative(observations, planned):
             # Better no visual track than an empty one: an empty one still told the analysis to
             # treat the screen as observed fact and switched on two more flags.
             return fail(f"the recording was sampled but too little could be made out "
-                        f"({len(observations)} of {len(times)} frames described) — treating this "
+                        f"({len(observations)} of {planned} frames described) — treating this "
                         f"class as transcript-only")
-        interval = times[1] - times[0] if len(times) > 1 else float(duration)
         # The LAST FRAME ACTUALLY TAKEN, not the last one planned. The deadline can stop extraction
         # early, and using the plan meant the coverage warning stayed silent in exactly that case.
         covered_to = frames[-1][0] if frames else None
-        track = compress_to_visual_track(observations, len(times), interval,
-                                         duration_s=float(duration),
-                                         last_sampled_s=covered_to)
+        track = compress_to_visual_track(observations, planned, interval, duration_s=end,
+                                         last_sampled_s=covered_to, reused=reused)
         meta.update({
-            "video_used": True, "frames_analyzed": len(observations),
+            "video_used": True, "frames_analyzed": len(observations), "frames_reused": reused,
             "video_covered_to": round(covered_to, 1) if covered_to is not None else None,
             "video_tokens_in": usage.input_tokens, "video_tokens_out": usage.output_tokens,
-            "video_cost_usd": round(usage.cost_usd(), 4),
+            "video_cost_usd": round(cost_usd(usage, model), 4),
             "video_seconds": round(time.time() - t0, 1), "video_error": None,
         })
-        log.info("video stage done: %d frames analyzed, $%.4f, %.0fs",
-                 len(observations), meta["video_cost_usd"], meta["video_seconds"])
+        log.info("video stage done: %d screenshots (%d repeats), $%.4f, %.0fs",
+                 len(observations), reused, meta["video_cost_usd"], meta["video_seconds"])
         return track, meta
     except VideoStageError as e:
         return fail(str(e))

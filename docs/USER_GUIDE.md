@@ -102,7 +102,7 @@ Written for anyone on the team — no technical background needed. Each section 
 4. Click **Analyze class** and wait. The page refreshes itself: about 5 minutes for a short class
    and 9 for a 4-hour one; video adds 2–3 minutes. If it fails or looks stuck for more than 30 minutes, the page says so and offers
    **Retry analysis**.
-5. Read the report. Check the badges first — **🎬 Video verified · N frames** or **Transcript
+5. Read the report. Check the badges first — **🎬 Video checked · N screenshots** (one every two minutes across the class) or **Transcript
    only** (hover for why), and **✓ Self-checked**. **▶ Watch recording** opens the video so you can
    check any flag yourself. The report has five parts: *Overall*, the *Flags* (each with severity,
    an exact quote and a timestamp), the *Self-check* (what the second reviewer confirmed, softened

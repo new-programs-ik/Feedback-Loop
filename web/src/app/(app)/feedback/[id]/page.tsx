@@ -27,7 +27,16 @@ type ReviewRecord = {
 };
 type VideoMeta = {
   video_used?: boolean; frames_analyzed?: number; frames_sampled?: number; video_error?: string | null;
+  video_interval_s?: number | null;
 };
+
+// How closely the recording was looked at. Analyses from before 1 Oct 2026 took at most 40
+// screenshots however long the class was and did not record the spacing.
+function videoSpacing(v?: VideoMeta): string {
+  const s = v?.video_interval_s;
+  if (!s) return "spread across the recording";
+  return s <= 75 ? "one a minute across the class" : `one every ${Math.round(s / 60)} minutes across the class`;
+}
 type Result = {
   overall?: string;
   flags?: Flag[];
@@ -131,8 +140,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
             {/* Trust tag: was the recording actually part of this analysis? */}
             {analysis && (
               result.video?.video_used ? (
-                <Badge variant="success" title={`${result.video.frames_analyzed} frames sampled from the recording`}>
-                  🎬 Video verified · {result.video.frames_analyzed} frames
+                <Badge variant="success" title={`${result.video.frames_analyzed} screenshots of the recording, ${videoSpacing(result.video)}`}>
+                  🎬 Video checked · {result.video.frames_analyzed} screenshots
                 </Badge>
               ) : (
                 <Badge variant="outline"
@@ -278,8 +287,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
                 )}
                 {result.video?.video_used ? (
                   <p className="text-muted-foreground text-xs">
-                    🎬 Video analyzed: {result.video.frames_analyzed} frames sampled from the recording —
-                    camera/screen/slides findings are evidence-based.
+                    🎬 Video checked: {result.video.frames_analyzed} screenshots, {videoSpacing(result.video)}.
+                    Camera, screen and slide findings rest on what was on screen.
                   </p>
                 ) : result.video?.video_error ? (
                   <p className="text-muted-foreground text-xs">

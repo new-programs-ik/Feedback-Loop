@@ -117,7 +117,8 @@ Set these on the worker service (Render → the service → Environment). Never 
 | `UI_URL` | recommended | The site the cards link to and the sync pings after a green run: `https://feedback-loop-ten.vercel.app`. |
 | `NOTIFY_MAX_AGE_DAYS`, `NOTIFY_MAX_PER_RUN` | optional | Slack guard rails (defaults 10 days, 25 cards per run; `NOTIFY_MAX_PER_RUN=0` holds every card). |
 | `VIMEO_ACCESS_TOKEN` | recommended | Transcripts (and video frames) from Vimeo. See [docs/VIMEO_VIDEO_ACCESS.md](docs/VIMEO_VIDEO_ACCESS.md). |
-| `VIDEO_MAX_FRAMES` | optional | Frames sampled per video analysis (default 60; **40** is the safe value on Render's free tier). |
+| `VIDEO_DENSE_INTERVAL_S` | optional | Seconds between screenshots in a video analysis (default 120: one every two minutes). |
+| `VIDEO_MAX_FRAMES` | optional | Limits only the fallback sampler, used when a recording cannot be read in one pass (default 60; 40 is fine). |
 | `VIDEO_DISABLED` | optional | `1` = kill-switch; analyses run transcript-only. |
 | `GOOGLE_ACCESS_TOKEN` | optional | Only for private Google Drive materials. |
 | `SLACK_LEADERSHIP_CHANNEL_ID`, `REPORTS_DRIVE_FOLDER_ID` | when the reports are scheduled | The monthly and yearly reports (`reports.py`) post to Slack and upload to this Drive folder. Not scheduled yet. |
